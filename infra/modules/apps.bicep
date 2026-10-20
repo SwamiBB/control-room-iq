@@ -1,0 +1,117 @@
+param prefix string
+param location string
+param tags object
+param identityId string
+param acrLoginServer string
+param logAnalyticsId string
+param appInsightsConnectionString string
+param eventHubNamespaceFqdn string
+param cosmosEndpoint string
+param foundryProjectEndpoint string
+param openAiEndpoint string
+
+resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: '${prefix}-cae'
+  location: location
+  tags: tags
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: reference(logAnalyticsId, '2023-09-01').customerId
+        sharedKey: listKeys(logAnalyticsId, '2023-09-01').primarySharedKey
+      }
+    }
+  }
+}
+
+var commonEnv = [
+  { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
+  { name: 'EVENTHUB_NAMESPACE', value: eventHubNamespaceFqdn }
+  { name: 'COSMOS_ENDPOINT', value: cosmosEndpoint }
+  { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
+  { name: 'AZURE_OPENAI_ENDPOINT', value: openAiEndpoint }
+  { name: 'MODEL_ROUTER_DEPLOYMENT', value: 'model-router' }
+  { name: 'MODEL_FALLBACK_DEPLOYMENT', value: 'gpt-4.1-mini' }
+  { name: 'AZURE_CLIENT_ID', value: reference(identityId, '2023-01-31').clientId }
+]
+
+resource api 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${prefix}-api'
+  location: location
+  tags: union(tags, { 'azd-service-name': 'api' })
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
+  properties: {
+    managedEnvironmentId: cae.id
+    configuration: {
+      ingress: { external: true, targetPort: 8000, transport: 'auto' }
+      registries: [ { server: acrLoginServer, identity: identityId } ]
+    }
+    template: {
+      containers: [ {
+        name: 'api'
+        image: 'mcr.microsoft.com/k8se/quickstart:latest' // replaced by azd deploy
+        env: commonEnv
+        resources: { cpu: json('1.0'), memory: '2Gi' }
+      } ]
+      scale: { minReplicas: 1, maxReplicas: 3 }
+    }
+  }
+}
+
+resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${prefix}-ingest'
+  location: location
+  tags: union(tags, { 'azd-service-name': 'ingest' })
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
+  properties: {
+    managedEnvironmentId: cae.id
+    configuration: { registries: [ { server: acrLoginServer, identity: identityId } ] }
+    template: {
+      containers: [ {
+        name: 'ingest'
+        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        env: commonEnv
+        resources: { cpu: json('0.5'), memory: '1Gi' }
+      } ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 4
+        rules: [ {
+          name: 'eventhub-lag'
+          custom: {
+            type: 'azure-eventhub'
+            metadata: { eventHubNamespace: eventHubNamespaceFqdn, eventHubName: 'crq-events', consumerGroup: '$Default', unprocessedEventThreshold: '64' }
+            identity: identityId
+          }
+        } ]
+      }
+    }
+  }
+}
+
+resource web 'Microsoft.App/containerApps@2024-03-01' = {
+  name: '${prefix}-web'
+  location: location
+  tags: union(tags, { 'azd-service-name': 'web' })
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
+  properties: {
+    managedEnvironmentId: cae.id
+    configuration: {
+      ingress: { external: true, targetPort: 80 }
+      registries: [ { server: acrLoginServer, identity: identityId } ]
+    }
+    template: {
+      containers: [ {
+        name: 'web'
+        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        env: [ { name: 'VITE_API_URL', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
+        resources: { cpu: json('0.25'), memory: '0.5Gi' }
+      } ]
+      scale: { minReplicas: 1, maxReplicas: 2 }
+    }
+  }
+}
+
+output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
+output webUrl string = 'https://${web.properties.configuration.ingress.fqdn}'

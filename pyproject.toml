@@ -1,0 +1,42 @@
+[project]
+name = "control-room-iq"
+version = "0.1.0"
+description = "An AI operator for the live production control room (Inside the Game hackathon)"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "pydantic>=2.7",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "websockets>=12",
+  "agent-framework>=1.22",
+  "agent-framework-foundry>=1.22",
+  "azure-ai-projects>=2.3",
+  "azure-identity>=1.17",
+  "azure-eventhub>=5.12",
+  "azure-cosmos>=4.7",
+  "python-dotenv>=1.0",
+  "opentelemetry-sdk>=1.25",
+  "azure-monitor-opentelemetry>=1.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "ruff>=0.5", "mypy>=1.10"]
+
+[tool.setuptools]
+package-dir = { "crq_schemas" = "packages/schemas/crq_schemas", "simulator" = "services/simulator/simulator", "ingest" = "services/ingest/ingest", "agents" = "services/agents/agents", "api" = "services/api/api" }
+packages = ["crq_schemas", "simulator", "ingest", "agents", "api"]
+
+[tool.setuptools.package-data]
+agents = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["services"]
+pythonpath = ["packages/schemas", "services/simulator", "services/ingest", "services/agents", "services/api"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

@@ -1,0 +1,26 @@
+# Azure Developer CLI: `azd up` provisions infra/main.bicep and deploys the services below.
+name: control-room-iq
+metadata:
+  template: control-room-iq@0.1.0
+infra:
+  provider: bicep
+  path: infra
+services:
+  api:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: services/api/Dockerfile
+  ingest:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: services/ingest/Dockerfile
+  web:
+    project: web
+    host: containerapp
+    language: js
+    docker:
+      path: Dockerfile
