@@ -3,6 +3,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+# Must run before Settings is defined: its defaults read os.environ at class-creation time.
+load_dotenv()
+
 
 @dataclass(frozen=True)
 class Settings:
