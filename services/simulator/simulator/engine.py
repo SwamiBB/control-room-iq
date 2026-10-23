@@ -42,6 +42,7 @@ class MatchEngine:
         self.seq = 0
         self.period = 1
         self.t_ms = 0
+        self.play_offset = 0  # play_ms of the current period's kickoff (v0.2: play time never restarts)
         self.score = {meta.home.team_id: 0, meta.away.team_id: 0}
         self._minutes_played = {p.player_id: 0 for t in (meta.home, meta.away) for p in t.players}
 
@@ -52,6 +53,7 @@ class MatchEngine:
             event_id=f"{self.meta.match_id}-{self.seq:05d}",
             match_id=self.meta.match_id,
             seq=self.seq,
+            play_ms=self.play_offset + self.t_ms,
             t_ms=self.t_ms,
             period=self.period,  # type: ignore[arg-type]
             type=type_,
@@ -123,11 +125,12 @@ class MatchEngine:
                 speed = round(self.rng.uniform(70, 125) * (0.7 if kind == "header" else 1.0), 1)
                 roll = self.rng.random()
                 keeper = next(q for q in opp.players if q.position == "GK")
+                # bands calibrated so about a third of shots are on target (docs/CALIBRATION.md)
                 if roll < xg:
                     outcome = "goal"
-                elif roll < xg + 0.33:
+                elif roll < xg + 0.26:
                     outcome = "saved"
-                elif roll < xg + 0.5:
+                elif roll < xg + 0.45:
                     outcome = "blocked"
                 else:
                     outcome = "off_target"
@@ -167,13 +170,13 @@ class MatchEngine:
             nx, ny = min(max(x + dx, 3), 97), min(max(y + dy, 2), 98)
             dist = self._dist(x, y, nx, ny)
             difficulty = round(min(1.0, 0.15 + dist / 60 + (0.25 if nx > 75 else 0) + (0.2 if dx > 15 else 0)), 2)
-            success_p = 0.97 - 0.55 * difficulty + 0.25 * p.passing
+            success_p = 0.93 - 0.55 * difficulty + 0.25 * p.passing
             ok = self.rng.random() < success_p
             out.append(self._evt(EventType.PASS, team, pid, x=x, y=y, end_x=nx, end_y=ny,
                                  outcome="success" if ok else "fail",
                                  attrs={"receiver": recv, "distance_m": round(dist, 1), "difficulty": difficulty,
                                         "progressive": dx > 10, "ball_speed_kmh": round(30 + dist * 0.9, 1)}))
-            self._tick(int(dist * 60) + 800, int(dist * 60) + 3200)
+            self._tick(int(dist * 60) + 1300, int(dist * 60) + 4300)
             if not ok:
                 inter = self._pick(opp, {"DF": 1.4, "MF": 1.2})
                 out.append(self._evt(EventType.INTERCEPTION, opp, inter, x=100 - nx, y=100 - ny, outcome="success"))
@@ -181,12 +184,12 @@ class MatchEngine:
                                      attrs={"reason": "interception"}))
                 return opp, 100 - nx, 100 - ny, out
             x, y, pid = nx, ny, recv
-            if self.rng.random() < 0.03:
+            if self.rng.random() < 0.024:
                 fouler = self._pick(opp, {"DF": 1.3, "MF": 1.0})
                 out.append(self._evt(EventType.FOUL, opp, fouler, x=100 - x, y=100 - y,
-                                     attrs={"card": "yellow" if self.rng.random() < 0.18 else None}))
+                                     attrs={"card": "yellow" if self.rng.random() < 0.16 else None}))
                 if out[-1].attrs["card"]:
-                    out.append(self._evt(EventType.CARD, opp, fouler, attrs={"color": "yellow"}))
+                    out.append(self._evt(EventType.CARD, opp, fouler, attrs={"card": "yellow"}))
                 self._tick(20000, 45000)
                 return team, x, y, out
         return opp, 50, 50, out
@@ -195,6 +198,8 @@ class MatchEngine:
     def run(self) -> Iterator[MatchEvent]:
         home, away = self.meta.home, self.meta.away
         for period in (1, 2):
+            if period == 2:
+                self.play_offset += self.t_ms  # the second half continues from the end of the first
             self.period = period
             self.t_ms = 0
             team, opp = (home, away) if period == 1 else (away, home)

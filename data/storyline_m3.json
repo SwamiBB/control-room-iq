@@ -1,0 +1,96 @@
+{
+  "note": "Match 3: comeback. Covers momentum swings, a second yellow, and a full-time recap with a story. Reverse fixture of the reference match. Fictional clubs only.",
+  "storyline_id": "comeback-v1",
+  "seed": 101,
+  "match_id": "m-ref-101",
+  "home": "nfu",
+  "away": "har",
+  "venue": "The Northfield Ground",
+  "kickoff_utc": "2026-10-25T15:00:00Z",
+  "beats": [
+    {
+      "id": "goal-12",
+      "demo_moment": "goal",
+      "period": 1, "minute": 12, "second": 15,
+      "kind": "goal",
+      "team": "har", "player": "har-10", "assist_by": "har-11",
+      "x": 88.0, "y": 44.0, "direction": "left", "body_part": "foot", "set_piece": "none",
+      "xg": 0.22, "build_up_passes": 5,
+      "why": "Away side scores first. 0-1."
+    },
+    {
+      "id": "yellow-22",
+      "demo_moment": "card",
+      "period": 1, "minute": 22, "second": 10,
+      "kind": "foul",
+      "team": "har", "player": "har-05", "fouled": "nfu-07",
+      "x": 40.0, "y": 70.0, "card": "yellow", "restart": "free_kick",
+      "why": "First booking for Wes Oak; sets up the second yellow later."
+    },
+    {
+      "id": "goal-34",
+      "demo_moment": "goal",
+      "period": 1, "minute": 34, "second": 50,
+      "kind": "goal",
+      "team": "har", "player": "har-07", "assist_by": "har-10",
+      "x": 90.0, "y": 58.0, "direction": "right", "body_part": "foot", "set_piece": "none",
+      "xg": 0.31, "build_up_passes": 3, "counter": true,
+      "why": "Counter-attack goal. 0-2."
+    },
+    {
+      "id": "half-time",
+      "period": 1, "minute": 46, "second": 30,
+      "kind": "half_end"
+    },
+    {
+      "id": "pressure-55-62",
+      "demo_moment": "pressure_build",
+      "period": 2, "from_minute": 55, "to_minute": 62,
+      "kind": "pressure_build",
+      "team": "nfu",
+      "shots": [
+        {"minute": 55, "second": 40, "player": "nfu-10", "x": 82.0, "y": 50.0, "xg": 0.09, "outcome": "saved"},
+        {"minute": 57, "second": 15, "player": "nfu-11", "x": 86.0, "y": 64.0, "xg": 0.11, "outcome": "blocked", "blocker": "har-04"}
+      ],
+      "why": "Home side pushes; momentum swings toward Northfield."
+    },
+    {
+      "id": "second-yellow-58",
+      "demo_moment": "card",
+      "period": 2, "minute": 58, "second": 40,
+      "kind": "foul",
+      "team": "har", "player": "har-05", "fouled": "nfu-09",
+      "x": 30.0, "y": 35.0, "card": "second_yellow", "restart": "free_kick",
+      "why": "Second yellow, Harbor City down to ten. Preempts the lower third."
+    },
+    {
+      "id": "goal-63",
+      "demo_moment": "goal",
+      "period": 2, "minute": 63, "second": 20,
+      "kind": "goal",
+      "team": "nfu", "player": "nfu-09", "assist_by": "nfu-11",
+      "x": 93.0, "y": 48.0, "direction": "center", "body_part": "head", "set_piece": "none",
+      "xg": 0.24, "build_up_passes": 6,
+      "why": "Northfield pull one back. 1-2."
+    },
+    {
+      "id": "goal-84",
+      "demo_moment": "goal",
+      "period": 2, "minute": 84, "second": 5,
+      "kind": "goal",
+      "team": "nfu", "player": "nfu-10", "assist_by": "nfu-08",
+      "x": 79.0, "y": 46.0, "direction": "left", "body_part": "foot", "set_piece": "none",
+      "xg": 0.09, "build_up_passes": 9,
+      "why": "Long-range equaliser: a low-xG finish the explainer should call out. 2-2."
+    },
+    {
+      "id": "full-time",
+      "period": 2, "minute": 95, "second": 0,
+      "kind": "match_end"
+    }
+  ],
+  "quiet_windows": [
+    {"period": 2, "from_minute": 80, "to_minute": 84, "teams": ["nfu", "har"], "why": "Keeps the equaliser the only chance in that spell"}
+  ],
+  "final_score_expected": {"nfu": 2, "har": 2, "note": "The simulator suppresses unscripted goals in reference matches."}
+}

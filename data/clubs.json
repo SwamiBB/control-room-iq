@@ -1,0 +1,98 @@
+{
+  "note": "Fictional clubs and players. No real club, player, venue or competition. Validates as crq_schemas.Team.",
+  "venues": {"har": "Harbor Park", "nfu": "The Northfield Ground", "rva": "Riverside Arena", "irb": "Ironbridge Stadium"},
+  "clubs": [
+    {
+      "team_id": "har", "name": "Harbor City", "short_name": "HAR",
+      "primary_color": "#0b3d91", "secondary_color": "#f2f2f2", "crest": "crests/har.svg",
+      "formation": "4-3-3", "style": "possession",
+      "players": [
+        {"player_id": "har-01", "name": "Hal Stone",   "number": 1,  "position": "GK", "pace": 0.45, "passing": 0.62, "shooting": 0.20, "defending": 0.70},
+        {"player_id": "har-02", "name": "Bram Vale",   "number": 2,  "position": "DF", "pace": 0.68, "passing": 0.66, "shooting": 0.30, "defending": 0.76},
+        {"player_id": "har-03", "name": "Ivo Marsh",   "number": 3,  "position": "DF", "pace": 0.64, "passing": 0.63, "shooting": 0.28, "defending": 0.78},
+        {"player_id": "har-04", "name": "Cato Frost",  "number": 4,  "position": "DF", "pace": 0.55, "passing": 0.70, "shooting": 0.32, "defending": 0.82},
+        {"player_id": "har-05", "name": "Wes Oak",     "number": 5,  "position": "DF", "pace": 0.52, "passing": 0.65, "shooting": 0.35, "defending": 0.84},
+        {"player_id": "har-06", "name": "Teo Lane",    "number": 6,  "position": "MF", "pace": 0.58, "passing": 0.84, "shooting": 0.45, "defending": 0.66},
+        {"player_id": "har-07", "name": "Leo Hart",    "number": 7,  "position": "FW", "pace": 0.86, "passing": 0.70, "shooting": 0.72, "defending": 0.35},
+        {"player_id": "har-08", "name": "Dev Ember",   "number": 8,  "position": "MF", "pace": 0.62, "passing": 0.82, "shooting": 0.55, "defending": 0.58},
+        {"player_id": "har-09", "name": "Finn Oakes",  "number": 9,  "position": "FW", "pace": 0.74, "passing": 0.62, "shooting": 0.80, "defending": 0.30},
+        {"player_id": "har-10", "name": "Kai Reed",    "number": 10, "position": "FW", "pace": 0.80, "passing": 0.76, "shooting": 0.84, "defending": 0.32},
+        {"player_id": "har-11", "name": "Rafa Ives",   "number": 11, "position": "MF", "pace": 0.70, "passing": 0.80, "shooting": 0.60, "defending": 0.50},
+        {"player_id": "har-12", "name": "Gus Dale",    "number": 12, "position": "DF", "pace": 0.60, "passing": 0.60, "shooting": 0.25, "defending": 0.74},
+        {"player_id": "har-13", "name": "Mo Wilde",    "number": 13, "position": "MF", "pace": 0.66, "passing": 0.74, "shooting": 0.48, "defending": 0.55},
+        {"player_id": "har-14", "name": "Uli Thorne",  "number": 14, "position": "FW", "pace": 0.82, "passing": 0.58, "shooting": 0.70, "defending": 0.28},
+        {"player_id": "har-15", "name": "Pax Kerr",    "number": 15, "position": "GK", "pace": 0.40, "passing": 0.55, "shooting": 0.15, "defending": 0.66},
+        {"player_id": "har-16", "name": "Sol Pike",    "number": 16, "position": "MF", "pace": 0.60, "passing": 0.72, "shooting": 0.42, "defending": 0.62}
+      ]
+    },
+    {
+      "team_id": "nfu", "name": "Northfield United", "short_name": "NFU",
+      "primary_color": "#b22222", "secondary_color": "#ffffff", "crest": "crests/nfu.svg",
+      "formation": "4-2-3-1", "style": "press",
+      "players": [
+        {"player_id": "nfu-01", "name": "Yan Corr",    "number": 1,  "position": "GK", "pace": 0.42, "passing": 0.58, "shooting": 0.18, "defending": 0.76},
+        {"player_id": "nfu-02", "name": "Eli Blake",   "number": 2,  "position": "DF", "pace": 0.72, "passing": 0.60, "shooting": 0.30, "defending": 0.74},
+        {"player_id": "nfu-03", "name": "Nik Gale",    "number": 3,  "position": "DF", "pace": 0.66, "passing": 0.58, "shooting": 0.26, "defending": 0.76},
+        {"player_id": "nfu-04", "name": "Zed North",   "number": 4,  "position": "DF", "pace": 0.54, "passing": 0.62, "shooting": 0.34, "defending": 0.82},
+        {"player_id": "nfu-05", "name": "Ade Quill",   "number": 5,  "position": "DF", "pace": 0.56, "passing": 0.60, "shooting": 0.30, "defending": 0.80},
+        {"player_id": "nfu-06", "name": "Jon Arden",   "number": 6,  "position": "MF", "pace": 0.62, "passing": 0.74, "shooting": 0.40, "defending": 0.72},
+        {"player_id": "nfu-07", "name": "Vik Jude",    "number": 7,  "position": "MF", "pace": 0.84, "passing": 0.68, "shooting": 0.62, "defending": 0.40},
+        {"player_id": "nfu-08", "name": "Quin Reedy",  "number": 8,  "position": "MF", "pace": 0.64, "passing": 0.78, "shooting": 0.50, "defending": 0.64},
+        {"player_id": "nfu-09", "name": "Oli Stone",   "number": 9,  "position": "FW", "pace": 0.76, "passing": 0.60, "shooting": 0.82, "defending": 0.30},
+        {"player_id": "nfu-10", "name": "Pax Ember",   "number": 10, "position": "MF", "pace": 0.70, "passing": 0.82, "shooting": 0.66, "defending": 0.42},
+        {"player_id": "nfu-11", "name": "Gus Hart",    "number": 11, "position": "MF", "pace": 0.80, "passing": 0.70, "shooting": 0.58, "defending": 0.44},
+        {"player_id": "nfu-12", "name": "Hal Lane",    "number": 12, "position": "DF", "pace": 0.62, "passing": 0.58, "shooting": 0.24, "defending": 0.72},
+        {"player_id": "nfu-13", "name": "Teo Vale",    "number": 13, "position": "MF", "pace": 0.66, "passing": 0.70, "shooting": 0.46, "defending": 0.58},
+        {"player_id": "nfu-14", "name": "Leo Frost",   "number": 14, "position": "FW", "pace": 0.78, "passing": 0.56, "shooting": 0.72, "defending": 0.26},
+        {"player_id": "nfu-15", "name": "Cato Pike",   "number": 15, "position": "GK", "pace": 0.40, "passing": 0.52, "shooting": 0.14, "defending": 0.68},
+        {"player_id": "nfu-16", "name": "Kai Dale",    "number": 16, "position": "MF", "pace": 0.62, "passing": 0.72, "shooting": 0.44, "defending": 0.60}
+      ]
+    },
+    {
+      "team_id": "rva", "name": "Riverside Athletic", "short_name": "RVA",
+      "primary_color": "#1b7f3b", "secondary_color": "#f5e663", "crest": "crests/rva.svg",
+      "formation": "3-5-2", "style": "counter",
+      "players": [
+        {"player_id": "rva-01", "name": "Sol Marsh",   "number": 1,  "position": "GK", "pace": 0.44, "passing": 0.56, "shooting": 0.18, "defending": 0.74},
+        {"player_id": "rva-02", "name": "Dev Quill",   "number": 2,  "position": "DF", "pace": 0.60, "passing": 0.62, "shooting": 0.28, "defending": 0.80},
+        {"player_id": "rva-03", "name": "Ade Thorne",  "number": 3,  "position": "DF", "pace": 0.58, "passing": 0.64, "shooting": 0.30, "defending": 0.82},
+        {"player_id": "rva-04", "name": "Bram Kerr",   "number": 4,  "position": "DF", "pace": 0.62, "passing": 0.60, "shooting": 0.26, "defending": 0.78},
+        {"player_id": "rva-05", "name": "Wes Gale",    "number": 5,  "position": "MF", "pace": 0.82, "passing": 0.66, "shooting": 0.44, "defending": 0.58},
+        {"player_id": "rva-06", "name": "Ivo Lane",    "number": 6,  "position": "MF", "pace": 0.60, "passing": 0.80, "shooting": 0.46, "defending": 0.68},
+        {"player_id": "rva-07", "name": "Zed Ember",   "number": 7,  "position": "MF", "pace": 0.86, "passing": 0.68, "shooting": 0.52, "defending": 0.50},
+        {"player_id": "rva-08", "name": "Mo Arden",    "number": 8,  "position": "MF", "pace": 0.64, "passing": 0.78, "shooting": 0.56, "defending": 0.60},
+        {"player_id": "rva-09", "name": "Vik Stone",   "number": 9,  "position": "FW", "pace": 0.88, "passing": 0.58, "shooting": 0.80, "defending": 0.28},
+        {"player_id": "rva-10", "name": "Eli Reed",    "number": 10, "position": "FW", "pace": 0.78, "passing": 0.72, "shooting": 0.78, "defending": 0.30},
+        {"player_id": "rva-11", "name": "Nik Wilde",   "number": 11, "position": "MF", "pace": 0.80, "passing": 0.70, "shooting": 0.50, "defending": 0.54},
+        {"player_id": "rva-12", "name": "Hal Dale",    "number": 12, "position": "DF", "pace": 0.58, "passing": 0.58, "shooting": 0.24, "defending": 0.74},
+        {"player_id": "rva-13", "name": "Cato Oakes",  "number": 13, "position": "MF", "pace": 0.66, "passing": 0.72, "shooting": 0.44, "defending": 0.56},
+        {"player_id": "rva-14", "name": "Finn Pike",   "number": 14, "position": "FW", "pace": 0.84, "passing": 0.56, "shooting": 0.70, "defending": 0.26},
+        {"player_id": "rva-15", "name": "Jon Vale",    "number": 15, "position": "GK", "pace": 0.40, "passing": 0.52, "shooting": 0.14, "defending": 0.66},
+        {"player_id": "rva-16", "name": "Teo North",   "number": 16, "position": "MF", "pace": 0.62, "passing": 0.70, "shooting": 0.40, "defending": 0.62}
+      ]
+    },
+    {
+      "team_id": "irb", "name": "Ironbridge FC", "short_name": "IRB",
+      "primary_color": "#444444", "secondary_color": "#e07b00", "crest": "crests/irb.svg",
+      "formation": "4-3-3", "style": "direct",
+      "players": [
+        {"player_id": "irb-01", "name": "Gus Corr",    "number": 1,  "position": "GK", "pace": 0.42, "passing": 0.54, "shooting": 0.16, "defending": 0.76},
+        {"player_id": "irb-02", "name": "Leo Blake",   "number": 2,  "position": "DF", "pace": 0.70, "passing": 0.60, "shooting": 0.28, "defending": 0.74},
+        {"player_id": "irb-03", "name": "Pax Hart",    "number": 3,  "position": "DF", "pace": 0.64, "passing": 0.58, "shooting": 0.26, "defending": 0.78},
+        {"player_id": "irb-04", "name": "Quin Frost",  "number": 4,  "position": "DF", "pace": 0.52, "passing": 0.60, "shooting": 0.34, "defending": 0.84},
+        {"player_id": "irb-05", "name": "Rafa Jude",   "number": 5,  "position": "DF", "pace": 0.54, "passing": 0.58, "shooting": 0.32, "defending": 0.82},
+        {"player_id": "irb-06", "name": "Kai North",   "number": 6,  "position": "MF", "pace": 0.58, "passing": 0.74, "shooting": 0.42, "defending": 0.72},
+        {"player_id": "irb-07", "name": "Uli Reedy",   "number": 7,  "position": "FW", "pace": 0.84, "passing": 0.64, "shooting": 0.70, "defending": 0.32},
+        {"player_id": "irb-08", "name": "Oli Ives",    "number": 8,  "position": "MF", "pace": 0.62, "passing": 0.76, "shooting": 0.54, "defending": 0.60},
+        {"player_id": "irb-09", "name": "Yan Thorne",  "number": 9,  "position": "FW", "pace": 0.72, "passing": 0.56, "shooting": 0.84, "defending": 0.30},
+        {"player_id": "irb-10", "name": "Teo Ember",   "number": 10, "position": "MF", "pace": 0.68, "passing": 0.82, "shooting": 0.62, "defending": 0.46},
+        {"player_id": "irb-11", "name": "Sol Gale",    "number": 11, "position": "FW", "pace": 0.86, "passing": 0.62, "shooting": 0.68, "defending": 0.30},
+        {"player_id": "irb-12", "name": "Dev Oak",     "number": 12, "position": "DF", "pace": 0.60, "passing": 0.58, "shooting": 0.24, "defending": 0.74},
+        {"player_id": "irb-13", "name": "Wes Pike",    "number": 13, "position": "MF", "pace": 0.64, "passing": 0.70, "shooting": 0.46, "defending": 0.58},
+        {"player_id": "irb-14", "name": "Ivo Stone",   "number": 14, "position": "FW", "pace": 0.80, "passing": 0.54, "shooting": 0.72, "defending": 0.26},
+        {"player_id": "irb-15", "name": "Bram Lane",   "number": 15, "position": "GK", "pace": 0.40, "passing": 0.50, "shooting": 0.14, "defending": 0.68},
+        {"player_id": "irb-16", "name": "Mo Vale",     "number": 16, "position": "MF", "pace": 0.60, "passing": 0.70, "shooting": 0.42, "defending": 0.62}
+      ]
+    }
+  ]
+}
