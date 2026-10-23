@@ -1,0 +1,11 @@
+{
+  "match_id": "m-ref-042",
+  "t_ms": 2474200,
+  "on_air": [
+    {"proposal_id": "m-ref-042-p0011", "layer": "lower_third", "t_start_ms": 2474000, "t_end_ms": 2482000}
+  ],
+  "queued": [
+    {"proposal_id": "m-ref-042-p0012", "layer": "full_screen", "t_start_ms": 2476000, "t_end_ms": 2486000}
+  ],
+  "held": []
+}

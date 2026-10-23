@@ -1,0 +1,28 @@
+{
+  "moment_id": "m-ref-042-mo0021",
+  "match_id": "m-ref-042",
+  "t_ms": 1900000,
+  "period": 1,
+  "kind": "card",
+  "beat": "single",
+  "importance": 0.45,
+  "priority": 60,
+  "team": "nfu",
+  "player": "nfu-04",
+  "event_ids": ["m-ref-042-00401", "m-ref-042-00402", "m-ref-042-00403", "m-ref-042-00404"],
+  "trigger_event_id": "m-ref-042-00404",
+  "stoppage_id": "m-ref-042-st0009",
+  "summary": "Foul by Zed North on Kai Reed; yellow card; free kick",
+  "state": {"match_id": "m-ref-042", "seq": 404, "period": 1, "t_ms": 1900000, "home": {"team": "har"}, "away": {"team": "nfu"}},
+  "snapshot": {
+    "stoppage": {"event_id": "m-ref-042-00403", "type": "stoppage", "team": "nfu", "minute": 31, "second": 40, "x": 78.0, "y": 44.0, "attrs": {"reason": "foul", "against": "nfu", "restart": "free_kick"}},
+    "foul": {"event_id": "m-ref-042-00401", "player": "nfu-04", "fouled": "har-10"},
+    "offender": {"player_id": "nfu-04", "name": "Zed North", "number": 4, "team": "nfu"},
+    "fouled": {"player_id": "har-10", "name": "Kai Reed", "number": 10, "team": "har"},
+    "card": {"event_id": "m-ref-042-00404", "color": "yellow", "player": "nfu-04"},
+    "card_history": {"nfu-04": {"yellow": 1, "red": 0}},
+    "restart": {"type": "free_kick", "zone": "edge of the box, centre", "team": "har"},
+    "score": {"har": 0, "nfu": 0},
+    "clock": {"period": 1, "minute": 31, "second": 40}
+  }
+}

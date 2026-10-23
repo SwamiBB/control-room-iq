@@ -1,0 +1,28 @@
+{
+  "proposal_id": "m-ref-042-p0011",
+  "match_id": "m-ref-042",
+  "moment_id": "m-ref-042-mo0032",
+  "layer": "lower_third",
+  "t_start_ms": 2474000,
+  "t_end_ms": 2482000,
+  "line": "Kai Reed denied: a 0.38 xG chance, Harbor City's fourth shot in five minutes",
+  "payload": {"player": "Kai Reed", "number": 10, "team": "HAR", "xg": 0.38, "shots_5m": 4},
+  "reasoning": "Best chance of the match so far and the peak of a five-minute spell, so it earns a lower third. A full screen was rejected because play is live and a goal may follow.",
+  "priority": 0.7,
+  "faithfulness": 0.94,
+  "status": "proposed",
+  "window_id": "m-ref-042-w041",
+  "hold_advice": {"recommend": "hold", "reason": "Harbor City: 4 shots and 0.73 xG in the last 5 minutes, pressure rising. A goal may follow.", "horizon_s": 20},
+  "evidence": [
+    {"event_id": "m-ref-042-00611", "field": "attrs.xg", "value": 0.38},
+    {"event_id": "m-ref-042-00611", "field": "player", "value": "har-10"},
+    {"event_id": "m-ref-042-00481", "field": "type", "value": "shot"},
+    {"event_id": "m-ref-042-00511", "field": "type", "value": "shot"},
+    {"event_id": "m-ref-042-00546", "field": "type", "value": "shot"}
+  ],
+  "alternatives": [
+    {"layer": "full_screen", "reason_rejected": "Play is live; a full screen would cover the next attack"},
+    {"layer": "ticker", "reason_rejected": "Best chance of the match deserves more than a ticker line"}
+  ],
+  "provenance": {"source": "template", "agent": "producer", "verdict": "pass", "attempts": 1, "routed_model": null}
+}

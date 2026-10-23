@@ -1,0 +1,34 @@
+{
+  "match_id": "m-ref-042",
+  "seq": 611,
+  "period": 1,
+  "t_ms": 2472000,
+  "minute": 41,
+  "home": {"team": "har", "goals": 0, "shots": 7, "shots_on_target": 3, "xg": 1.02, "passes": 241, "passes_completed": 208, "possession_pct": 58.4, "pressures": 61, "ppda": 9.8},
+  "away": {"team": "nfu", "goals": 0, "shots": 3, "shots_on_target": 1, "xg": 0.31, "passes": 172, "passes_completed": 139, "possession_pct": 41.6, "pressures": 88, "ppda": 7.1},
+  "players": {
+    "har-10": {"player_id": "har-10", "team": "har", "passes": 24, "passes_completed": 21, "shots": 2, "goals": 0, "xg": 0.53, "tackles": 0, "distance_m": 4710.0, "top_speed_kmh": 33.1, "pressures": 6}
+  },
+  "momentum": [0.0, 0.1, 0.2, 0.1, -0.1, 0.0, 0.2, 0.3, 0.2, 0.1, 0.0, -0.2, -0.1, 0.0, 0.1, 0.2, 0.2, 0.3, 0.1, 0.0, 0.1, 0.2, 0.4, 0.3, 0.1, 0.0, -0.1, 0.0, 0.1, 0.0, -0.2, -0.3, -0.1, 0.1, 0.3, 0.4, 0.5, 0.6, 0.6, 0.7, 0.7, 0.8],
+  "pressure_windows": [],
+  "last_event_id": "m-ref-042-00611",
+  "shot_ledger": [
+    {"event_id": "m-ref-042-00611", "minute": 41, "team": "har", "player": "har-10", "xg": 0.38, "outcome": "saved", "zone": "inside the box, centre", "chance_rank": 1},
+    {"event_id": "m-ref-042-00306", "minute": 23, "team": "har", "player": "har-07", "xg": 0.29, "outcome": "off_target", "zone": "inside the box, right", "chance_rank": 2},
+    {"event_id": "m-ref-042-00546", "minute": 39, "team": "har", "player": "har-10", "xg": 0.15, "outcome": "off_target", "zone": "inside the box, right", "chance_rank": 3},
+    {"event_id": "m-ref-042-00481", "minute": 36, "team": "har", "player": "har-09", "xg": 0.12, "outcome": "blocked", "zone": "inside the box, left", "chance_rank": 4},
+    {"event_id": "m-ref-042-00511", "minute": 38, "team": "har", "player": "har-11", "xg": 0.08, "outcome": "saved", "zone": "edge of the box, centre", "chance_rank": 5}
+  ],
+  "windows": {"har": {"xg_5m": 0.73, "shots_5m": 4}, "nfu": {"xg_5m": 0.0, "shots_5m": 0}},
+  "pressure_trend": {"har": {"value": 0.68, "slope": 0.21}, "nfu": {"value": 0.22, "slope": -0.09}},
+  "momentum_label": "home_on_top",
+  "zone": "inside the box, centre",
+  "phase": {"phase_id": "m-ref-042-ph0123", "team": "har", "passes": 7, "players": ["har-04", "har-06", "har-08", "har-11", "har-06", "har-10"], "started_zone": "own half, centre", "started_minute": 40},
+  "last_stoppage": {"stoppage_id": "m-ref-042-st0009", "reason": "foul", "against": "nfu", "restart": "free_kick", "card": "yellow"},
+  "recap_points": [
+    {"minute": 23, "kind": "big_chance", "text_template": "{player} fires wide from inside the box (xG {xg})", "cites": ["m-ref-042-00306"]},
+    {"minute": 31, "kind": "card", "text_template": "{player} booked for a foul on {fouled}", "cites": ["m-ref-042-00404"]}
+  ],
+  "player_focus": {"har-10": {"distance_km": 4.71, "top_speed_kmh": 33.1, "sprints": 9, "passes_completed": 21, "xg": 0.53}},
+  "milestones": []
+}

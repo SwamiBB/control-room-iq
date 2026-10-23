@@ -10,5 +10,6 @@ dist/
 .env
 .azure/
 data/*.jsonl
+!data/reference_*.jsonl
 web/node_modules/
 web/dist/

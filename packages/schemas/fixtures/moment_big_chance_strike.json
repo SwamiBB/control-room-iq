@@ -1,0 +1,23 @@
+{
+  "moment_id": "m-ref-042-mo0031",
+  "match_id": "m-ref-042",
+  "t_ms": 2472000,
+  "period": 1,
+  "kind": "shot",
+  "beat": "strike",
+  "importance": 0.25,
+  "priority": 0,
+  "team": "har",
+  "player": "har-10",
+  "event_ids": ["m-ref-042-00610"],
+  "trigger_event_id": "m-ref-042-00610",
+  "phase_id": "m-ref-042-ph0123",
+  "summary": "Kai Reed shoots from inside the box",
+  "state": {"match_id": "m-ref-042", "seq": 610, "period": 1, "t_ms": 2472000, "home": {"team": "har"}, "away": {"team": "nfu"}},
+  "snapshot": {
+    "event": {"event_id": "m-ref-042-00610", "type": "shot_taken", "team": "har", "player": "har-10", "x": 89.0, "y": 47.0, "minute": 41, "second": 12, "attrs": {"direction": "center", "shot_speed_kmh": 104.0, "body_part": "foot"}},
+    "crowd_level": 0.82,
+    "score": {"har": 0, "nfu": 0},
+    "clock": {"period": 1, "minute": 41, "second": 12}
+  }
+}

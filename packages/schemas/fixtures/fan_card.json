@@ -1,0 +1,44 @@
+[
+  {
+    "card_id": "m-ref-042-fc0032-en",
+    "match_id": "m-ref-042",
+    "moment_id": "m-ref-042-mo0032",
+    "persona": "accessibility",
+    "lang": "en",
+    "caption": "Saved! Kai Reed shoots from the middle of the box and Yan Corr keeps it out.",
+    "detail": {"chance_quality": "about 1 in 3 chances like this go in", "xg": 0.38},
+    "context": {"past": "Harbor City's fourth shot in five minutes", "now": "Still 0-0, 41st minute", "next": "Harbor City are on top"},
+    "cites": ["m-ref-042-00611", "m-ref-042-00481", "m-ref-042-00511", "m-ref-042-00546"],
+    "faithfulness": 0.94,
+    "released_by": "m-ref-042-d0006",
+    "timing": {"cue_due_ms": 1000, "caption_due_ms": 2000}
+  },
+  {
+    "card_id": "m-ref-042-fc0032-es",
+    "match_id": "m-ref-042",
+    "moment_id": "m-ref-042-mo0032",
+    "persona": "accessibility",
+    "lang": "es",
+    "caption": "¡Parada! Kai Reed dispara desde el centro del área y Yan Corr la detiene.",
+    "detail": {"chance_quality": "más o menos 1 de cada 3 ocasiones así acaban en gol", "xg": 0.38},
+    "context": {"past": "Cuarto disparo del Harbor City en cinco minutos", "now": "Sigue 0-0, minuto 41", "next": "El Harbor City domina"},
+    "cites": ["m-ref-042-00611", "m-ref-042-00481", "m-ref-042-00511", "m-ref-042-00546"],
+    "faithfulness": 0.93,
+    "released_by": "m-ref-042-d0006",
+    "timing": {"cue_due_ms": 1000, "caption_due_ms": 2000}
+  },
+  {
+    "card_id": "m-ref-042-fc0032-hi",
+    "match_id": "m-ref-042",
+    "moment_id": "m-ref-042-mo0032",
+    "persona": "accessibility",
+    "lang": "hi",
+    "caption": "बचाव! काई रीड ने बॉक्स के बीच से शॉट मारा और यान कॉर ने रोक लिया।",
+    "detail": {"chance_quality": "ऐसे लगभग 3 में से 1 मौका गोल बनता है", "xg": 0.38},
+    "context": {"past": "पाँच मिनट में हार्बर सिटी का चौथा शॉट", "now": "41वें मिनट में अब भी 0-0", "next": "हार्बर सिटी हावी है"},
+    "cites": ["m-ref-042-00611", "m-ref-042-00481", "m-ref-042-00511", "m-ref-042-00546"],
+    "faithfulness": 0.91,
+    "released_by": "m-ref-042-d0006",
+    "timing": {"cue_due_ms": 1000, "caption_due_ms": 2000}
+  }
+]

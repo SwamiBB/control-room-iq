@@ -1,0 +1,30 @@
+{
+  "moment_id": "m-ref-042-mo0033",
+  "match_id": "m-ref-042",
+  "t_ms": 2473800,
+  "period": 1,
+  "kind": "goal",
+  "beat": "single",
+  "importance": 1.0,
+  "priority": 100,
+  "team": "har",
+  "player": "har-09",
+  "event_ids": ["m-ref-042-00613", "m-ref-042-00611"],
+  "trigger_event_id": "m-ref-042-00613",
+  "phase_id": "m-ref-042-ph0123",
+  "summary": "GOAL Finn Oakes (foot, rebound, xG 0.45)",
+  "state": {"match_id": "m-ref-042", "seq": 613, "period": 1, "t_ms": 2473800, "home": {"team": "har", "goals": 1}, "away": {"team": "nfu"}},
+  "snapshot": {
+    "goal": {"event_id": "m-ref-042-00613", "type": "shot", "team": "har", "player": "har-09", "x": 94.0, "y": 51.0, "outcome": "goal", "minute": 41, "second": 13, "attrs": {"xg": 0.45, "body_part": "foot", "set_piece": "none", "preempts": ["lower_third"]}},
+    "scorer": {"player_id": "har-09", "name": "Finn Oakes", "number": 9, "team": "har"},
+    "how": "rebound after Kai Reed's saved shot",
+    "build_up": {"phase_id": "m-ref-042-ph0123", "passes": 7, "players": ["har-04", "har-06", "har-08", "har-11", "har-10"], "started_zone": "own half, centre", "started_minute": 40},
+    "assist_by": null,
+    "key_pass": {"event_id": "m-ref-042-00608", "player": "har-06"},
+    "xg": 0.45,
+    "trend_before": {"team": "har", "xg_5m": 0.73, "shots_5m": 4, "momentum_label": "home_on_top"},
+    "score": {"har": 1, "nfu": 0},
+    "clock": {"period": 1, "minute": 41, "second": 13},
+    "time_remaining_min": 49
+  }
+}

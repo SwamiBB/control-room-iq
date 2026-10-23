@@ -31,7 +31,7 @@ packages = ["crq_schemas", "simulator", "ingest", "agents", "api"]
 agents = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["services"]
+testpaths = ["services", "packages/schemas/tests"]
 pythonpath = ["packages/schemas", "services/simulator", "services/ingest", "services/agents", "services/api"]
 
 [tool.ruff]

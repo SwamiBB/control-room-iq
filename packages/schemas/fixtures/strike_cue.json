@@ -1,0 +1,9 @@
+{
+  "cue_id": "m-ref-042-cue0031",
+  "match_id": "m-ref-042",
+  "event_id": "m-ref-042-00610",
+  "team": "har",
+  "direction": "center",
+  "crowd_level": 0.82,
+  "clock": {"period": 1, "minute": 41, "second": 12}
+}

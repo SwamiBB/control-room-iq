@@ -3,6 +3,9 @@
   python -m simulator.cli generate --seed 42 --out data/match-001.jsonl
   python -m simulator.cli replay data/match-001.jsonl --speed 20            # to stdout
   python -m simulator.cli replay data/match-001.jsonl --speed 20 --eventhub # to Azure Event Hubs
+  python -m simulator.cli generate --storyline data/storyline.json --out data/reference_match.jsonl
+  python -m simulator.cli reference              # all data/storyline*.json -> data/reference_*.jsonl (+ tracking)
+  python -m simulator.cli calibrate --start 1000 --count 200 --out docs/CALIBRATION.md
 
 The first line of a match file is the MatchMeta record; the rest are MatchEvent records.
 """
@@ -20,6 +23,7 @@ from pathlib import Path
 
 from crq_schemas import MatchEvent, MatchMeta
 
+from . import calibrate, scripted, tracking
 from .engine import MatchEngine, new_match_id
 from .squads import generate_team, pick_venue
 
@@ -30,17 +34,61 @@ def build_meta(seed: int, home_idx: int = 0, away_idx: int = 1) -> MatchMeta:
                      home=generate_team(home_idx, seed), away=generate_team(away_idx, seed), seed=seed)
 
 
-def cmd_generate(args: argparse.Namespace) -> None:
-    meta = build_meta(args.seed, args.home, args.away)
-    out = Path(args.out)
+def write_match(out: Path, meta: MatchMeta, events) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     n = 0
-    with out.open("w", encoding="utf-8") as f:
+    with out.open("w", encoding="utf-8", newline="\n") as f:
         f.write(meta.model_dump_json() + "\n")
-        for ev in MatchEngine(meta).run():
+        for ev in events:
             f.write(ev.model_dump_json() + "\n")
             n += 1
+    return n
+
+
+def cmd_generate(args: argparse.Namespace) -> None:
+    if args.storyline:
+        meta, events = scripted.generate(Path(args.storyline))
+    else:
+        meta = build_meta(args.seed, args.home, args.away)
+        events = MatchEngine(meta).run()
+    out = Path(args.out)
+    n = write_match(out, meta, events)
     print(f"wrote {n} events for {meta.home.name} v {meta.away.name} -> {out}", file=sys.stderr)
+
+
+def reference_paths(story: Path) -> tuple[Path, Path]:
+    suffix = story.stem.removeprefix("storyline")  # storyline.json -> "", storyline_m2.json -> "_m2"
+    return (story.parent / f"reference_match{suffix}.jsonl", story.parent / f"reference_tracking{suffix}.jsonl.gz")
+
+
+def cmd_reference(args: argparse.Namespace) -> None:
+    stories = [Path(s) for s in args.storyline] or sorted(scripted.DATA_DIR.glob("storyline*.json"))
+    for story in stories:
+        meta, events = scripted.generate(story)
+        match_path, tracking_path = reference_paths(story)
+        n = write_match(match_path, meta, events)
+        end = next(e for e in events if e.type.value == "match_end")
+        msg = f"{story.name}: {n} events, final {end.attrs['score']} -> {match_path.name}"
+        if not args.no_tracking:
+            frames, _ = tracking.build_tracking(meta, events)
+            tracking.write_tracking(tracking_path, frames)
+            msg += f", {len(frames)} frames -> {tracking_path.name}"
+        print(msg, file=sys.stderr)
+
+
+def cmd_calibrate(args: argparse.Namespace) -> None:
+    engine_rows = calibrate.calibrate_engine(args.start, args.count)
+    meta, events = scripted.generate(scripted.DATA_DIR / "storyline.json")
+    _, summary = tracking.build_tracking(meta, events)
+    changed = {e.attrs.get("off") for e in events if e.type.value == "substitution"}
+    changed |= {e.player for e in events if e.type.value == "card" and e.attrs.get("color") in ("red", "second_yellow")}
+    full_match = {p.player_id for t in (meta.home, meta.away) for p in t.players
+                  if p.number <= 11 and p.position != "GK" and p.player_id not in changed}
+    md = calibrate.to_markdown(engine_rows, args.start, args.count, calibrate.calibrate_tracking(summary, full_match),
+                               "the reference match (storyline.json)")
+    if args.out:
+        Path(args.out).write_text(md, encoding="utf-8")
+    print(md)
 
 
 def iter_file(path: Path):
@@ -95,7 +143,17 @@ def main(argv: list[str] | None = None) -> None:
     g.add_argument("--home", type=int, default=0)
     g.add_argument("--away", type=int, default=1)
     g.add_argument("--out", default="data/match.jsonl")
+    g.add_argument("--storyline", help="storyline JSON; scripts the match instead of free play")
     g.set_defaults(fn=cmd_generate)
+    ref = sub.add_parser("reference", help="generate the reference matches from data/storyline*.json")
+    ref.add_argument("storyline", nargs="*", help="storyline files (default: all data/storyline*.json)")
+    ref.add_argument("--no-tracking", action="store_true")
+    ref.set_defaults(fn=cmd_reference)
+    cal = sub.add_parser("calibrate", help="realism table over a seed range")
+    cal.add_argument("--start", type=int, default=1000)
+    cal.add_argument("--count", type=int, default=200)
+    cal.add_argument("--out", help="write the markdown table here, e.g. docs/CALIBRATION.md")
+    cal.set_defaults(fn=cmd_calibrate)
     r = sub.add_parser("replay")
     r.add_argument("file")
     r.add_argument("--speed", type=float, default=10.0, help="match-clock multiplier")

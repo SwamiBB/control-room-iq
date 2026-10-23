@@ -1,0 +1,12 @@
+{
+  "decision_id": "m-ref-042-d0006",
+  "match_id": "m-ref-042",
+  "proposal_id": "m-ref-042-p0011",
+  "action": "approve",
+  "actor": "operator",
+  "operator": "gallery-op-1",
+  "at": "2026-10-24T14:41:15Z",
+  "match_clock": {"period": 1, "minute": 41, "second": 14},
+  "edited_line": null,
+  "routed_model": null
+}

@@ -1,0 +1,65 @@
+{
+  "note": "Match 2: red card and penalty. Covers offside stoppage, penalty restart, red-card preemption, ten men holding on. Fictional clubs only.",
+  "storyline_id": "red-card-v1",
+  "seed": 7,
+  "match_id": "m-ref-007",
+  "home": "rva",
+  "away": "irb",
+  "venue": "Riverside Arena",
+  "kickoff_utc": "2026-10-24T17:30:00Z",
+  "beats": [
+    {
+      "id": "offside-14",
+      "demo_moment": "stoppage",
+      "period": 1, "minute": 14, "second": 30,
+      "kind": "offside",
+      "team": "irb", "player": "irb-09", "passer": "irb-10",
+      "x": 83.0, "y": 40.0, "restart": "free_kick",
+      "why": "Play stops for offside: the deaf fan sees why the attack ended."
+    },
+    {
+      "id": "penalty-27",
+      "demo_moment": "stoppage",
+      "period": 1, "minute": 27, "second": 5,
+      "kind": "penalty_goal",
+      "team": "rva",
+      "foul": {"player": "irb-05", "fouled": "rva-09", "x": 92.0, "y": 46.0, "card": null},
+      "penalty": {"after_ms": 65000, "player": "rva-10", "direction": "left", "body_part": "foot", "xg": 0.76, "outcome": "goal", "keeper": "irb-01"},
+      "why": "Foul in the box, penalty restart, penalty scored about a minute later. 1-0."
+    },
+    {
+      "id": "half-time",
+      "period": 1, "minute": 46, "second": 0,
+      "kind": "half_end"
+    },
+    {
+      "id": "red-card-52",
+      "demo_moment": "card",
+      "period": 2, "minute": 52, "second": 40,
+      "kind": "red_card",
+      "team": "irb", "player": "irb-04", "fouled": "rva-09",
+      "x": 74.0, "y": 50.0, "card": "red", "restart": "free_kick",
+      "why": "Last-man foul, straight red. Preempts the running lower third. Ironbridge play the rest of the match with ten."
+    },
+    {
+      "id": "equaliser-81",
+      "demo_moment": "goal",
+      "period": 2, "minute": 81, "second": 20,
+      "kind": "goal",
+      "team": "irb", "player": "irb-07", "assist_by": "irb-10",
+      "x": 93.0, "y": 52.0, "direction": "right", "body_part": "head", "set_piece": "corner",
+      "xg": 0.14, "build_up_passes": 1,
+      "why": "Ten men equalise from a corner. 1-1."
+    },
+    {
+      "id": "full-time",
+      "period": 2, "minute": 94, "second": 0,
+      "kind": "match_end"
+    }
+  ],
+  "quiet_windows": [
+    {"period": 1, "from_minute": 24, "to_minute": 29, "teams": ["rva", "irb"], "why": "Keeps the penalty sequence clean"},
+    {"period": 2, "from_minute": 50, "to_minute": 54, "teams": ["rva", "irb"], "why": "Keeps the red card isolated"}
+  ],
+  "final_score_expected": {"rva": 1, "irb": 1, "note": "The simulator suppresses unscripted goals in reference matches."}
+}

@@ -1,0 +1,13 @@
+{
+  "record_id": "m-ref-042-ev0032-explainer",
+  "match_id": "m-ref-042",
+  "moment_id": "m-ref-042-mo0032",
+  "agent": "explainer",
+  "routed_model": "gpt-4.1-mini",
+  "snapshot": {"xg": 0.38, "shooter": "har-10", "zone": "inside the box, centre", "shots_5m": 4, "score": {"har": 0, "nfu": 0}, "clock": {"period": 1, "minute": 41, "second": 12}},
+  "output": "Harbor City's pressure peaks: Kai Reed's 0.38 xG chance is the best of the match and their fourth shot in five minutes.",
+  "cites": ["m-ref-042-00611", "m-ref-042-00481", "m-ref-042-00511", "m-ref-042-00546"],
+  "latency_ms": 1840,
+  "decision_id": "m-ref-042-d0006",
+  "edited_line": null
+}

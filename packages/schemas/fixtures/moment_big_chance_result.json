@@ -1,0 +1,33 @@
+{
+  "moment_id": "m-ref-042-mo0032",
+  "match_id": "m-ref-042",
+  "t_ms": 2472300,
+  "period": 1,
+  "kind": "big_chance",
+  "beat": "result",
+  "importance": 0.73,
+  "priority": 70,
+  "team": "har",
+  "player": "har-10",
+  "event_ids": ["m-ref-042-00611", "m-ref-042-00610", "m-ref-042-00546", "m-ref-042-00511", "m-ref-042-00481"],
+  "trigger_event_id": "m-ref-042-00611",
+  "phase_id": "m-ref-042-ph0123",
+  "summary": "Big chance Kai Reed saved (xG 0.38)",
+  "state": {"match_id": "m-ref-042", "seq": 611, "period": 1, "t_ms": 2472300, "home": {"team": "har"}, "away": {"team": "nfu"}},
+  "snapshot": {
+    "shot": {"event_id": "m-ref-042-00611", "type": "shot", "team": "har", "player": "har-10", "x": 89.0, "y": 47.0, "outcome": "saved", "minute": 41, "second": 12, "attrs": {"xg": 0.38, "body_part": "foot", "keeper": "nfu-01", "assist_by": "har-06"}},
+    "shooter": {"player_id": "har-10", "name": "Kai Reed", "number": 10, "team": "har"},
+    "xg": 0.38,
+    "zone": "inside the box, centre",
+    "shot_history": [
+      {"event_id": "m-ref-042-00481", "minute": 36, "xg": 0.12, "outcome": "blocked"},
+      {"event_id": "m-ref-042-00511", "minute": 38, "xg": 0.08, "outcome": "saved"},
+      {"event_id": "m-ref-042-00546", "minute": 39, "xg": 0.15, "outcome": "off_target"},
+      {"event_id": "m-ref-042-00611", "minute": 41, "xg": 0.38, "outcome": "saved"}
+    ],
+    "chance_rank": 1,
+    "trend": {"team": "har", "xg_5m": 0.73, "shots_5m": 4, "pressure_slope": 0.21, "momentum_label": "home_on_top"},
+    "score": {"har": 0, "nfu": 0},
+    "clock": {"period": 1, "minute": 41, "second": 12}
+  }
+}
