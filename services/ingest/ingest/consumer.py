@@ -25,8 +25,7 @@ def fold_file(path: Path):
         folder = StateFolder(meta)
         for line in f:
             if line.strip():
-                for m in folder.apply(MatchEvent.model_validate_json(line)):
-                    yield m
+                yield from folder.apply(MatchEvent.model_validate_json(line))
     return folder
 
 
@@ -38,12 +37,16 @@ async def run_eventhub() -> None:
 
     cred = DefaultAzureCredential()
     ns = os.environ["EVENTHUB_NAMESPACE"]
-    consumer = EventHubConsumerClient(fully_qualified_namespace=ns, eventhub_name=os.environ.get("EVENTHUB_EVENTS", "crq-events"),
-                                      consumer_group=os.environ.get("EVENTHUB_CONSUMER_GROUP", "$Default"), credential=cred)
-    producer = EventHubProducerClient(fully_qualified_namespace=ns, eventhub_name=os.environ.get("EVENTHUB_MOMENTS", "crq-moments"), credential=cred)
+    consumer = EventHubConsumerClient(fully_qualified_namespace=ns,
+                                      eventhub_name=os.environ.get("EVENTHUB_EVENTS", "crq-events"),
+                                      consumer_group=os.environ.get("EVENTHUB_CONSUMER_GROUP", "$Default"),
+                                      credential=cred)
+    producer = EventHubProducerClient(fully_qualified_namespace=ns,
+                                      eventhub_name=os.environ.get("EVENTHUB_MOMENTS", "crq-moments"), credential=cred)
     cosmos = CosmosClient(os.environ["COSMOS_ENDPOINT"], credential=cred)
     db = cosmos.get_database_client(os.environ.get("COSMOS_DB", "crq"))
-    moments_c, state_c, matches_c = db.get_container_client("moments"), db.get_container_client("state"), db.get_container_client("matches")
+    moments_c, state_c, matches_c = (db.get_container_client("moments"), db.get_container_client("state"),
+                                     db.get_container_client("matches"))
     folders: dict[str, StateFolder] = {}
 
     async def on_event(partition_context, event: EventData | None):
@@ -67,7 +70,8 @@ async def run_eventhub() -> None:
                     batch.add(EventData(m.model_dump_json()))
                     await producer.send_batch(batch)
             if ev.seq % 25 == 0:
-                await state_c.upsert_item({**json.loads(folder.state.model_dump_json()), "id": f"{ev.match_id}-{ev.seq}"})
+                snapshot = {**json.loads(folder.state.model_dump_json()), "id": f"{ev.match_id}-{ev.seq}"}
+                await state_c.upsert_item(snapshot)
         await partition_context.update_checkpoint(event)
 
     async with consumer:

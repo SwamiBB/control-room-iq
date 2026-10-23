@@ -15,8 +15,8 @@ from __future__ import annotations
 import math
 import random
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Iterator
 
 from crq_schemas import EventType, MatchEvent, MatchMeta, Team
 
@@ -96,7 +96,6 @@ class MatchEngine:
         """Run one possession phase; return next team in possession, start coords, and events."""
         out: list[MatchEvent] = []
         pid = self._pick(team, {"DF": 1.2, "MF": 1.6, "FW": 0.8})
-        n_pass_target = {"possession": 9, "direct": 4, "press": 6, "counter": 4}[team.style]
         for _ in range(60):
             p = self._player(team, pid)
             # pressure on the ball carrier?
@@ -204,8 +203,7 @@ class MatchEngine:
             end_ms = PERIOD_MS + self.rng.randint(60000, 5 * 60000)
             while self.t_ms < end_ms:
                 nxt, x, y, evs = self._run_phase(team, opp, x, y)
-                for e in evs:
-                    yield e
+                yield from evs
                 team, opp = nxt, (home if nxt is away else away)
                 if period == 2 and 60 * 60000 < self.t_ms < 62 * 60000 and self.rng.random() < 0.5:
                     for t in (home, away):

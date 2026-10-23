@@ -10,8 +10,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from crq_schemas import (EventType, MatchEvent, MatchMeta, MatchState, Moment, MomentKind, PlayerStats,
-                         TeamStats)
+from crq_schemas import EventType, MatchEvent, MatchMeta, MatchState, Moment, MomentKind, PlayerStats, TeamStats
 
 SPEED_THRESHOLD_KMH = 32.0
 BIG_CHANCE_XG = 0.30
@@ -104,8 +103,8 @@ class StateFolder:
             m = ev.t_ms // 60000 + (45 if ev.period == 2 else 0)
             self._pressure_min[m] = self._pressure_min.get(m, 0) + 1
             if self._pressure_min[m] == PRESSURE_SPIKE_PER_MIN:
-                moments.append(self._moment(ev, MomentKind.PRESSURE_SPIKE, 0.5,
-                                            f"{self._tname(ev.team)} pressing hard: {PRESSURE_SPIKE_PER_MIN} pressures in a minute"))
+                summary = f"{self._tname(ev.team)} pressing hard: {PRESSURE_SPIKE_PER_MIN} pressures in a minute"
+                moments.append(self._moment(ev, MomentKind.PRESSURE_SPIKE, 0.5, summary))
         elif ev.type == EventType.TACKLE and ps:
             ps.tackles += 1
             self._recent.append((ev.t_ms, ev.team, 0.1))
@@ -136,7 +135,8 @@ class StateFolder:
             me.ppda = round(them.passes / da, 1) if da else None
         # milestones
         if ps and ps.passes in (50, 100) and ev.type == EventType.PASS:
-            moments.append(self._moment(ev, MomentKind.MILESTONE, 0.3, f"{self._name(ev.player)} reaches {ps.passes} passes"))
+            summary = f"{self._name(ev.player)} reaches {ps.passes} passes"
+            moments.append(self._moment(ev, MomentKind.MILESTONE, 0.3, summary))
         return moments
 
     def _moment(self, ev: MatchEvent, kind: MomentKind, importance: float, summary: str) -> Moment:
