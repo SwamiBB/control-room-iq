@@ -15,8 +15,9 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import get_args
 
-from crq_schemas import (Explanation, Moment, MomentKind, NarrativeVariant, OverlayLayer, OverlayProposal,
+from crq_schemas import (Access, Explanation, Moment, MomentKind, NarrativeVariant, OverlayLayer, OverlayProposal,
                          Persona)
 
 from .clients import make_agent
@@ -55,17 +56,23 @@ def fallback_line(m: Moment, e: Explanation) -> str:
     return e.headline
 
 
-def fallback_variants(m: Moment, line: str, requests: list[tuple[Persona, str, dict]]) -> list[NarrativeVariant]:
+VariantRequest = tuple[Persona, Access, str, dict]  # persona, access, lang, focus
+
+
+def _fallback_text(m: Moment, line: str, persona: Persona, access: Access) -> str:
     s = m.state
-    out = []
-    for persona, lang, _focus in requests:
-        text = line
-        if persona == Persona.ANALYST:
-            text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
-        elif persona == Persona.DEAF:
-            text = f"{line}. The score is {s.home.goals} to {s.away.goals}."
-        out.append(NarrativeVariant(moment_id=m.moment_id, persona=persona, lang=lang, text=text, cites=list(m.event_ids)))  # type: ignore[arg-type]
-    return out
+    text = line
+    if persona == Persona.ANALYST:
+        text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
+    if access == "deaf":
+        text = f"{text}. The score is {s.home.goals} to {s.away.goals}."
+    return text
+
+
+def fallback_variants(m: Moment, line: str, requests: list[VariantRequest]) -> list[NarrativeVariant]:
+    return [NarrativeVariant(moment_id=m.moment_id, persona=persona, access=access, lang=lang,  # type: ignore[arg-type]
+                             text=_fallback_text(m, line, persona, access), cites=list(m.event_ids))
+            for persona, access, lang, _focus in requests]
 
 
 def priority_from_importance(importance: float) -> int:
@@ -110,8 +117,9 @@ class MomentPipeline:
         self.producer = make_agent("producer", _prompt("producer"), OverlayProposal)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
-                      requests: list[tuple[Persona, str, dict]] | None = None) -> MomentResult:
-        requests = requests or [(p, lang, {}) for p in Persona for lang in settings.languages]
+                      requests: list[VariantRequest] | None = None) -> MomentResult:
+        requests = requests or [(p, a, lang, {})
+                                for p in Persona for a in get_args(Access) for lang in settings.languages]
         failures: list[str] = []
         moment_json = json.loads(m.model_dump_json())
 
@@ -125,8 +133,8 @@ class MomentPipeline:
 
         # personalizer and producer are independent once the line exists -> run concurrently
         async def _variants():
-            res, e = await _run(self.personalizer, {"line": line, "moment": moment_json,
-                                                    "requests": [{"persona": p.value, "lang": l, "focus": f} for p, l, f in requests]},
+            wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in requests]
+            res, e = await _run(self.personalizer, {"line": line, "moment": moment_json, "requests": wanted},
                                 None, lambda: fallback_variants(m, line, requests))
             if isinstance(res, str):
                 try:

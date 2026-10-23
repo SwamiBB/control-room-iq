@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agents.workflow import MomentPipeline
-from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
+from crq_schemas import (Access, DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
                          ProposalStatus)
 from ingest.stats import StateFolder
 
@@ -50,7 +50,8 @@ class Hub:
 
     async def broadcast_viewers(self, item: OverlayPacket, variants: list[dict]) -> None:
         for ws, prefs in list(self.viewers.items()):
-            v = next((x for x in variants if x["persona"] == prefs["persona"] and x["lang"] == prefs["lang"]), None)
+            v = next((x for x in variants if (x["persona"], x.get("access", "none"), x["lang"])
+                      == (prefs["persona"], prefs["access"], prefs["lang"])), None)
             payload = item.model_dump()
             if v:
                 payload["line"], payload["persona"], payload["lang"] = v["text"], v["persona"], v["lang"]
@@ -230,9 +231,10 @@ async def ws_operator(ws: WebSocket):
 
 
 @app.websocket("/ws/viewer")
-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.DEAF, lang: str = "en", club: str | None = None):
+async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, access: Access = "none", lang: str = "en",
+                    club: str | None = None):
     await ws.accept()
-    hub.viewers[ws] = {"persona": persona.value, "lang": lang, "club": club}
+    hub.viewers[ws] = {"persona": persona.value, "access": access, "lang": lang, "club": club}
     try:
         while True:
             await ws.receive_text()

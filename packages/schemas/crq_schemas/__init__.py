@@ -11,6 +11,8 @@ Design rules encoded here (see docs/CHANGES-2026-10-23.md):
 - Cues are code, captions are AI: `FanCue` carries no generated text and may air immediately;
   `FanCard` is generated text and travels only after approval.
 - Model choice is visible: every agent output records `routing` and `model_served`.
+- Personalization has two independent axes: `Persona` (how much the viewer knows) and `Access` (how
+  they take in the match). A deaf analyst is `persona=analyst, access=deaf`.
 """
 
 from __future__ import annotations
@@ -290,14 +292,22 @@ class Explanation(BaseModel):
 
 
 class Persona(str, Enum):
+    """How much the viewer knows: sets wording and depth."""
+
+    NEWCOMER = "newcomer"  # explains terms in plain language, e.g. chance quality instead of xG
     FAN = "fan"
-    DEAF = "deaf"
     ANALYST = "analyst"
+
+
+# How the viewer takes in the match: delivery rules applied on top of any persona. "deaf": no sound
+# references; where on the pitch, who, and the score after. Deaf viewers also receive FanCue/FanCard.
+Access = Literal["none", "deaf"]
 
 
 class NarrativeVariant(BaseModel):
     moment_id: str
     persona: Persona
+    access: Access = "none"
     lang: Lang
     text: str
     cites: list[str] = Field(default_factory=list)
@@ -454,6 +464,7 @@ class OverlayPacket(BaseModel):
     line: str
     payload: dict[str, Any] = Field(default_factory=dict)
     profile: Persona = Persona.FAN
+    access: Access = "none"
     lang: Lang = "en"
     verified: bool = True
     fallback: bool = False
@@ -496,7 +507,8 @@ class DecisionLogEntry(BaseModel):
 class RecapRequest(BaseModel):
     match_id: str
     minutes: Literal[10, 20, 30] = 10
-    persona: Persona = Persona.DEAF
+    persona: Persona = Persona.FAN
+    access: Access = "none"
     lang: Lang = "en"
 
 
