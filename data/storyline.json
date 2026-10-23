@@ -1,0 +1,82 @@
+{
+  "note": "The reference match script. The simulator plays seeded football between these beats and guarantees each beat at its minute. Fictional clubs only.",
+  "storyline_id": "reference-v1",
+  "seed": 42,
+  "match_id": "m-ref-042",
+  "home": "har",
+  "away": "nfu",
+  "venue": "Harbor Park",
+  "kickoff_utc": "2026-10-24T14:00:00Z",
+  "beats": [
+    {
+      "id": "big-chance-23",
+      "demo_moment": "big_chance",
+      "period": 1, "minute": 23, "second": 10,
+      "kind": "shot",
+      "team": "har", "player": "har-07", "assist_by": "har-08",
+      "x": 86.0, "y": 38.0, "direction": "right", "body_part": "foot",
+      "xg": 0.29, "outcome": "off_target",
+      "why": "First big chance. Strike cue then result caption; proposal gated in (xG >= 0.25)."
+    },
+    {
+      "id": "stoppage-31",
+      "demo_moment": "stoppage",
+      "period": 1, "minute": 31, "second": 40,
+      "kind": "foul",
+      "team": "nfu", "player": "nfu-04", "fouled": "har-10",
+      "x": 78.0, "y": 44.0,
+      "card": "yellow", "restart": "free_kick",
+      "why": "Play stops for a foul the deaf fan cannot hear: whistle, stoppage, yellow card, free kick at the edge of the box."
+    },
+    {
+      "id": "pressure-36-40",
+      "demo_moment": "pressure_build",
+      "period": 1, "from_minute": 36, "to_minute": 40,
+      "kind": "pressure_build",
+      "team": "har",
+      "shots": [
+        {"minute": 36, "second": 20, "player": "har-09", "x": 84.0, "y": 60.0, "xg": 0.12, "outcome": "blocked", "blocker": "nfu-05"},
+        {"minute": 38, "second": 5,  "player": "har-11", "x": 80.0, "y": 52.0, "xg": 0.08, "outcome": "saved"},
+        {"minute": 39, "second": 30, "player": "har-10", "x": 88.0, "y": 42.0, "xg": 0.15, "outcome": "off_target"}
+      ],
+      "why": "Raises Harbor City's trailing 5-minute xG and pressure_trend so hold advice says 'hold' on the hero scene."
+    },
+    {
+      "id": "hero-41",
+      "demo_moment": "goal",
+      "period": 1, "minute": 41, "second": 12,
+      "kind": "chance_then_rebound_goal",
+      "team": "har",
+      "chance": {"player": "har-10", "assist_by": "har-06", "x": 89.0, "y": 47.0, "direction": "center", "body_part": "foot", "xg": 0.38, "outcome": "saved", "keeper": "nfu-01"},
+      "rebound": {"after_ms": 1500, "player": "har-09", "x": 94.0, "y": 51.0, "direction": "left", "body_part": "foot", "xg": 0.45, "outcome": "goal"},
+      "build_up_passes": 7,
+      "why": "Hero scene: big chance saved (xG 0.38), then a goal 1.5 s later on the same phase_id. Hold advice says 'hold'; the goal supersedes the chance proposal and preempts the lower third."
+    },
+    {
+      "id": "half-time",
+      "period": 1, "minute": 47, "second": 0,
+      "kind": "half_end"
+    },
+    {
+      "id": "late-chance-78",
+      "demo_moment": "big_chance",
+      "period": 2, "minute": 78, "second": 25,
+      "kind": "shot",
+      "team": "nfu", "player": "nfu-09", "assist_by": "nfu-10",
+      "x": 87.0, "y": 55.0, "direction": "left", "body_part": "head",
+      "xg": 0.33, "outcome": "saved", "keeper": "har-01",
+      "why": "Isolated chance with no pressure build: hold advice must say 'air'."
+    },
+    {
+      "id": "full-time",
+      "period": 2, "minute": 93, "second": 0,
+      "kind": "match_end"
+    }
+  ],
+  "quiet_windows": [
+    {"period": 1, "from_minute": 19, "to_minute": 23, "teams": ["har", "nfu"], "why": "No unscripted shots just before the first big chance"},
+    {"period": 1, "from_minute": 33, "to_minute": 42, "teams": ["nfu"], "why": "Only Harbor City shoots during the pressure build"},
+    {"period": 2, "from_minute": 72, "to_minute": 80, "teams": ["har", "nfu"], "why": "Keeps the late chance isolated so hold advice says 'air'"}
+  ],
+  "final_score_expected": {"har": 1, "nfu": 0, "note": "Unscripted play may not score: the simulator suppresses unscripted goals in the reference match."}
+}
