@@ -20,7 +20,7 @@ def test_api_owned_fields_from_the_agent_are_reset_on_arrival(monkeypatch):
     result = SimpleNamespace(explanation=fallback_explanation(m), line="l", variants=[], failures=[],
                              proposal=injected, fan_card=None)
 
-    async def process(_m):
+    async def process(_m, **_kwargs):
         return result
 
     monkeypatch.setattr(main.pipeline, "process", process)

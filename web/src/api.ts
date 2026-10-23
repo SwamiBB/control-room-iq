@@ -1,3 +1,5 @@
+import type { MomentMetrics } from "./intel";
+
 export const API = import.meta.env.VITE_API_URL ?? "";
 export const WS = API ? API.replace(/^http/, "ws") : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
@@ -6,8 +8,9 @@ export type Proposal = {
   line: string; payload: Record<string, unknown>; reasoning: string; priority: number;
   faithfulness: number | null; status: string; decided_by: string | null; override_line: string | null;
 };
-export type MomentMsg = { moment: { moment_id: string; t_ms: number; period: number; kind: string; importance: number; summary: string };
-  explanation: { headline: string; why_it_matters: string; pattern: string; cites: string[]; confidence: number }; line: string; failures: string[] };
+export type MomentMsg = { moment: { moment_id: string; t_ms: number; period: number; kind: string; importance: number; summary: string; metrics?: MomentMetrics | null };
+  explanation: { headline: string; why_it_matters: string; pattern: string; cites: string[]; confidence: number }; line: string; failures: string[];
+  intel?: MomentMetrics | null }; // what the agents used: the stats engine's metrics, or what was derived from state
 
 export async function decide(id: string, action: "approve" | "hold" | "override", body: Record<string, unknown> = {}) {
   const r = await fetch(`${API}/proposals/${id}/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ actor: "operator", ...body }) });

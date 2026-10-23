@@ -20,3 +20,25 @@ header { display: flex; gap: 1rem; align-items: center; padding: .75rem 1rem; ba
 .moments article { margin-bottom: .75rem; } .moments small { color: var(--muted); }
 .viewer { max-width: 960px; margin: 0 auto; padding: 1rem; } .viewer select { background: var(--panel); color: var(--ink); border: 1px solid #333; padding: .3rem; }
 .history { color: var(--muted); } .rtl .overlay { border-left: 0; border-right: 4px solid var(--accent); }
+/* Match intelligence (expectation ii): thresholds, pass quality, ball and shot speed */
+:root { --hot:#f97316; --alert:#e11d48; --info:#64748b; }
+.intel { display: grid; gap: .75rem; } .intel h3 { font-size: .75rem; color: var(--muted); margin: 0 0 .4rem; text-transform: uppercase; letter-spacing: .05em; }
+.intel-block { background: var(--panel); border-radius: 8px; padding: .6rem .75rem; } .intel-empty { color: var(--muted); font-size: .8rem; margin: 0; }
+.intel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.crossings { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
+.crossings li { display: grid; grid-template-columns: auto auto 1fr auto; gap: .5rem; align-items: center; } .crossings small { color: var(--muted); }
+.badge { font-size: .65rem; text-transform: uppercase; letter-spacing: .04em; padding: .1rem .4rem; border-radius: 999px; background: #2a3140; color: var(--ink); margin-left: .4rem; }
+.crossings .badge { margin-left: 0; } .badge.top_speed, .badge.sprint { background: var(--alert); color: #fff; } .badge.distance { background: #0ea5e9; color: #000; }
+.badge.pass_difficulty, .badge.pass_distance { background: var(--hot); color: #000; } .badge.shot_speed, .badge.ball_speed { background: var(--warn); color: #000; }
+.badge.key { background: var(--accent); color: #fff; } .badge.miss { background: #3f3f46; }
+.leaders { width: 100%; border-collapse: collapse; font-size: .82rem; } .leaders td { padding: .2rem 0; } .leaders .team { color: var(--muted); padding: 0 .4rem; }
+.leaders .val { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } .leaders tr.over td:first-child { color: #fda4af; } .flag { color: var(--alert); margin-left: .3rem; font-size: .7rem; }
+.pass-card dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: .5rem 0; } .pass-card dt { color: var(--muted); font-size: .7rem; } .pass-card dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.difficulty { display: flex; gap: .6rem; align-items: center; font-size: .8rem; } .difficulty .bar { flex: 1; height: 6px; background: #2a3140; border-radius: 3px; overflow: hidden; }
+.difficulty .bar i { display: block; height: 100%; background: var(--info); } .difficulty.testing .bar i { background: var(--warn); } .difficulty.hard .bar i { background: var(--hot); } .difficulty.very_hard .bar i { background: var(--alert); }
+.team-acc { display: grid; grid-template-columns: auto 1fr 1fr; gap: .3rem .75rem; font-size: .8rem; margin-top: .5rem; align-items: baseline; } .team-acc span { color: var(--muted); } .team-acc.speeds { grid-template-columns: auto 1fr; }
+.intel-chips { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; margin: .4rem 0; padding: 0; }
+.chip { display: inline-flex; gap: .35rem; align-items: baseline; font-size: .75rem; padding: .15rem .5rem; border-radius: 999px; background: #222a36; border: 1px solid #2f3a4b; }
+.chip .chip-label { color: var(--muted); } .chip.alert { border-color: var(--alert); } .chip.hot { border-color: var(--hot); }
+.overlay .intel-chips { margin: .4rem 0 0; } .overlay .chip { background: rgba(255,255,255,.08); }
+@media (max-width: 900px) { .intel-grid { grid-template-columns: 1fr; } }

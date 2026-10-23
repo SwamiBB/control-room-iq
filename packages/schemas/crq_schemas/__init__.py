@@ -13,6 +13,9 @@ Design rules encoded here (see docs/CHANGES-2026-10-23.md):
 - Model choice is visible: every agent output records `routing` and `model_served`.
 - Personalization has two independent axes: `Persona` (how much the viewer knows) and `Access` (how
   they take in the match). A deaf analyst is `persona=analyst, access=deaf`.
+- Match intelligence (hackathon expectation ii) is ground truth from the stats engine: player speed and
+  distance with threshold indicators, pass quality (distance, accuracy, difficulty) and ball and shot speed.
+  It travels on `MatchState` and on `Moment.metrics`; agents may only quote numbers found there.
 """
 
 from __future__ import annotations
@@ -138,6 +141,63 @@ class MatchEvent(BaseModel):
 # ---------------------------------------------------------------------------------------------
 
 
+MetricKind = Literal["top_speed", "sprint", "distance", "pass_difficulty", "pass_distance", "ball_speed",
+                     "shot_speed"]
+DifficultyLabel = Literal["routine", "testing", "hard", "very_hard"]
+
+
+class ThresholdIndicator(BaseModel):
+    """A player (or the ball) crossed a stats-engine threshold, e.g. top speed over 32 km/h.
+
+    Raised by the stats engine; the console and viewers render `label` as-is, and agents may quote `value`.
+    """
+
+    kind: MetricKind
+    player: str | None = None
+    team: str | None = None
+    event_id: str | None = None
+    play_ms: int = 0
+    value: float
+    threshold: float
+    unit: Literal["km/h", "m", "km", "rating"]
+    label: str = Field(default="", description="Deterministic display text, e.g. '33.1 km/h (over 32)'")
+
+
+class PassQuality(BaseModel):
+    """One pass rated by the stats engine: distance, the passer's accuracy so far, difficulty, ball speed."""
+
+    event_id: str
+    play_ms: int = 0
+    team: str
+    player: str
+    receiver: str | None = None
+    distance_m: float
+    difficulty: float = Field(ge=0, le=1, description="0 = routine, 1 = hardest; from the simulator's pass model")
+    difficulty_label: DifficultyLabel = "routine"
+    accuracy_pct: float | None = Field(default=None, description="The passer's completion rate so far, 0-100")
+    ball_speed_kmh: float | None = None
+    completed: bool = True
+    progressive: bool = False
+    key_pass: bool = False
+
+
+class MomentMetrics(BaseModel):
+    """The expectation (ii) numbers that belong to one moment, filled by the stats engine when it raises it.
+
+    Every field is optional: a moment carries only what applies (a shot has a shot speed, a run has a speed).
+    """
+
+    player: str | None = None
+    player_speed_kmh: float | None = Field(default=None, description="Speed on the action that raised the moment")
+    player_top_speed_kmh: float | None = Field(default=None, description="The player's top speed so far")
+    player_distance_km: float | None = None
+    player_sprints: int | None = None
+    key_pass: PassQuality | None = Field(default=None, description="The pass that set the moment up, if any")
+    shot_speed_kmh: float | None = None
+    ball_speed_kmh: float | None = None
+    thresholds: list[ThresholdIndicator] = Field(default_factory=list, description="Crossed on this moment")
+
+
 class PlayerStats(BaseModel):
     player_id: str
     team: str
@@ -152,6 +212,11 @@ class PlayerStats(BaseModel):
     distance_m: float = 0.0
     top_speed_kmh: float = 0.0
     pressures: int = 0
+    sprints: int = Field(default=0, description="Runs at or above the stats engine's sprint threshold")
+    avg_pass_distance_m: float = 0.0
+    avg_pass_difficulty: float = 0.0
+    hard_passes_completed: int = Field(default=0, description="Completed passes rated hard or very hard")
+    max_shot_speed_kmh: float = 0.0
 
 
 class TeamStats(BaseModel):
@@ -167,6 +232,9 @@ class TeamStats(BaseModel):
     ppda: float | None = Field(default=None, description="Passes allowed per defensive action")
     xg_last_5min: float = 0.0
     shots_last_5min: int = 0
+    pass_accuracy_pct: float | None = None
+    avg_pass_difficulty: float = 0.0
+    max_shot_speed_kmh: float = 0.0
 
 
 class ShotRecord(BaseModel):
@@ -180,6 +248,7 @@ class ShotRecord(BaseModel):
     outcome: str
     zone: str = Field(default="", description="Plain-language position, e.g. 'edge of the box, left'")
     chance_rank: int = Field(default=0, description="1 = best chance of the match so far")
+    speed_kmh: float | None = Field(default=None, description="Shot speed")
 
 
 class StoppageInfo(BaseModel):
@@ -232,6 +301,9 @@ class MatchState(BaseModel):
     current_phase: PhaseSummary | None = None
     recap_points: list[RecapPoint] = Field(default_factory=list)
     last_event_id: str | None = None
+    last_pass: PassQuality | None = Field(default=None, description="Most recent rated pass, for the console")
+    thresholds: list[ThresholdIndicator] = Field(default_factory=list,
+                                                 description="Recent threshold crossings, newest last (keep ~20)")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -246,6 +318,7 @@ class MomentKind(StrEnum):
     PRESSURE_SPIKE = "pressure_spike"
     MILESTONE = "milestone"
     SPEED_THRESHOLD = "speed_threshold"
+    STANDOUT_PASS = "standout_pass"  # a completed pass rated very hard, or a long progressive key pass
     STOPPAGE = "stoppage"
     CARD = "card"
     SUBSTITUTION = "substitution"
@@ -269,6 +342,7 @@ class Moment(BaseModel):
     event_ids: list[str]
     summary: str = Field(description="Deterministic, template-generated one-liner (ground truth)")
     state: MatchState
+    metrics: MomentMetrics | None = Field(default=None, description="Expectation (ii) numbers for this moment")
 
 
 # ---------------------------------------------------------------------------------------------

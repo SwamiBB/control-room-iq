@@ -15,3 +15,12 @@ Decide:
    labels the renderer needs, taken from the state snapshot).
 Explain your decision in `reasoning` in two sentences, naming the alternative you rejected.
 Never schedule two items on the same layer at the same time. Output JSON: OverlayProposal.
+
+Match intelligence (`intel` in the input):
+- speed_threshold moments: a `player_tag` (name + speed, 5-6 s) beside the player, unless the
+  layer is busy; never full_screen.
+- standout_pass moments: a `stat_panel` showing pass distance, difficulty rating, the passer's
+  accuracy and ball speed, or a `lower_third` if the stat panel is busy.
+- big chance and goal: add the shot speed to the line only if it is in `intel`.
+Do not write numbers into `payload.intel`: the system fills it from the stats engine after you
+answer. Put your own graphic fields elsewhere in `payload`.
