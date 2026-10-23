@@ -1,0 +1,836 @@
+From 1a732e4bdcf5777849126a5b60aa94a7ed30365f Mon Sep 17 00:00:00 2001
+From: Swami Arunachalam <swami.arunachalam@blackbox.com>
+Date: Fri, 23 Oct 2026 08:30:54 -0500
+Subject: [PATCH] feat(schemas): v0.2 contract for the Oct 22 decisions +
+ change plan
+
+- play_ms scheduling alongside match clock; phase_id/stoppage_id; shot_taken, stoppage, whistle, crowd events
+- MatchState: shot ledger with chance_rank, 5-min windows, pressure_trend, momentum_label, last_stoppage, recap_points
+- Moment.beat (chance/result); AgentMeta with routing + model_served on every agent output
+- OverlayProposal scheduler fields, evidence, alternatives, hold_advice; OverlayPacket requires approval fields
+- FanCue (code, airs immediately) and FanCard (AI text, airs only after approval); Persona fan|deaf|analyst; Lang en|es|hi
+- API publishes OverlayPacket stamped from the decision; POST /proposals/{id}/reject; GET /decisions.csv
+- Router deployments per routing mode in config and .env.example
+- docs/CHANGES-2026-10-23.md: change list by workstream and landing order
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DRRdDSbPGEr99PB37kuS1Q
+---
+ .env.example                                  |   5 +-
+ docs/CHANGES-2026-10-23.md                    | 124 ++++++
+ packages/schemas/crq_schemas/__init__.py      | 352 ++++++++++++++++--
+ services/agents/agents/config.py              |   6 +-
+ services/agents/agents/workflow.py            |   2 +-
+ .../agents/tests/test_workflow_offline.py     |   2 +-
+ services/api/api/main.py                      |  34 +-
+ web/src/views/Viewer.tsx                      |   8 +-
+ 8 files changed, 480 insertions(+), 53 deletions(-)
+ create mode 100644 docs/CHANGES-2026-10-23.md
+
+diff --git a/.env.example b/.env.example
+index 169022a..89ae0ff 100644
+--- a/.env.example
++++ b/.env.example
+@@ -3,6 +3,9 @@ CRQ_OFFLINE=1
+ FOUNDRY_PROJECT_ENDPOINT=https://<account>.services.ai.azure.com/api/projects/<project>
+ AZURE_OPENAI_ENDPOINT=https://<account>.openai.azure.com/
+ MODEL_ROUTER_DEPLOYMENT=model-router
++ROUTER_QUALITY=router-quality
++ROUTER_BALANCED=router-balanced
++ROUTER_COST=router-cost
+ MODEL_FALLBACK_DEPLOYMENT=gpt-4.1-mini
+ EVENTHUB_NAMESPACE=crq-dev-ehns.servicebus.windows.net
+ EVENTHUB_EVENTS=crq-events
+@@ -12,5 +15,5 @@ COSMOS_ENDPOINT=https://crq-dev-cosmos.documents.azure.com:443/
+ COSMOS_DB=crq
+ SPEECH_REGION=eastus2
+ APPLICATIONINSIGHTS_CONNECTION_STRING=
+-CRQ_LANGS=en,es,hi,ar
++CRQ_LANGS=en,es,hi
+ AGENT_TIMEOUT_S=8
+diff --git a/docs/CHANGES-2026-10-23.md b/docs/CHANGES-2026-10-23.md
+new file mode 100644
+index 0000000..1cf80a6
+--- /dev/null
++++ b/docs/CHANGES-2026-10-23.md
+@@ -0,0 +1,124 @@
++# Code changes for the Oct 22 decisions
++
++Base: `main` at `44e7b89` (scaffold + docs + offline fix). Owners per the Oct 22 role split. Every change
++is additive to the contracts so the four workstreams can proceed in parallel; `packages/schemas` v0.2 is
++the shared contract and lands first (this commit).
++
++## Design rules these changes implement
++
++1. **Schedule on play-time, display match clock.** Every event and packet carries `play_ms` (monotonic from
++   first kickoff, no stoppage time ambiguity) and `{period, clock_ms}` for display. All interval arithmetic
++   uses `play_ms`.
++2. **The gate is mandatory and structural.** AI-written text reaches a screen only inside an `OverlayPacket`
++   that carries `approval_id`, `approved_by`, `approved_at`. The renderer refuses packets without them.
++   There is no auto-approve path in the API. The SLA timer holds, never approves.
++3. **Cues are code, captions are AI.** The deaf-fan strike cue (`FanCue`) is deterministic, contains no
++   generated text, and is published immediately on `shot_taken` (≤ 1 s). The caption (`FanCard`) is
++   generated text and is published only after the operator's decision on the matching proposal.
++4. **Scheduling is code, content is AI.** The producer agent proposes layer, line, and payload; the
++   `scheduler` module (plain Python) assigns `t_in/t_out`, resolves collisions, applies the one-story-per-
++   window rule and goal/red-card preemption, and computes `hold_advice` from `pressure_trend`.
++5. **Model choice is visible.** Three router deployments (`router-quality`, `router-balanced`,
++   `router-cost`); each agent is bound to one; the served model from `response.model` is written to the
++   span and to the output record (`model_served`).
++
++## By workstream
++
++### Shared contract — `packages/schemas` (this commit; review Thu AM)
++
++- `MatchEvent`: `play_ms`, `phase_id`, `stoppage_id`; new `EventType` values `shot_taken`, `stoppage`,
++  `whistle`, `crowd`; documented `attrs` keys (`assist_by`, `key_pass`, `blocker`, `reason`, `restart`,
++  `crowd_level`).
++- `MatchState`: `shots` ledger (`ShotRecord` with `chance_rank`), `xg_last_5min`, `shots_last_5min`,
++  `pressure_trend`, `momentum_label`, `last_stoppage`, `current_phase`, `recap_points`.
++- `Moment`: `play_ms`, `beat` (`chance` | `result` | `none`).
++- `Explanation`, `NarrativeVariant`, `OverlayProposal`: `model_served`, `routing` (which router deployment).
++- `OverlayProposal`: scheduler fields (`cue_id`, `t_in_ms`, `t_out_ms`, `priority`, `replaces`,
++  `min_hold_ms`, `max_delay_ms`), `evidence` (readable lines), `alternatives`, `hold_advice`.
++- `OverlayPacket` (replaces `OverlayItem`): adds required approval fields, `profile`, `verified`,
++  `fallback`; `OverlayLayer` adds `caption`, `player_tag`, `pitch_overlay`.
++- `FanCue`, `FanCard`: the deaf-fan records. `Persona` = `fan | deaf | analyst`. `Lang` = `en | es | hi`.
++- `DecisionAction` adds `reject`; `DecisionLogEntry` unchanged otherwise.
++- `RecapRequest` / `Recap` for the catch-up card.
++
++### Data pipeline — Pranav (`services/simulator`, `services/ingest`) — reference match Thu EOD
++
++Simulator (`engine.py`): maintain `play_ms` across periods; emit `shot_taken` 400–900 ms before `shot`
++(same `phase_id`, carry `xg` on both); emit `stoppage` + `whistle` for fouls, cards, half/full time, goals,
++ball out (reason, against, restart, restart coordinates); assign `phase_id` per possession; set `assist_by`
++and mark `key_pass`; set `blocker` on blocked shots; emit `crowd` with `crowd_level` derived from xG,
++goals, stoppages; add rare seeded `offside` and `var_review` stoppage reasons; write the reference match
++to `data/reference/match-042.jsonl` and un-ignore that folder. Calibration targets unchanged (see
++`tests/test_engine.py`); add assertions for the new event counts.
++
++State engine (`stats.py`): fill the new `MatchState` fields; raise the big chance as two moments
++(`beat=chance` on `shot_taken`, `beat=result` on `shot`); zone namer `zone(x, y)`; `pressure_trend` over
++the last 3 minutes; `momentum_label`; `recap(last_n_min)` returning `Recap`; `recap_points` from moments
++with importance ≥ 0.6. Add `tests/test_stats.py` cases for each.
++
++Evaluation dataset: `evals/datasets/reference-042.jsonl` (moments + ground-truth answers to the persona
++questions) and `evals/datasets/planted-falsehoods.jsonl` (N lines with one wrong number/name each).
++
++### Agents and evaluations — Siranjeevi (`services/agents`, `evals`)
++
++- `config.py`: `ROUTER_QUALITY`, `ROUTER_BALANCED`, `ROUTER_COST` deployment names; map explainer and
++  producer → quality, narrator → balanced, personalizer → cost.
++- `clients.py`: one `OpenAIChatClient` per router deployment; wrap `agent.run` to read `response.model`
++  into `model_served`, set span attributes `crq.agent`, `crq.routing`, `crq.model_served`.
++- `scheduler.py` (new, pure code): `schedule(proposal, on_air, state) -> proposal` implementing collision
++  avoidance per layer, earliest free gap, one-story-per-window (30 s), goal/red-card preemption of the
++  lower third, `min_hold_ms`, per-kind `max_delay_ms`, and `hold_advice` when `pressure_trend == rising`
++  and the proposal is not a goal. Unit tests with hand-built on-air lists.
++- `workflow.py`: run `scheduler.schedule` after the producer; build `FanCue` from the chance-beat moment
++  without any model call; build `FanCard` from the result-beat variant for persona `deaf`; drop
++  `squad_author` from the pipeline (file stays); personas `fan | deaf | analyst`; languages `en es hi`.
++- `prompts/`: personalizer gets the `deaf` register (plain words, where on the pitch, who, score after;
++  no sound references); producer prompt no longer decides timing (scheduler does) and must return
++  `alternatives` (the graphic it rejected and why); explainer unchanged.
++- Agent Service: `register_agents.py` creates/updates the four agents by name in the Foundry project
++  (`azure-ai-projects`), so they are inspectable in the portal; the runner still executes locally via
++  Agent Framework.
++- `evals/run_eval.py`: replay the reference match offline, collect (moment, explanation, line, variants),
++  submit a Foundry evaluation run (groundedness, relevance, fluency per language), run the planted-
++  falsehood set through the pipeline and count catches, write `evals/results/latest.md` in the README
++  table format. Nightly job in `.github/workflows/evals.yml`.
++
++### API — Swami, with Mudassar on the contract (`services/api`)
++
++- Replace `OverlayItem` with `OverlayPacket`; `_decide` stamps `approval_id/approved_by/approved_at` from
++  the decision; `POST /proposals/{id}/reject`; SLA timer path unchanged (holds, logs actor `sla-timer`).
++- Publish `FanCue` on chance-beat moments immediately to `/ws/viewer?persona=deaf` and the overlay hub;
++  publish `FanCard` only inside the packet after approval/override.
++- `GET /recap?minutes=10|20|30` → `Recap`; `GET /decisions.csv` download; `GET /schedule` (what is on
++  each layer and queued) for the console.
++- Match clock vs play-time: the replay loop advances `play_ms`; WebSocket `state` messages carry both.
++
++### Front end — Mudassar (`web`) — per `frontend/decisions-2026-10-22.md`
++
++Renderer holds the clock and schedules on `t_in_ms/t_out_ms`; upsert by `cue_id`; `replaces[]`; caption
++layer never queues; refuse any packet lacking approval fields; approve / hold / reject + undo-as-revert
++Friday, edit-with-re-verify Saturday; deaf-fan view with the pulse-edge cue and caption; catch-up card
++calling `/recap`; scheduler view (layers × time) on the console.
++
++### Azure plumbing — Swami (`infra`)
++
++- `ai.bicep`: three router deployments with `routing.mode` quality/balanced/cost; remove the Speech
++  resource (dropped scope); keep `gpt-4.1-mini` as fallback.
++- `apps.bicep`: env vars `ROUTER_QUALITY`, `ROUTER_BALANCED`, `ROUTER_COST`.
++- Logic App for the SLA hold (Cosmos change feed → 20 s → `POST /proposals/{id}/hold` as `sla-timer`).
++- First `azd up` will surface API-version drift on the Foundry account and deployments; fix in place.
++
++### Docs and README — Swami (Sunday)
++
++README top section: live URL, video, eval table, planted-falsehood result, test count, synthetic-data
++section with calibration numbers, judge walkthrough, limits, operator quote. SOLUTION/DESIGN/ARCHITECTURE
++updated to the rules above; PLAN roles updated.
++
++## Order of landing
++
++1. Schemas v0.2 (this commit) → 15-min review Thu AM.
++2. Pranav: simulator events + reference match (Thu EOD). Siranjeevi: scheduler + router clients (Thu).
++   Mudassar: renderer on the new packet (Thu). Swami: `azd up`, router deployments (Thu).
++3. Fri: API wiring, FanCue/FanCard, end-to-end demo.
++4. Sat: hold advice (if slipped), catch-up card, edit-with-re-verify, Agent Service registration, evals.
++5. Sun: README, docs, parked items. Mon: video, pitch, project page. Tue: submit.
+diff --git a/packages/schemas/crq_schemas/__init__.py b/packages/schemas/crq_schemas/__init__.py
+index cc79982..7e8da74 100644
+--- a/packages/schemas/crq_schemas/__init__.py
++++ b/packages/schemas/crq_schemas/__init__.py
+@@ -1,8 +1,16 @@
+-"""Shared data contracts for Control Room IQ.
++"""Shared data contracts for Control Room IQ (v0.2, October 23, 2026).
+ 
+ All services exchange these Pydantic models (as JSON) so the simulator, ingest, agents, API, and web
+ front end agree on one vocabulary. Pitch coordinates are 0-100 on both axes, attacking left to right
+ for the team in possession.
++
++Design rules encoded here (see docs/CHANGES-2026-10-23.md):
++- Time: `play_ms` is monotonic play time from the first kickoff and is what everything is SCHEDULED on;
++  `period` + `t_ms` (clock within the period) is what is DISPLAYED.
++- Gate: generated text reaches a screen only inside an `OverlayPacket`, which requires approval fields.
++- Cues are code, captions are AI: `FanCue` carries no generated text and may air immediately;
++  `FanCard` is generated text and travels only after approval.
++- Model choice is visible: every agent output records `routing` and `model_served`.
+ """
+ 
+ from __future__ import annotations
+@@ -13,24 +21,15 @@ from typing import Any, Literal
+ 
+ from pydantic import BaseModel, Field
+ 
+-SCHEMA_VERSION = "0.1.0"
++SCHEMA_VERSION = "0.2.0"
+ 
++Lang = Literal["en", "es", "hi"]
++Routing = Literal["quality", "balanced", "cost", "fallback", "template"]
+ 
+-class EventType(str, Enum):
+-    KICKOFF = "kickoff"
+-    PASS = "pass"
+-    CARRY = "carry"
+-    SHOT = "shot"
+-    TACKLE = "tackle"
+-    INTERCEPTION = "interception"
+-    FOUL = "foul"
+-    CLEARANCE = "clearance"
+-    POSSESSION_CHANGE = "possession_change"
+-    PRESSURE = "pressure"
+-    SUBSTITUTION = "substitution"
+-    CARD = "card"
+-    HALF_END = "half_end"
+-    MATCH_END = "match_end"
++
++# ---------------------------------------------------------------------------------------------
++# Teams and match metadata
++# ---------------------------------------------------------------------------------------------
+ 
+ 
+ class Player(BaseModel):
+@@ -65,11 +64,59 @@ class MatchMeta(BaseModel):
+     schema_version: str = SCHEMA_VERSION
+ 
+ 
++# ---------------------------------------------------------------------------------------------
++# Raw events
++# ---------------------------------------------------------------------------------------------
++
++
++class EventType(str, Enum):
++    KICKOFF = "kickoff"
++    PASS = "pass"
++    CARRY = "carry"
++    SHOT_TAKEN = "shot_taken"  # the strike, before the outcome is known (crowd rises); same phase_id as the shot
++    SHOT = "shot"  # the outcome
++    TACKLE = "tackle"
++    INTERCEPTION = "interception"
++    FOUL = "foul"
++    CLEARANCE = "clearance"
++    POSSESSION_CHANGE = "possession_change"
++    PRESSURE = "pressure"
++    STOPPAGE = "stoppage"  # play stops: reason, against whom, restart
++    WHISTLE = "whistle"  # the audible event itself, one per blow
++    CROWD = "crowd"  # synthetic crowd level, so a deaf viewer can be told what the crowd is reacting to
++    SUBSTITUTION = "substitution"
++    CARD = "card"
++    HALF_END = "half_end"
++    MATCH_END = "match_end"
++
++
++StoppageReason = Literal[
++    "foul", "offside", "ball_out", "injury", "goal", "half_end", "match_end", "var_review", "substitution", "other"
++]
++Restart = Literal["free_kick", "penalty", "corner", "goal_kick", "throw_in", "kickoff", "drop_ball", "none"]
++
++
+ class MatchEvent(BaseModel):
++    """One raw event.
++
++    `attrs` keys by type (all optional):
++      pass:        receiver, distance_m, difficulty, progressive, ball_speed_kmh, key_pass (bool)
++      carry:       distance_m, speed_kmh
++      shot_taken:  xg, body, zone
++      shot:        xg, speed_kmh, body, keeper, blocker, assist_by, assist_event_id, zone
++      pressure:    intensity, target
++      stoppage:    reason (StoppageReason), against_team, against_player, restart (Restart), restart_x, restart_y
++      whistle:     kind, stoppage_id
++      crowd:       crowd_level (0-1), trigger_event_id
++      foul/card:   card (yellow|red|second_yellow), reason, stoppage_id
++      substitution: off, on, off_position, on_position
++    """
++
+     event_id: str
+     match_id: str
+     seq: int
+-    t_ms: int = Field(description="Match clock in milliseconds from kickoff of the period")
++    play_ms: int = Field(default=0, description="Monotonic play time from first kickoff; schedule on this")
++    t_ms: int = Field(description="Match clock within the period, for display")
+     period: Literal[1, 2]
+     type: EventType
+     team: str | None = None
+@@ -78,15 +125,24 @@ class MatchEvent(BaseModel):
+     y: float | None = None
+     end_x: float | None = None
+     end_y: float | None = None
+-    outcome: Literal["success", "fail", "goal", "saved", "blocked", "off_target", "n/a"] = "n/a"
++    outcome: Literal["success", "fail", "goal", "saved", "blocked", "off_target", "post", "n/a"] = "n/a"
++    phase_id: str | None = Field(default=None, description="Groups the actions of one possession")
++    stoppage_id: str | None = Field(default=None, description="Links whistle, foul, card and restart")
+     attrs: dict[str, Any] = Field(default_factory=dict)
+ 
+ 
++# ---------------------------------------------------------------------------------------------
++# Derived state
++# ---------------------------------------------------------------------------------------------
++
++
+ class PlayerStats(BaseModel):
+     player_id: str
+     team: str
+     passes: int = 0
+     passes_completed: int = 0
++    key_passes: int = 0
++    assists: int = 0
+     shots: int = 0
+     goals: int = 0
+     xg: float = 0.0
+@@ -107,6 +163,52 @@ class TeamStats(BaseModel):
+     possession_pct: float = 50.0
+     pressures: int = 0
+     ppda: float | None = Field(default=None, description="Passes allowed per defensive action")
++    xg_last_5min: float = 0.0
++    shots_last_5min: int = 0
++
++
++class ShotRecord(BaseModel):
++    event_id: str
++    play_ms: int
++    period: Literal[1, 2]
++    t_ms: int
++    team: str
++    player: str
++    xg: float
++    outcome: str
++    zone: str = Field(default="", description="Plain-language position, e.g. 'edge of the box, left'")
++    chance_rank: int = Field(default=0, description="1 = best chance of the match so far")
++
++
++class StoppageInfo(BaseModel):
++    stoppage_id: str
++    play_ms: int
++    reason: StoppageReason
++    against_team: str | None = None
++    against_player: str | None = None
++    restart: Restart = "none"
++    restart_x: float | None = None
++    restart_y: float | None = None
++
++
++class PhaseSummary(BaseModel):
++    phase_id: str
++    team: str
++    start_play_ms: int
++    passes: int = 0
++    progressive_passes: int = 0
++    players: list[str] = Field(default_factory=list)
++    ended_with: str | None = Field(default=None, description="shot | turnover | foul | stoppage")
++
++
++class RecapPoint(BaseModel):
++    play_ms: int
++    period: Literal[1, 2]
++    t_ms: int
++    kind: str
++    importance: float
++    summary: str
++    event_ids: list[str]
+ 
+ 
+ class MatchState(BaseModel):
+@@ -114,16 +216,26 @@ class MatchState(BaseModel):
+     seq: int
+     period: Literal[1, 2]
+     t_ms: int
++    play_ms: int = 0
+     home: TeamStats
+     away: TeamStats
+     players: dict[str, PlayerStats] = Field(default_factory=dict)
+-    momentum: list[float] = Field(
+-        default_factory=list, description="Rolling momentum per minute, -1 (away) to +1 (home)"
+-    )
++    momentum: list[float] = Field(default_factory=list, description="Rolling momentum per minute, -1 (away) to +1 (home)")
++    momentum_label: Literal["home_pushing", "balanced", "away_pushing"] = "balanced"
+     pressure_windows: list[dict[str, float]] = Field(default_factory=list)
++    pressure_trend: Literal["rising", "steady", "falling"] = "steady"
++    shots: list[ShotRecord] = Field(default_factory=list)
++    last_stoppage: StoppageInfo | None = None
++    current_phase: PhaseSummary | None = None
++    recap_points: list[RecapPoint] = Field(default_factory=list)
+     last_event_id: str | None = None
+ 
+ 
++# ---------------------------------------------------------------------------------------------
++# Moments
++# ---------------------------------------------------------------------------------------------
++
++
+ class MomentKind(str, Enum):
+     GOAL = "goal"
+     BIG_CHANCE = "big_chance"
+@@ -131,7 +243,9 @@ class MomentKind(str, Enum):
+     PRESSURE_SPIKE = "pressure_spike"
+     MILESTONE = "milestone"
+     SPEED_THRESHOLD = "speed_threshold"
++    STOPPAGE = "stoppage"
+     CARD = "card"
++    SUBSTITUTION = "substitution"
+     HALF_END = "half_end"
+     MATCH_END = "match_end"
+ 
+@@ -139,9 +253,13 @@ class MomentKind(str, Enum):
+ class Moment(BaseModel):
+     moment_id: str
+     match_id: str
++    play_ms: int = 0
+     t_ms: int
+     period: Literal[1, 2]
+     kind: MomentKind
++    beat: Literal["chance", "result", "none"] = Field(
++        default="none", description="A big chance is two moments: 'chance' on shot_taken, 'result' on shot"
++    )
+     importance: float = Field(ge=0, le=1)
+     team: str | None = None
+     player: str | None = None
+@@ -150,6 +268,17 @@ class Moment(BaseModel):
+     state: MatchState
+ 
+ 
++# ---------------------------------------------------------------------------------------------
++# Agent outputs
++# ---------------------------------------------------------------------------------------------
++
++
++class AgentMeta(BaseModel):
++    routing: Routing = "template"
++    model_served: str | None = Field(default=None, description="From response.model of the router deployment")
++    latency_ms: int | None = None
++
++
+ class Explanation(BaseModel):
+     moment_id: str
+     headline: str
+@@ -157,15 +286,13 @@ class Explanation(BaseModel):
+     pattern: Literal["control", "chaos", "pressure_shift", "rhythm_change", "individual", "set_piece"]
+     cites: list[str] = Field(description="Event IDs the explanation relies on")
+     confidence: float = Field(ge=0, le=1)
++    meta: AgentMeta = Field(default_factory=AgentMeta)
+ 
+ 
+ class Persona(str, Enum):
+-    ANALYST = "analyst"
+     FAN = "fan"
+-    ACCESSIBILITY = "accessibility"
+-
+-
+-Lang = Literal["en", "es", "hi", "ar"]
++    DEAF = "deaf"
++    ANALYST = "analyst"
+ 
+ 
+ class NarrativeVariant(BaseModel):
+@@ -173,9 +300,71 @@ class NarrativeVariant(BaseModel):
+     persona: Persona
+     lang: Lang
+     text: str
+-    audio_url: str | None = None
+     cites: list[str] = Field(default_factory=list)
+     faithfulness: float | None = Field(default=None, description="Foundry evaluation score 0-1")
++    meta: AgentMeta = Field(default_factory=AgentMeta)
++
++
++# ---------------------------------------------------------------------------------------------
++# Deaf-fan records
++# ---------------------------------------------------------------------------------------------
++
++
++class FanCue(BaseModel):
++    """Deterministic visual stand-in for what the crowd and the whistle would tell a hearing viewer.
++
++    Contains no generated text, so it may air immediately (<= 1 s after the event) without passing the
++    operator gate. Logged like any aired item.
++    """
++
++    cue_id: str
++    match_id: str
++    moment_id: str
++    play_ms: int
++    kind: Literal["chance", "goal", "whistle", "crowd_rising", "crowd_roar", "crowd_groan", "card"]
++    team: str | None = None
++    direction: Literal["left_to_right", "right_to_left"] | None = None
++    crowd_level: float = Field(default=0.0, ge=0, le=1)
++    pulse: Literal["tap", "pulse", "wave", "surge"] = "pulse"
++    hold_ms: int = 1500
++
++
++class FanContext(BaseModel):
++    past: str | None = None
++    now: str | None = None
++    next: str | None = None
++
++
++class FanDetail(BaseModel):
++    shooter: str | None = None
++    zone: str | None = None
++    outcome: str | None = None
++    chance_quality: str | None = Field(default=None, description="Plain language, e.g. 'about 1 in 3 chances like this go in'")
++    xg: float | None = None
++    score: str | None = None
++
++
++class FanCard(BaseModel):
++    """Generated caption for the deaf viewer; travels only inside an approved OverlayPacket."""
++
++    card_id: str
++    match_id: str
++    moment_id: str
++    beat: Literal["chance", "result", "none"] = "result"
++    play_ms: int
++    lang: Lang = "en"
++    caption: str
++    detail: FanDetail = Field(default_factory=FanDetail)
++    context: FanContext = Field(default_factory=FanContext)
++    cites: list[str] = Field(default_factory=list)
++    faithfulness: float | None = None
++    hold_ms: int = 8000
++    meta: AgentMeta = Field(default_factory=AgentMeta)
++
++
++# ---------------------------------------------------------------------------------------------
++# Producer, scheduler, approval, packets
++# ---------------------------------------------------------------------------------------------
+ 
+ 
+ class OverlayLayer(str, Enum):
+@@ -184,6 +373,9 @@ class OverlayLayer(str, Enum):
+     HEATMAP = "heatmap"
+     TICKER = "ticker"
+     FULL_SCREEN = "full_screen"
++    CAPTION = "caption"  # deaf-fan captions; never queues, a new line always cuts the running one
++    PLAYER_TAG = "player_tag"
++    PITCH_OVERLAY = "pitch_overlay"
+ 
+ 
+ class ProposalStatus(str, Enum):
+@@ -191,48 +383,128 @@ class ProposalStatus(str, Enum):
+     APPROVED = "approved"
+     HELD = "held"
+     OVERRIDDEN = "overridden"
++    REJECTED = "rejected"
+     AIRED = "aired"
+     EXPIRED = "expired"
+ 
+ 
++class EvidenceLine(BaseModel):
++    event_id: str
++    text: str = Field(description="Readable rendering of the cited event, e.g. \"57:12 Marsh shot, xG 0.38, saved\"")
++
++
++class Alternative(BaseModel):
++    layer: OverlayLayer
++    line: str
++    rejected_because: str
++
++
++class HoldAdvice(BaseModel):
++    recommend_hold: bool = False
++    reason: str | None = Field(default=None, description="e.g. 'pressure rising; a goal may follow'")
++    until_play_ms: int | None = None
++
++
+ class OverlayProposal(BaseModel):
+     proposal_id: str
++    cue_id: str = Field(default="", description="Stable id for the aired packet; the renderer upserts by it")
+     match_id: str
+     moment_id: str
+     layer: OverlayLayer
+-    t_start_ms: int
+-    t_end_ms: int
+-    line: str = Field(description="On-air text as proposed by the producer agent")
++    # Scheduling (assigned by the scheduler module, not by the agent)
++    t_in_ms: int = Field(default=0, description="Play-time start")
++    t_out_ms: int = Field(default=0, description="Play-time end")
++    priority: int = Field(default=5, ge=1, description="1 = highest; goal/red card preempt the lower third")
++    replaces: list[str] = Field(default_factory=list, description="cue_ids this packet supersedes")
++    min_hold_ms: int = 4000
++    max_delay_ms: int = 20000
++    # Display timing (derived from t_in/t_out for the operator)
++    t_start_ms: int = 0
++    t_end_ms: int = 0
++    # Content (from the producer agent)
++    line: str = Field(description="On-air text as proposed")
+     payload: dict[str, Any] = Field(default_factory=dict, description="Graphic data for the renderer")
+     reasoning: str
+-    priority: float = Field(ge=0, le=1)
++    alternatives: list[Alternative] = Field(default_factory=list)
++    evidence: list[EvidenceLine] = Field(default_factory=list)
++    hold_advice: HoldAdvice = Field(default_factory=HoldAdvice)
+     faithfulness: float | None = None
++    fallback: bool = Field(default=False, description="True when the template fallback produced this")
++    # Decision
+     status: ProposalStatus = ProposalStatus.PROPOSED
+     decided_by: str | None = None
+     decided_at: datetime | None = None
+     override_line: str | None = None
++    meta: AgentMeta = Field(default_factory=AgentMeta)
+ 
+ 
+-class OverlayItem(BaseModel):
+-    """What the renderer receives: timed, machine-readable, approved."""
++class OverlayPacket(BaseModel):
++    """What a renderer receives. Approval fields are REQUIRED: the renderer refuses packets without them."""
+ 
+-    item_id: str
++    cue_id: str
+     match_id: str
+     layer: OverlayLayer
+-    t_start_ms: int
+-    t_end_ms: int
++    t_in_ms: int
++    t_out_ms: int
++    period: Literal[1, 2]
++    clock_ms: int
++    priority: int = 5
++    replaces: list[str] = Field(default_factory=list)
++    min_hold_ms: int = 4000
+     line: str
+-    payload: dict[str, Any]
++    payload: dict[str, Any] = Field(default_factory=dict)
++    profile: Persona = Persona.FAN
+     lang: Lang = "en"
+-    persona: Persona = Persona.FAN
++    verified: bool = True
++    fallback: bool = False
++    evidence: list[str] = Field(default_factory=list, description="Event IDs")
+     source_proposal_id: str
++    approval_id: str
++    approved_by: str
++    approved_at: datetime
++    fan_card: FanCard | None = None
++
++
++# Backward-compatible alias for code written against v0.1.
++OverlayItem = OverlayPacket
++
++
++class DecisionAction(str, Enum):
++    APPROVE = "approved"
++    HOLD = "held"
++    OVERRIDE = "overridden"
++    REJECT = "rejected"
++    EXPIRE = "expired"
++    SLA_HOLD = "sla_held"
+ 
+ 
+ class DecisionLogEntry(BaseModel):
+     entry_id: str
+     match_id: str
+     proposal_id: str
+-    action: ProposalStatus
++    action: DecisionAction | ProposalStatus
+     actor: str
+     at: datetime
+     reasoning: str | None = None
++
++
++# ---------------------------------------------------------------------------------------------
++# Catch-up card
++# ---------------------------------------------------------------------------------------------
++
++
++class RecapRequest(BaseModel):
++    match_id: str
++    minutes: Literal[10, 20, 30] = 10
++    persona: Persona = Persona.DEAF
++    lang: Lang = "en"
++
++
++class Recap(BaseModel):
++    match_id: str
++    from_play_ms: int
++    to_play_ms: int
++    score: str
++    points: list[RecapPoint]
++    text: str = Field(description="Generated summary; empty until approved when used on broadcast")
++    meta: AgentMeta = Field(default_factory=AgentMeta)
+diff --git a/services/agents/agents/config.py b/services/agents/agents/config.py
+index bdc56bb..dba9052 100644
+--- a/services/agents/agents/config.py
++++ b/services/agents/agents/config.py
+@@ -18,7 +18,11 @@ class Settings:
+     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
+     agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
+     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
+-    languages: tuple[str, ...] = tuple(os.environ.get("CRQ_LANGS", "en,es,hi,ar").split(","))
++    languages: tuple[str, ...] = tuple(os.environ.get("CRQ_LANGS", "en,es,hi").split(","))
++    # Routing mode is a per-deployment setting on model router, so one deployment per mode.
++    router_quality: str = os.environ.get("ROUTER_QUALITY", "router-quality")
++    router_balanced: str = os.environ.get("ROUTER_BALANCED", "router-balanced")
++    router_cost: str = os.environ.get("ROUTER_COST", "router-cost")
+ 
+ 
+ settings = Settings()
+diff --git a/services/agents/agents/workflow.py b/services/agents/agents/workflow.py
+index 65274b9..3e3ee58 100644
+--- a/services/agents/agents/workflow.py
++++ b/services/agents/agents/workflow.py
+@@ -62,7 +62,7 @@ def fallback_variants(m: Moment, line: str, requests: list[tuple[Persona, str, d
+         text = line
+         if persona == Persona.ANALYST:
+             text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
+-        elif persona == Persona.ACCESSIBILITY:
++        elif persona == Persona.DEAF:
+             text = f"{line}. The score is {s.home.goals} to {s.away.goals}."
+         out.append(NarrativeVariant(moment_id=m.moment_id, persona=persona, lang=lang, text=text, cites=list(m.event_ids)))  # type: ignore[arg-type]
+     return out
+diff --git a/services/agents/tests/test_workflow_offline.py b/services/agents/tests/test_workflow_offline.py
+index 756c028..88e77d3 100644
+--- a/services/agents/tests/test_workflow_offline.py
++++ b/services/agents/tests/test_workflow_offline.py
+@@ -20,4 +20,4 @@ def test_offline_pipeline_produces_proposal_for_goal():
+     assert res.proposal is not None and res.proposal.layer.value == "full_screen"
+     assert res.explanation.cites == goal.event_ids
+     assert {v.persona for v in res.variants} == set(Persona)
+-    assert {v.lang for v in res.variants} == {"en", "es", "hi", "ar"}
++    assert {v.lang for v in res.variants} == {"en", "es", "hi"}
+diff --git a/services/api/api/main.py b/services/api/api/main.py
+index 93553d5..a0d8bb5 100644
+--- a/services/api/api/main.py
++++ b/services/api/api/main.py
+@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
+ from pydantic import BaseModel
+ 
+ from agents.workflow import MomentPipeline
+-from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayItem, OverlayProposal, Persona,
++from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
+                          ProposalStatus)
+ from ingest.stats import StateFolder
+ 
+@@ -48,7 +48,7 @@ class Hub:
+             except Exception:  # noqa: BLE001
+                 self.operators.discard(ws)
+ 
+-    async def broadcast_viewers(self, item: OverlayItem, variants: list[dict]) -> None:
++    async def broadcast_viewers(self, item: OverlayPacket, variants: list[dict]) -> None:
+         for ws, prefs in list(self.viewers.items()):
+             v = next((x for x in variants if x["persona"] == prefs["persona"] and x["lang"] == prefs["lang"]), None)
+             payload = item.model_dump()
+@@ -85,8 +85,17 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
+                                           action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning))
+     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+     if action in (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN):
+-        item = OverlayItem(item_id="o-" + uuid.uuid4().hex[:8], match_id=p.match_id, layer=p.layer, t_start_ms=p.t_start_ms,
+-                           t_end_ms=p.t_end_ms, line=p.override_line or p.line, payload=p.payload, source_proposal_id=p.proposal_id)
++        # The gate is structural: a packet cannot exist without approval fields, so nothing generated
++        # reaches a renderer unless an operator (never the SLA timer) approved or overrode it.
++        entry = hub.decisions[-1]
++        item = OverlayPacket(cue_id=p.cue_id or "c-" + p.proposal_id, match_id=p.match_id, layer=p.layer,
++                             t_in_ms=p.t_in_ms or p.t_start_ms, t_out_ms=p.t_out_ms or p.t_end_ms,
++                             period=1 if (hub.state or {}).get("period", 1) == 1 else 2,
++                             clock_ms=(hub.state or {}).get("t_ms", 0), priority=p.priority, replaces=p.replaces,
++                             min_hold_ms=p.min_hold_ms, line=p.override_line or p.line, payload=p.payload,
++                             verified=p.faithfulness is None or p.faithfulness >= 0.8, fallback=p.fallback,
++                             evidence=[e.event_id for e in p.evidence], source_proposal_id=p.proposal_id,
++                             approval_id=entry.entry_id, approved_by=d.actor, approved_at=p.decided_at)
+         variants = hub.results.get(p.moment_id, {}).get("variants", [])
+         await hub.broadcast_viewers(item, variants)
+         p.status = ProposalStatus.AIRED
+@@ -110,6 +119,21 @@ async def override(proposal_id: str, d: Decision):
+     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
+ 
+ 
++@app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
++async def reject(proposal_id: str, d: Decision = Decision()):
++    return await _decide(proposal_id, ProposalStatus.REJECTED, d)
++
++
++@app.get("/decisions.csv")
++async def decisions_csv():
++    from fastapi.responses import PlainTextResponse
++    rows = ["entry_id,match_id,proposal_id,action,actor,at,reasoning"]
++    for e in hub.decisions:
++        a = e.action.value if hasattr(e.action, "value") else str(e.action)
++        rows.append(f"{e.entry_id},{e.match_id},{e.proposal_id},{a},{e.actor},{e.at.isoformat()},\"{(e.reasoning or '').replace('\"', '')}\"")
++    return PlainTextResponse("\n".join(rows), media_type="text/csv")
++
++
+ @app.get("/proposals")
+ async def list_proposals(status: ProposalStatus | None = None):
+     return [p for p in hub.proposals.values() if status is None or p.status == status]
+@@ -206,7 +230,7 @@ async def ws_operator(ws: WebSocket):
+ 
+ 
+ @app.websocket("/ws/viewer")
+-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, lang: str = "en", club: str | None = None):
++async def ws_viewer(ws: WebSocket, persona: Persona = Persona.DEAF, lang: str = "en", club: str | None = None):
+     await ws.accept()
+     hub.viewers[ws] = {"persona": persona.value, "lang": lang, "club": club}
+     try:
+diff --git a/web/src/views/Viewer.tsx b/web/src/views/Viewer.tsx
+index fa11c8a..a9f492e 100644
+--- a/web/src/views/Viewer.tsx
++++ b/web/src/views/Viewer.tsx
+@@ -1,10 +1,10 @@
+ import { useEffect, useState } from "react";
+ import { WS } from "../api";
+ 
+-const LANGS = { en: "English", es: "Español", hi: "हिन्दी", ar: "العربية" } as const;
++const LANGS = { en: "English", es: "Español", hi: "हिन्दी" } as const;
+ 
+ export default function Viewer() {
+-  const [persona, setPersona] = useState<"analyst" | "fan" | "accessibility">("fan");
++  const [persona, setPersona] = useState<"deaf" | "fan" | "analyst">("deaf");
+   const [lang, setLang] = useState<keyof typeof LANGS>("en");
+   const [items, setItems] = useState<any[]>([]);
+ 
+@@ -16,11 +16,11 @@ export default function Viewer() {
+ 
+   const current = items[0];
+   return (
+-    <div className={`viewer ${lang === "ar" ? "rtl" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"}>
++    <div className="viewer">
+       <header>
+         <h1>Viewer</h1>
+         <select value={persona} onChange={(e) => setPersona(e.target.value as any)}>
+-          <option value="fan">Fan</option><option value="analyst">Analyst</option><option value="accessibility">Audio description</option>
++          <option value="deaf">Deaf fan (visual cues + captions)</option><option value="fan">Fan</option><option value="analyst">Analyst</option>
+         </select>
+         <select value={lang} onChange={(e) => setLang(e.target.value as any)}>
+           {Object.entries(LANGS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+-- 
+2.43.0
+
