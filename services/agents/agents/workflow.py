@@ -1,4 +1,9 @@
-"""Moment -> Explanation -> Narrative -> Variants, with the Producer running alongside.
+"""Moment -> Explanation -> Narrative -> English variants -> Spanish and Hindi, with the Producer alongside.
+
+Five agents: explainer (why it matters), narrator (the English on-air line, and half/full-time recaps),
+producer (the graphic and its evidence), personalizer (English versions per persona and access), and
+localizer (Spanish and Hindi from the English versions, in one call). Placement, numbers, the strike cue
+and the deaf fan's card are code, not agents.
 
 Shared state is the `Moment` (which carries a MatchState snapshot) plus the proposal queue. Each
 step has a timeout and a deterministic fallback so the pipeline always yields something the
@@ -98,10 +103,51 @@ def _fallback_text(m: Moment, line: str, persona: Persona, access: Access) -> st
     return text
 
 
+BASE_LANG = "en"
+
+
 def fallback_variants(m: Moment, line: str, requests: list[VariantRequest]) -> list[NarrativeVariant]:
+    """English only. The fallback never writes Spanish or Hindi: English text labeled as another language would
+    be a lie, so those viewers get the API's template line (or the approved English line) instead (#17)."""
     return [NarrativeVariant(moment_id=m.moment_id, persona=persona, access=access, lang=lang,  # type: ignore[arg-type]
                              text=_fallback_text(m, line, persona, access), cites=list(m.event_ids))
-            for persona, access, lang, _focus in requests]
+            for persona, access, lang, _focus in requests if lang == BASE_LANG]
+
+
+def english_requests(requests: list[VariantRequest]) -> list[VariantRequest]:
+    """The English versions the personalizer must write: one per persona and access asked for in any language."""
+    seen: dict[tuple, VariantRequest] = {}
+    for persona, access, _lang, focus in requests:
+        seen.setdefault((persona, access), (persona, access, BASE_LANG, focus))
+    return list(seen.values())
+
+
+def localize_targets(requests: list[VariantRequest]) -> list[tuple[Persona, Access, str]]:
+    return list(dict.fromkeys((p, a, lang) for p, a, lang, _f in requests if lang != BASE_LANG))
+
+
+def keep_localized(raw: list[NarrativeVariant], english: list[NarrativeVariant],
+                   targets: list[tuple[Persona, Access, str]]) -> list[NarrativeVariant]:
+    """Code, not trust: keep only requested non-English versions with an English source, one per target, and
+    give each the cites of its English source (the localizer translates; it does not re-cite)."""
+    source = {(v.persona, v.access): v for v in english}
+    wanted = set(targets)
+    out: dict[tuple, NarrativeVariant] = {}
+    for v in raw:
+        key = (v.persona, v.access, v.lang)
+        src = source.get((v.persona, v.access))
+        if key in wanted and src is not None and key not in out:
+            out[key] = v.model_copy(update={"cites": list(src.cites), "moment_id": src.moment_id})
+    return list(out.values())
+
+
+def _parse_variants(res, err: str | None, label: str, fallback) -> tuple[list[NarrativeVariant], str | None]:
+    if isinstance(res, str):
+        try:
+            return [NarrativeVariant.model_validate(v) for v in json.loads(res)], err
+        except Exception as ex:  # noqa: BLE001
+            return fallback(), err or f"{label}: bad JSON: {ex}"
+    return res, err
 
 
 def priority_from_importance(importance: float) -> int:
@@ -149,6 +195,7 @@ class MomentPipeline:
         self.explainer = make_agent("explainer", _prompt("explainer"), Explanation)
         self.narrator = make_agent("narrator", _prompt("narrator"))
         self.personalizer = make_agent("personalizer", _prompt("personalizer"))
+        self.localizer = make_agent("localizer", _prompt("localizer"))
         self.producer = make_agent("producer", _prompt("producer"), OverlayProposal)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
@@ -168,28 +215,34 @@ class MomentPipeline:
         if err:
             failures.append(err)
 
-        # personalizer and producer are independent once the line exists -> run concurrently
+        # The producer runs alongside the personalizer -> localizer chain once the line exists.
+        en_requests = english_requests(requests)
+        targets = localize_targets(requests)
+
         async def _variants():
-            wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in requests]
-            res, e = await _run(self.personalizer, {"line": line, "moment": moment_json, "intel": intel,
-                                                    "requests": wanted},
-                                None, lambda: fallback_variants(m, line, requests))
-            if isinstance(res, str):
-                try:
-                    res = [NarrativeVariant.model_validate(v) for v in json.loads(res)]
-                except Exception as ex:  # noqa: BLE001
-                    e = e or f"personalizer: bad JSON: {ex}"
-                    res = fallback_variants(m, line, requests)
-            return res, e
+            wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in en_requests]
+            raw, e1 = await _run(self.personalizer, {"line": line, "moment": moment_json, "intel": intel,
+                                                     "requests": wanted},
+                                 None, lambda: fallback_variants(m, line, en_requests))
+            english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests))
+            english = [v for v in english if v.lang == BASE_LANG]
+            if not targets:
+                return english, [e1]
+            want = [{"persona": p.value, "access": a, "lang": lang} for p, a, lang in targets]
+            source = [v.model_dump(mode="json") for v in english]
+            raw, e2 = await _run(self.localizer, {"line": line, "variants": source, "moment": moment_json,
+                                                  "intel": intel, "names": _names(meta), "targets": want}, None, list)
+            localized, e2 = _parse_variants(raw, e2, "localizer", list)
+            return english + keep_localized(localized, english, targets), [e1, e2]
 
         async def _proposal():
             return await _run(self.producer, {"moment": moment_json, "explanation": expl.model_dump(), "line": line,
                                               "intel": intel, "on_air": on_air or []}, OverlayProposal,
                               lambda: fallback_proposal(m, expl, line))
 
-        (variants, e1), (proposal, e2) = await asyncio.gather(_variants(), _proposal())
+        (variants, variant_errors), (proposal, e3) = await asyncio.gather(_variants(), _proposal())
         proposal = with_intel(proposal, m, _name_of(meta))
-        failures += [e for e in (e1, e2) if e]
+        failures += [e for e in (*variant_errors, e3) if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
                             failures=failures, intel=intel_payload(intel_for(m), _prefer(m), _name_of(meta)))
 
@@ -213,6 +266,13 @@ def _says_already(line: str, clause: str) -> bool:
 
 def _prefer(m: Moment) -> str | None:
     return "pass" if m.kind == MomentKind.STANDOUT_PASS else None
+
+
+def _names(meta: MatchMeta | None) -> list[str]:
+    """Player and club names the localizer must keep exactly as written."""
+    if meta is None:
+        return []
+    return [t.name for t in (meta.home, meta.away)] + [p.name for t in (meta.home, meta.away) for p in t.players]
 
 
 def _name_of(meta: MatchMeta | None) -> NameOf:

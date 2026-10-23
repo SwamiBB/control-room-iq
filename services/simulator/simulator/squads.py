@@ -1,10 +1,7 @@
 """Fictional squad generation (no real clubs, players, or venues).
 
-Two paths produce `Team` objects:
-1. `generate_team` - deterministic, seedable, offline. Always available.
-2. `agents.squad_author` (services/agents) - a Foundry agent that writes richer teams and storylines
-   and returns the same schema. Use it to extend the dataset; the engine does not care which path
-   produced the squad.
+`generate_team` is deterministic, seedable and offline. The reference matches use the hand-written clubs in
+`data/clubs.json`. (An LLM squad-authoring agent was planned and cut on Oct 22.)
 """
 
 from __future__ import annotations

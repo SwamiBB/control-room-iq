@@ -193,9 +193,11 @@ def test_every_agent_receives_the_intel_block():
     pipeline.explainer = _RecordingAgent(_expl(m).model_dump_json())
     pipeline.narrator = _RecordingAgent("Arden splits the line")
     pipeline.personalizer = _RecordingAgent("[]")
+    pipeline.localizer = _RecordingAgent("[]")
     pipeline.producer = _RecordingAgent(fallback_proposal(m, _expl(m), "x").model_dump_json())
     asyncio.run(pipeline.process(m))
-    for agent in (pipeline.explainer, pipeline.narrator, pipeline.personalizer, pipeline.producer):
+    for agent in (pipeline.explainer, pipeline.narrator, pipeline.personalizer, pipeline.localizer,
+                  pipeline.producer):
         intel = agent.inputs[0]["intel"]
         assert intel["metrics"]["key_pass"]["difficulty"] == 0.82
         assert any("38.5 m" in f for f in intel["facts"])

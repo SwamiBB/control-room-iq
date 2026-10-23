@@ -1,9 +1,9 @@
 ## Agents work: Siranjeevi's consolidated list
 
-Last updated: Friday, October 23, 2026, night (Central). Checked against `main` at `3464296` (#20). Merges
+Last updated: Friday, October 23, 2026, late night (Central). Checked against `main` at `7c99cd1` (#24). Merges
 Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOFF-2026-10-23-agents-web.md` and
 `HANDOFF-2026-10-24-match-intelligence.md`. #19 added `agents/match_intel.py` and touched the prompts and
-`workflow.py`; none of the items below are done yet.
+`workflow.py`. Item 5 is done on `feat/localizer-agent`; the rest are not started.
 
 | # | Task | Status | Why it is next |
 | --- | --- | --- | --- |
@@ -11,8 +11,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 | 2 | **`scheduler.py`** with tests | Does not exist | A Friday must-have, now overdue. Until it lands, a fired graphic airs at once, unscheduled |
 | 3 | **Router clients per agent** with `model_served` | Settings exist, nothing wired | Needs the three router deployments in Bicep (Swami). Until then everything uses `model-router` |
 | 4 | **#10:** check the agents get real replies from the live `model-router` | Waiting on 1, and on the Foundry User role | First real test against Azure |
-| 5 | **Personalizer prompt** and the **fallback bug** (#17) | Open | Asked in the Oct 23 handoff; wrong text reaches viewers until fixed |
-| 6 | **`register_agents.py`** (Saturday), **evaluations** and the README table (Monday) | Do not exist | Saturday and Monday deliverables |
+| 5 | **Localizer agent**, **personalizer prompt** and the **fallback bug** (#17) | Done on `feat/localizer-agent` (review and merge) | Decided Oct 24: five agents, with Spanish and Hindi from a dedicated Localizer |
+| 6 | **`register_agents.py`** for the **five** agents (Saturday), **evaluations** and the README table (Monday) | Do not exist | Saturday and Monday deliverables |
 
 ### Details
 
@@ -37,7 +37,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 
 **3. Router clients (`clients.py`, `config.py`)**
 - One client per router deployment: explainer and producer → `ROUTER_QUALITY`, narrator → `ROUTER_BALANCED`,
-  personalizer → `ROUTER_COST`. Fall back to `MODEL_ROUTER_DEPLOYMENT` when a mode's deployment is missing.
+  personalizer and localizer → `ROUTER_COST`. `agents/config.py` now has `AGENT_ROUTING` and `deployment_for(agent)`,
+  which falls back to `MODEL_ROUTER_DEPLOYMENT`; `make_agent` should build each agent's client from it.
 - Read `response.model` into `meta.model_served` and `meta.routing` on each output; span attributes
   `crq.agent`, `crq.routing`, `crq.model_served`. The README promises "the model that served each call is
   recorded".
@@ -48,18 +49,22 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 - After 1 and the Foundry User role: run the reference match with `CRQ_OFFLINE=0`, confirm every agent
   returns a model reply (not a fallback), and note the served models for the README.
 
-**5. Personalizer prompt and fallback**
-- `prompts/personalizer.md`: remove the old `accessibility` (audio description) persona and Arabic. Personas
-  are newcomer, fan, analyst; `deaf` is an access setting on top of any of them; languages en, es, hi. The
-  match-intelligence rules already in the prompt stay.
-- `workflow.py` `fallback_variants` (#17): stop copying the English line into `es` / `hi` and labeling it with
-  that language. Emit English only; the API then sends the proper template line.
+**5. Localizer, personalizer prompt and fallback (done on `feat/localizer-agent`; review)**
+- New **Localizer** agent (`prompts/localizer.md`, `router-cost`): renders the personalizer's English versions
+  into Spanish and Hindi in one call, keeping numbers, units and names exactly. Code keeps only the requested
+  targets, copies the English version's cites and drops anything labeled English (`keep_localized`).
+- `prompts/personalizer.md` rewritten: English only; personas newcomer, fan, analyst; `deaf` is an access
+  setting; the old `accessibility` persona and Arabic are gone; the match-intelligence rules stay.
+- `fallback_variants` (#17): English only. Offline or on a localizer failure, Spanish and Hindi viewers get the
+  API's template line, never English labeled as their language.
+- The unused squad-author prompt is removed. Tests: `services/agents/tests/test_localizer.py`.
 - **`fan_card`: no longer needed from the agents.** The API builds the deaf fan's card in code
   (`api/fan_card.py`, on `main` (#23)). If the workflow ever builds one, the API
   uses it instead.
 
 **6. `register_agents.py` and evaluations**
-- `register_agents.py`: create or update the four agents by name in Foundry Agent Service
+- `register_agents.py`: create or update the five agents by name (explainer, narrator, producer, personalizer,
+  localizer) in Foundry Agent Service
   (`azure-ai-projects`), so they are inspectable in the portal; the runner still executes them locally.
 - `evals/run_eval.py`: replay the reference match offline, submit a Foundry evaluation run (groundedness,
   relevance, fluency per language), run the planted-falsehood set (Pranav's `evals/datasets/`), write
