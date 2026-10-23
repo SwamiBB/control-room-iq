@@ -1,3 +1,3 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-export default defineConfig({ plugins: [react()], server: { proxy: { "/ws": { target: "ws://localhost:8000", ws: true }, "/proposals": "http://localhost:8000", "/matches": "http://localhost:8000", "/state": "http://localhost:8000", "/decisions": "http://localhost:8000" } } });
+export default defineConfig({ plugins: [react()], server: { proxy: { "/ws": { target: "ws://localhost:8000", ws: true }, "/proposals": "http://localhost:8000", "/matches": "http://localhost:8000", "/state": "http://localhost:8000", "/decisions": "http://localhost:8000", "/packages": "http://localhost:8000", "/metrics": "http://localhost:8000", "/viewer-groups": "http://localhost:8000", "/schedule": "http://localhost:8000", "/recap": "http://localhost:8000", "/deliveries": "http://localhost:8000" } } });
