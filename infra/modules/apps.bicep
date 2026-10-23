@@ -55,7 +55,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
-      scale: { minReplicas: 1, maxReplicas: 3 }
+      // One replica: proposals, decisions and viewer sockets live in memory in the API.
+      scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
 }
@@ -75,18 +76,9 @@ resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
         env: commonEnv
         resources: { cpu: json('0.5'), memory: '1Gi' }
       } ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 4
-        rules: [ {
-          name: 'eventhub-lag'
-          custom: {
-            type: 'azure-eventhub'
-            metadata: { eventHubNamespace: eventHubNamespaceFqdn, eventHubName: 'crq-events', consumerGroup: '$Default', unprocessedEventThreshold: '64' }
-            identity: identityId
-          }
-        } ]
-      }
+      // One replica until the consumer has a checkpoint store: without one, every replica reads every
+      // partition and moments are duplicated, so an Event Hubs scale rule would do more harm than good.
+      scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
 }
