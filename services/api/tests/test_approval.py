@@ -2,10 +2,9 @@ import os
 
 os.environ["CRQ_OFFLINE"] = "1"
 
-from fastapi.testclient import TestClient  # noqa: E402
-
 from api.main import app, hub  # noqa: E402
 from crq_schemas import OverlayLayer, OverlayProposal  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 
 def _seed_proposal(pid="p-test"):

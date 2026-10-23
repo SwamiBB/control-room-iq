@@ -11,18 +11,24 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from agents.workflow import MomentPipeline
+from crq_schemas import (
+    Access,
+    DecisionLogEntry,
+    MatchEvent,
+    MatchMeta,
+    OverlayPacket,
+    OverlayProposal,
+    Persona,
+    ProposalStatus,
+)
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from agents.workflow import MomentPipeline
-from crq_schemas import (Access, DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
-                         ProposalStatus)
 from ingest.stats import StateFolder
+from pydantic import BaseModel
 
 app = FastAPI(title="Control Room IQ API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -79,10 +85,11 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
         raise HTTPException(404, "proposal not found")
     if p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         raise HTTPException(409, f"proposal already {p.status.value}")
-    p.status, p.decided_by, p.decided_at = action, d.actor, datetime.now(timezone.utc)
+    p.status, p.decided_by, p.decided_at = action, d.actor, datetime.now(UTC)
     if d.override_line:
         p.override_line = d.override_line
-    hub.decisions.append(DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
+    hub.decisions.append(DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id,
+                                          proposal_id=p.proposal_id,
                                           action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning))
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     if action in (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN):
@@ -104,13 +111,13 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
 
 
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
-async def approve(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.APPROVED, d)
+async def approve(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.APPROVED, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
-async def hold(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.HELD, d)
+async def hold(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.HELD, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/override", response_model=OverlayProposal)
@@ -121,8 +128,8 @@ async def override(proposal_id: str, d: Decision):
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
-async def reject(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.REJECTED, d)
+async def reject(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
 
 
 @app.get("/decisions.csv")
@@ -131,7 +138,9 @@ async def decisions_csv():
     rows = ["entry_id,match_id,proposal_id,action,actor,at,reasoning"]
     for e in hub.decisions:
         a = e.action.value if hasattr(e.action, "value") else str(e.action)
-        rows.append(f"{e.entry_id},{e.match_id},{e.proposal_id},{a},{e.actor},{e.at.isoformat()},\"{(e.reasoning or '').replace('\"', '')}\"")
+        # Python 3.11 cannot reuse quotes inside f-string expressions; #2 replaces this with csv.writer.
+        reasoning = (e.reasoning or "").replace('"', "")
+        rows.append(f'{e.entry_id},{e.match_id},{e.proposal_id},{a},{e.actor},{e.at.isoformat()},"{reasoning}"')
     return PlainTextResponse("\n".join(rows), media_type="text/csv")
 
 
@@ -209,7 +218,8 @@ async def _replay(path: Path, speed: float, min_importance: float) -> None:
                                                **hub.results[m.moment_id]})
                 if res.proposal:
                     hub.proposals[res.proposal.proposal_id] = res.proposal
-                    await hub.broadcast_operators({"type": "proposal", "proposal": res.proposal.model_dump(mode="json")})
+                    msg = {"type": "proposal", "proposal": res.proposal.model_dump(mode="json")}
+                    await hub.broadcast_operators(msg)
                     asyncio.create_task(_auto_hold(res.proposal.proposal_id))
 
 

@@ -18,7 +18,7 @@ Design rules encoded here (see docs/CHANGES-2026-10-23.md):
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -71,7 +71,7 @@ class MatchMeta(BaseModel):
 # ---------------------------------------------------------------------------------------------
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     KICKOFF = "kickoff"
     PASS = "pass"
     CARRY = "carry"
@@ -222,7 +222,8 @@ class MatchState(BaseModel):
     home: TeamStats
     away: TeamStats
     players: dict[str, PlayerStats] = Field(default_factory=dict)
-    momentum: list[float] = Field(default_factory=list, description="Rolling momentum per minute, -1 (away) to +1 (home)")
+    momentum: list[float] = Field(default_factory=list,
+                                  description="Rolling momentum per minute, -1 (away) to +1 (home)")
     momentum_label: Literal["home_pushing", "balanced", "away_pushing"] = "balanced"
     pressure_windows: list[dict[str, float]] = Field(default_factory=list)
     pressure_trend: Literal["rising", "steady", "falling"] = "steady"
@@ -238,7 +239,7 @@ class MatchState(BaseModel):
 # ---------------------------------------------------------------------------------------------
 
 
-class MomentKind(str, Enum):
+class MomentKind(StrEnum):
     GOAL = "goal"
     BIG_CHANCE = "big_chance"
     MOMENTUM_SHIFT = "momentum_shift"
@@ -291,7 +292,7 @@ class Explanation(BaseModel):
     meta: AgentMeta = Field(default_factory=AgentMeta)
 
 
-class Persona(str, Enum):
+class Persona(StrEnum):
     """How much the viewer knows: sets wording and depth."""
 
     NEWCOMER = "newcomer"  # explains terms in plain language, e.g. chance quality instead of xG
@@ -353,7 +354,8 @@ class FanDetail(BaseModel):
     shooter: str | None = None
     zone: str | None = None
     outcome: str | None = None
-    chance_quality: str | None = Field(default=None, description="Plain language, e.g. 'about 1 in 3 chances like this go in'")
+    chance_quality: str | None = Field(default=None,
+                                       description="Plain language, e.g. 'about 1 in 3 chances like this go in'")
     xg: float | None = None
     score: str | None = None
 
@@ -381,7 +383,7 @@ class FanCard(BaseModel):
 # ---------------------------------------------------------------------------------------------
 
 
-class OverlayLayer(str, Enum):
+class OverlayLayer(StrEnum):
     LOWER_THIRD = "lower_third"
     STAT_PANEL = "stat_panel"
     HEATMAP = "heatmap"
@@ -392,7 +394,7 @@ class OverlayLayer(str, Enum):
     PITCH_OVERLAY = "pitch_overlay"
 
 
-class ProposalStatus(str, Enum):
+class ProposalStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"
     HELD = "held"
@@ -485,7 +487,7 @@ class OverlayPacket(BaseModel):
 OverlayItem = OverlayPacket
 
 
-class DecisionAction(str, Enum):
+class DecisionAction(StrEnum):
     APPROVE = "approved"
     HOLD = "held"
     OVERRIDE = "overridden"

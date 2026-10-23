@@ -17,8 +17,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import get_args
 
-from crq_schemas import (Access, Explanation, Moment, MomentKind, NarrativeVariant, OverlayLayer, OverlayProposal,
-                         Persona)
+from crq_schemas import (
+    Access,
+    Explanation,
+    Moment,
+    MomentKind,
+    NarrativeVariant,
+    OverlayLayer,
+    OverlayProposal,
+    Persona,
+)
 
 from .clients import make_agent
 from .config import settings
@@ -44,8 +52,9 @@ class MomentResult:
 
 def fallback_explanation(m: Moment) -> Explanation:
     s = m.state
-    pattern = {MomentKind.GOAL: "individual", MomentKind.BIG_CHANCE: "chaos", MomentKind.PRESSURE_SPIKE: "pressure_shift",
-               MomentKind.MOMENTUM_SHIFT: "rhythm_change", MomentKind.SPEED_THRESHOLD: "individual"}.get(m.kind, "control")
+    pattern = {MomentKind.GOAL: "individual", MomentKind.BIG_CHANCE: "chaos",
+               MomentKind.PRESSURE_SPIKE: "pressure_shift", MomentKind.MOMENTUM_SHIFT: "rhythm_change",
+               MomentKind.SPEED_THRESHOLD: "individual"}.get(m.kind, "control")
     why = (f"{m.summary}. Possession {s.home.possession_pct:.0f}-{s.away.possession_pct:.0f}, "
            f"xG {s.home.xg:.2f}-{s.away.xg:.2f}, score {s.home.goals}-{s.away.goals}.")
     return Explanation(moment_id=m.moment_id, headline=m.summary[:60], why_it_matters=why, pattern=pattern,  # type: ignore[arg-type]
@@ -86,13 +95,15 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
     layer = {MomentKind.GOAL: OverlayLayer.FULL_SCREEN, MomentKind.HALF_END: OverlayLayer.FULL_SCREEN,
              MomentKind.MATCH_END: OverlayLayer.FULL_SCREEN, MomentKind.PRESSURE_SPIKE: OverlayLayer.HEATMAP,
              MomentKind.MOMENTUM_SHIFT: OverlayLayer.STAT_PANEL}.get(m.kind, OverlayLayer.LOWER_THIRD)
-    dur = {OverlayLayer.FULL_SCREEN: 18000, OverlayLayer.STAT_PANEL: 15000, OverlayLayer.HEATMAP: 15000}.get(layer, 10000)
+    dur = {OverlayLayer.FULL_SCREEN: 18000, OverlayLayer.STAT_PANEL: 15000,
+           OverlayLayer.HEATMAP: 15000}.get(layer, 10000)
     s = m.state
-    return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id, layer=layer,
-                           t_start_ms=m.t_ms + 2000, t_end_ms=m.t_ms + 2000 + dur, line=line,
-                           payload={"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
-                                    "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]},
-                           reasoning=f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}.",
+    payload = {"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
+               "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]}
+    reasoning = f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}."
+    return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id,
+                           layer=layer, t_start_ms=m.t_ms + 2000, t_end_ms=m.t_ms + 2000 + dur, line=line,
+                           payload=payload, reasoning=reasoning,
                            priority=priority_from_importance(m.importance))
 
 
@@ -151,4 +162,5 @@ class MomentPipeline:
 
         (variants, e1), (proposal, e2) = await asyncio.gather(_variants(), _proposal())
         failures += [e for e in (e1, e2) if e]
-        return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal, failures=failures)
+        return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
+                            failures=failures)
