@@ -223,10 +223,11 @@ def intel_context(m: Moment, name_of: NameOf) -> dict:
     metrics = intel_for(m)
     return {"metrics": metrics.model_dump(mode="json", exclude_none=True) if metrics else None,
             "facts": intel_facts(metrics, name_of),
-            "team_pass_accuracy_pct": _team_accuracy(m.state)}
+            "team_pass_accuracy_pct": team_pass_accuracy(m.state)}
 
 
-def _team_accuracy(state: MatchState) -> dict[str, float | None]:
+def team_pass_accuracy(state: MatchState) -> dict[str, float | None]:
+    """Completion % per team, as given to the agents (and so on the variant checks' allow-list)."""
     def acc(t) -> float | None:
         if t.pass_accuracy_pct is not None:
             return t.pass_accuracy_pct

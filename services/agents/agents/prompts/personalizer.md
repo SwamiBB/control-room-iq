@@ -20,4 +20,6 @@ Match intelligence (`intel` in the input) — use it per persona, numbers exactl
 - analyst: the precise figure in parentheses: speed in km/h, pass distance in m with difficulty
   0-1 and the passer's accuracy %, shot speed in km/h.
 - deaf access: say who and where on the pitch first; a speed or pass rating only after that.
-Never add a number that is not in `intel.metrics`, `intel.facts` or the state snapshot.
+Never add a number that is not in `intel.metrics`, `intel.facts` or `intel.team_pass_accuracy_pct`, or the
+score, xG, possession, shots and minute from the state snapshot. Any other number fails the API's variant
+checks, and that viewer gets a template line instead of your variant.

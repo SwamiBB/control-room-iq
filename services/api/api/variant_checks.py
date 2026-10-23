@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from agents.match_intel import intel_for, intel_numbers
+from agents.match_intel import intel_for, intel_numbers, team_pass_accuracy
 from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayLayer, OverlayProposal
 
 BASE_LANG = "en"  # language of the proposal line the operator approves
@@ -59,7 +59,8 @@ def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     player = state.players.get(m.player or "")
     stats = [player.goals, player.shots, player.xg, player.passes, player.top_speed_kmh] if player else []
     # Match intelligence (speeds, distances, pass ratings) is ground truth too, so a variant may quote it.
-    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m))]
+    accuracy = [a for a in team_pass_accuracy(state).values() if a is not None]  # also in the agents' intel input
+    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy]
 
 
 def _players(meta: MatchMeta | None) -> list[tuple[str, str]]:
