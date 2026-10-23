@@ -20,6 +20,7 @@ from pathlib import Path
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     Access,
+    Allegiance,
     DecisionLogEntry,
     FanCard,
     FanCue,
@@ -43,7 +44,8 @@ from .clock import PlayClock
 from .exports import decisions_to_csv
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
-from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer, parse_viewer
+from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer, parse_viewer, with_perspective
+from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
 
@@ -93,7 +95,8 @@ class Hub:
 
     async def broadcast_viewers(self, packet: OverlayPacket, variants: list[NarrativeVariant]) -> None:
         for ws, prefs in list(self.viewers.items()):
-            item = for_viewer(packet, variants, prefs).model_dump(mode="json")
+            framing = perspective(self.match_state, prefs, self.meta) if self.match_state else None
+            item = with_perspective(for_viewer(packet, variants, prefs), framing).model_dump(mode="json")
             try:
                 await ws.send_json({"type": "overlay", "item": item})
             except Exception:  # noqa: BLE001
@@ -360,7 +363,7 @@ async def ws_overlay(ws: WebSocket):
 
 @app.websocket("/ws/viewer")
 async def ws_viewer(ws: WebSocket, persona: str = "fan", access: Access = "none", lang: Lang = "en",
-                    club: str | None = None):
+                    allegiance: Allegiance = "neutral"):
     try:
         persona_value, access_value = parse_viewer(persona, access)
     except ValueError:
@@ -368,7 +371,7 @@ async def ws_viewer(ws: WebSocket, persona: str = "fan", access: Access = "none"
         await ws.close(code=1008)
         return
     await ws.accept()
-    hub.viewers[ws] = ViewerPrefs(persona=persona_value, access=access_value, lang=lang, club=club)
+    hub.viewers[ws] = ViewerPrefs(persona=persona_value, access=access_value, lang=lang, allegiance=allegiance)
     try:
         while True:
             await ws.receive_text()

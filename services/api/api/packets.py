@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from crq_schemas import (
     Access,
+    Allegiance,
     DecisionLogEntry,
     FanCard,
     Lang,
@@ -28,7 +29,7 @@ class ViewerPrefs(BaseModel):
     persona: Persona = Persona.FAN
     access: Access = "none"
     lang: Lang = "en"
-    club: str | None = None
+    allegiance: Allegiance = "neutral"
 
 
 # The v0.2 draft had persona=deaf; Viewer.tsx still sends it until the front end splits the picker.
@@ -89,3 +90,11 @@ def for_viewer(packet: OverlayPacket, variants: list[NarrativeVariant], prefs: V
     if v is None:
         return packet
     return packet.model_copy(update={"line": v.text, "profile": v.persona, "access": v.access, "lang": v.lang})
+
+
+def with_perspective(packet: OverlayPacket, framing: dict | None) -> OverlayPacket:
+    """Adds supporter framing to the payload; the approved line is left exactly as it was."""
+    if framing is None:
+        return packet
+    payload = packet.payload | {"perspective": framing}
+    return packet.model_copy(update={"allegiance": framing["side"], "payload": payload})
