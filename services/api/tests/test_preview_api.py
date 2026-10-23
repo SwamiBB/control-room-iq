@@ -63,3 +63,10 @@ def test_picker_options_are_listed():
     groups = TestClient(app).get("/viewer-groups").json()
     assert {"key": "fan.deaf.es.neutral", "persona": "fan", "access": "deaf", "lang": "es",
             "allegiance": "neutral"} in groups
+
+
+def test_view_count_is_checked_before_any_view_is_parsed():
+    pid = _seed()
+    views = [("view", "not-a-view")] + [("view", "fan.none.en")] * 12
+    r = TestClient(app).get(f"/proposals/{pid}/preview", params=views)
+    assert r.status_code == 422 and "at most 12" in r.json()["detail"]

@@ -7,6 +7,7 @@ Pure functions: no I/O, no clock reads, no model calls.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from itertools import product
 from typing import get_args
 
@@ -30,6 +31,15 @@ class ViewerGroup(BaseModel):
     access: Access
     lang: Lang
     allegiance: Allegiance
+
+
+@dataclass(frozen=True)
+class PreviewContext:
+    """What the preview needs besides the proposal and its delivery plan."""
+
+    state: MatchState | None = None
+    meta: MatchMeta | None = None
+    override_line: str | None = None
 
 
 class PreviewItem(BaseModel):
@@ -82,13 +92,13 @@ def _text(d: Delivery, p: OverlayProposal, override_line: str | None) -> tuple[s
     return override_line or p.override_line or p.line, BASE_LANG
 
 
-def preview(p: OverlayProposal, plan: DeliveryPlan, views: list[ViewerPrefs], state: MatchState | None,
-            meta: MatchMeta | None, override_line: str | None = None) -> Preview:
+def preview(p: OverlayProposal, plan: DeliveryPlan, views: list[ViewerPrefs],
+            ctx: PreviewContext = PreviewContext()) -> Preview:  # noqa: B008 - frozen, so a shared default is safe
     items = []
     for prefs in views:
         d = choose_delivery(plan, prefs)
-        text, lang_shown = _text(d, p, override_line)
-        framing = perspective(state, prefs, meta) if state else None
+        text, lang_shown = _text(d, p, ctx.override_line)
+        framing = perspective(ctx.state, prefs, ctx.meta) if ctx.state else None
         items.append(PreviewItem(view=_group(prefs), source=d.source, text=text, lang_shown=lang_shown,  # type: ignore[arg-type]
                                  failures=list(d.failures), perspective=framing))
-    return Preview(proposal_id=p.proposal_id, override_line=override_line, items=items)
+    return Preview(proposal_id=p.proposal_id, override_line=ctx.override_line, items=items)

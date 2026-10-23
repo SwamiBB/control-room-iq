@@ -53,7 +53,17 @@ from .goal_package import build_goal_package, is_code_built
 from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
-from .preview import DEFAULT_VIEW, MAX_VIEWS, Preview, ViewerGroup, parse_view, preview, view_key, viewer_groups
+from .preview import (
+    DEFAULT_VIEW,
+    MAX_VIEWS,
+    Preview,
+    PreviewContext,
+    ViewerGroup,
+    parse_view,
+    preview,
+    view_key,
+    viewer_groups,
+)
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
 from .timing import (
@@ -316,16 +326,17 @@ async def preview_proposal(proposal_id: str, view: Annotated[list[str] | None, Q
     p = hub.proposals.get(proposal_id)
     if not p:
         raise HTTPException(404, "proposal not found")
+    if len(view or []) > MAX_VIEWS:  # before parsing, so a huge request is refused cheaply
+        raise HTTPException(422, f"pick at most {MAX_VIEWS} viewer groups")
     try:
         views = [parse_view(v) for v in view or []]
     except ValueError as ex:
         raise HTTPException(422, str(ex)) from ex
-    if len(views) > MAX_VIEWS:
-        raise HTTPException(422, f"pick at most {MAX_VIEWS} viewer groups")
     plan = _delivery_plan(p)
     if override_line:
         plan = replace(plan, is_override=True)
-    return preview(p, plan, views or _connected_views(), hub.match_state, hub.meta, override_line)
+    ctx = PreviewContext(state=hub.match_state, meta=hub.meta, override_line=override_line)
+    return preview(p, plan, views or _connected_views(), ctx)
 
 
 @app.get("/metrics", response_model=GalleryMetrics)

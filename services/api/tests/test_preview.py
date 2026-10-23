@@ -1,7 +1,7 @@
 """Preview before firing: the operator picks viewer groups and sees what each would get, and why."""
 
 from api.delivery import DeliveryPlan
-from api.preview import parse_view, preview, view_key, viewer_groups
+from api.preview import PreviewContext, parse_view, preview, view_key, viewer_groups
 from api.variant_checks import build_context
 from api_factories import match_state, proposal
 from crq_schemas import NarrativeVariant, Persona, TeamStats
@@ -44,7 +44,7 @@ def test_each_picked_group_shows_its_own_text_and_reason():
     plan = _plan(p, variants=[_variant("fan", "es", "Harbor City presiona fuerte.")],
                  templates={"hi": "Harbor City दबाव बना रहा है।"})
     views = [parse_view(k) for k in ("fan.none.en", "fan.none.es", "fan.none.hi")]
-    en, es, hi = preview(p, plan, views, None, None).items
+    en, es, hi = preview(p, plan, views).items
     assert (en.source, en.text, en.lang_shown) == ("base", "Harbor City pressing hard.", "en")
     assert (es.source, es.text, es.lang_shown) == ("variant", "Harbor City presiona fuerte.", "es")
     assert (hi.source, hi.lang_shown, hi.failures) == ("template", "hi", ["no_variant"])
@@ -53,7 +53,7 @@ def test_each_picked_group_shows_its_own_text_and_reason():
 def test_a_failed_variant_shows_why_and_falls_back_to_the_english_line():
     p = proposal(line="Harbor City pressing hard.")
     plan = _plan(p, variants=[_variant("fan", "hi", "Harbor City pressing hard.")])  # copied, not translated
-    (item,) = preview(p, plan, [parse_view("fan.none.hi")], None, None).items
+    (item,) = preview(p, plan, [parse_view("fan.none.hi")]).items
     assert (item.source, item.text, item.lang_shown) == ("base", "Harbor City pressing hard.", "en")
     assert "untranslated" in item.failures
 
@@ -61,14 +61,14 @@ def test_a_failed_variant_shows_why_and_falls_back_to_the_english_line():
 def test_a_typed_override_is_previewed_in_english_for_everyone():
     p = proposal(line="AI line")
     plan = _plan(p, variants=[_variant("fan", "es", "Línea IA")], override=True)
-    items = preview(p, plan, [parse_view("fan.none.es")], None, None, override_line="My own words").items
+    items = preview(p, plan, [parse_view("fan.none.es")], PreviewContext(override_line="My own words")).items
     assert [(i.source, i.text, i.lang_shown) for i in items] == [("override", "My own words", "en")]
 
 
 def test_supporters_see_the_score_from_their_side():
     state = match_state(home=TeamStats(team="har", goals=1), away=TeamStats(team="nor"))
     p = proposal()
-    away, neutral = preview(p, _plan(p), [parse_view("fan.none.en.away"), parse_view("fan.none.en")], state,
-                            None).items
+    away, neutral = preview(p, _plan(p), [parse_view("fan.none.en.away"), parse_view("fan.none.en")],
+                            PreviewContext(state=state)).items
     assert away.perspective["score"] == [0, 1] and away.perspective["score_text"] == "0–1 down"
     assert neutral.perspective is None
