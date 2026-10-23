@@ -7,7 +7,16 @@ decision.
 
 from __future__ import annotations
 
-from crq_schemas import DecisionLogEntry, FanCard, Lang, NarrativeVariant, OverlayPacket, OverlayProposal, Persona
+from crq_schemas import (
+    Access,
+    DecisionLogEntry,
+    FanCard,
+    Lang,
+    NarrativeVariant,
+    OverlayPacket,
+    OverlayProposal,
+    Persona,
+)
 from pydantic import BaseModel
 
 from .clock import PlayClock
@@ -16,9 +25,21 @@ VERIFIED_FAITHFULNESS = 0.8
 
 
 class ViewerPrefs(BaseModel):
-    persona: Persona = Persona.DEAF
+    persona: Persona = Persona.FAN
+    access: Access = "none"
     lang: Lang = "en"
     club: str | None = None
+
+
+# The v0.2 draft had persona=deaf; Viewer.tsx still sends it until the front end splits the picker.
+_LEGACY_PERSONAS: dict[str, tuple[Persona, Access]] = {"deaf": (Persona.FAN, "deaf")}
+
+
+def parse_viewer(persona: str, access: Access) -> tuple[Persona, Access]:
+    """Raises ValueError for an unknown persona."""
+    if persona in _LEGACY_PERSONAS:
+        return _LEGACY_PERSONAS[persona]
+    return Persona(persona), access
 
 
 def packet_slot(p: OverlayProposal, now_play_ms: int) -> tuple[int, int]:
@@ -57,11 +78,14 @@ def attach_fan_card(packet: OverlayPacket, card: FanCard | None) -> OverlayPacke
 
 
 def for_viewer(packet: OverlayPacket, variants: list[NarrativeVariant], prefs: ViewerPrefs) -> OverlayPacket:
-    """The approved packet as one viewer sees it: their persona and language variant when one exists.
+    """The approved packet as one viewer sees it: their persona, access and language variant if one exists.
 
-    Callers pass no variants for an override, so the operator's line reaches everyone verbatim.
+    Without an exact match the viewer gets the approved base line: a near match (say the hearing variant
+    for a deaf viewer) could break the access rules. Callers pass no variants for an override, so the
+    operator's line reaches everyone verbatim.
     """
-    v = next((v for v in variants if v.persona == prefs.persona and v.lang == prefs.lang), None)
+    wanted = (prefs.persona, prefs.access, prefs.lang)
+    v = next((v for v in variants if (v.persona, v.access, v.lang) == wanted), None)
     if v is None:
         return packet
-    return packet.model_copy(update={"line": v.text, "profile": v.persona, "lang": v.lang})
+    return packet.model_copy(update={"line": v.text, "profile": v.persona, "access": v.access, "lang": v.lang})

@@ -10,6 +10,7 @@ swapped for Cosmos DB persistence via `store.py`.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
+    Access,
     DecisionLogEntry,
     FanCard,
     FanCue,
@@ -29,7 +31,6 @@ from crq_schemas import (
     NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
-    Persona,
     ProposalStatus,
     Recap,
 )
@@ -42,7 +43,7 @@ from .clock import PlayClock
 from .exports import decisions_to_csv
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
-from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer
+from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer, parse_viewer
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
 
@@ -58,6 +59,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
+logger = logging.getLogger(__name__)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -99,7 +101,7 @@ class Hub:
 
     async def broadcast_fan_cue(self, cue: FanCue) -> None:
         for ws, prefs in list(self.viewers.items()):
-            if prefs.persona != Persona.DEAF:
+            if prefs.access != "deaf":
                 continue
             try:
                 await ws.send_json({"type": "fan_cue", "cue": cue.model_dump(mode="json")})
@@ -357,9 +359,16 @@ async def ws_overlay(ws: WebSocket):
 
 
 @app.websocket("/ws/viewer")
-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, lang: Lang = "en", club: str | None = None):
+async def ws_viewer(ws: WebSocket, persona: str = "fan", access: Access = "none", lang: Lang = "en",
+                    club: str | None = None):
+    try:
+        persona_value, access_value = parse_viewer(persona, access)
+    except ValueError:
+        logger.warning("viewer refused: unknown persona", extra={"crq.param": "persona"})
+        await ws.close(code=1008)
+        return
     await ws.accept()
-    hub.viewers[ws] = ViewerPrefs(persona=persona, lang=lang, club=club)
+    hub.viewers[ws] = ViewerPrefs(persona=persona_value, access=access_value, lang=lang, club=club)
     try:
         while True:
             await ws.receive_text()

@@ -24,9 +24,9 @@ class OrderCheckingPipeline:
         raise RuntimeError("stop after ordering check")
 
 
-def _viewer(persona: Persona) -> RecordingSocket:
+def _viewer(persona: Persona = Persona.FAN, access: str = "none") -> RecordingSocket:
     ws = RecordingSocket()
-    hub.viewers[ws] = ViewerPrefs(persona=persona)
+    hub.viewers[ws] = ViewerPrefs(persona=persona, access=access)
     return ws
 
 
@@ -51,7 +51,7 @@ def test_build_fan_cue_pulse_scales_with_importance():
 
 
 def test_chance_beat_cue_reaches_deaf_viewers_and_feed_before_the_pipeline_runs(monkeypatch):
-    deaf, renderer = _viewer(Persona.DEAF), RecordingSocket()
+    deaf, renderer = _viewer(access="deaf"), RecordingSocket()
     hub.feed.renderers.add(renderer)
     fake = OrderCheckingPipeline(deaf)
     monkeypatch.setattr(main, "pipeline", fake)
@@ -61,16 +61,16 @@ def test_chance_beat_cue_reaches_deaf_viewers_and_feed_before_the_pipeline_runs(
     assert renderer.of_type("fan_cue")[0]["item"]["cue_id"] == "fc-mo-1"
 
 
-def test_cue_goes_to_deaf_viewers_only(monkeypatch):
-    deaf, fan = _viewer(Persona.DEAF), _viewer(Persona.FAN)
+def test_cue_goes_to_deaf_access_viewers_of_any_persona_only(monkeypatch):
+    deaf, deaf_analyst, fan = _viewer(access="deaf"), _viewer(Persona.ANALYST, "deaf"), _viewer(Persona.FAN)
     monkeypatch.setattr(main, "pipeline", OrderCheckingPipeline(deaf))
     with pytest.raises(RuntimeError, match="ordering check"):
         asyncio.run(_handle_moment(moment(beat="chance")))
-    assert len(deaf.of_type("fan_cue")) == 1 and fan.sent == []
+    assert len(deaf.of_type("fan_cue")) == len(deaf_analyst.of_type("fan_cue")) == 1 and fan.sent == []
 
 
 def test_fan_card_from_the_pipeline_is_held_until_a_decision(monkeypatch):
-    deaf = _viewer(Persona.DEAF)
+    deaf = _viewer(access="deaf")
     m = moment(beat="result")
     card = FanCard(card_id="fc-1", match_id="m", moment_id=m.moment_id, play_ms=600_000, caption="Saved, low left")
     result = SimpleNamespace(explanation=fallback_explanation(m), line="Saved", variants=[], failures=[],
@@ -86,7 +86,7 @@ def test_fan_card_from_the_pipeline_is_held_until_a_decision(monkeypatch):
 
 
 def test_result_and_unbeaten_moments_publish_no_cue(monkeypatch):
-    deaf = _viewer(Persona.DEAF)
+    deaf = _viewer(access="deaf")
     monkeypatch.setattr(main, "pipeline", OrderCheckingPipeline(deaf))
     for beat in ("result", "none"):
         with pytest.raises(RuntimeError, match="ordering check"):
