@@ -12,15 +12,18 @@ services:
     language: python
     docker:
       path: services/api/Dockerfile
+      remoteBuild: true
   ingest:
     project: .
     host: containerapp
     language: python
     docker:
       path: services/ingest/Dockerfile
+      remoteBuild: true
   web:
     project: web
     host: containerapp
     language: js
     docker:
       path: Dockerfile
+      remoteBuild: true
