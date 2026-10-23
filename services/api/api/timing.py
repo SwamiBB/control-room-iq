@@ -16,6 +16,11 @@ SLA_HOLD_S = 20.0  # no decision in this long: the SLA timer holds the graphic
 SLA_WARN_S = 10.0  # the console starts warning this long before the hold
 MIN_SHELF_LIFE_MS = 60_000  # a held graphic gets at least one minute of play to be fired
 
+# Automated actors in the decision log. They may hold or expire a graphic, never air one.
+SLA_ACTOR = "sla-timer"
+EXPIRY_ACTOR = "expiry-rule"
+SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)
+
 
 def sla_times(proposed_at: datetime, hold_s: float = SLA_HOLD_S,
               warn_s: float = SLA_WARN_S) -> tuple[datetime, datetime]:

@@ -13,9 +13,8 @@ from collections.abc import Iterable
 from crq_schemas import DecisionLogEntry, OverlayProposal, ProposalStatus
 from pydantic import BaseModel, Field
 
-SLA_ACTOR = "sla-timer"
-EXPIRY_ACTOR = "expiry-rule"
-SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)
+from .timing import EXPIRY_ACTOR, SLA_ACTOR, SYSTEM_ACTORS
+
 FIRED = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
 TEN_MINUTES_MS = 600_000
 

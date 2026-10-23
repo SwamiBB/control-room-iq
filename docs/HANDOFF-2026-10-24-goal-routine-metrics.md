@@ -19,6 +19,9 @@ running order:
   decides every open item in order. Each item still gets its own decision row and its own `approval_id`.
   Single items can still be decided on their own with the `/proposals/{id}/...` routes.
 - The SLA timer cannot fire a package (403), the same as for single proposals.
+- `override_line` is accepted only on `POST /proposals/{id}/override`. Sending it to approve, hold, reject or
+  any package route returns 422, so one click can never put the same replacement text on every item.
+- A package decision first expires any stale held items, then fires what is still open.
 - Code-built items have no AI variants: every viewer gets the English line. The deaf fan's caption
   (`fan_card`) travels with the lead graphic only.
 - Code: `services/api/api/goal_package.py`; tests: `test_goal_package.py`, `test_packages_api.py`.
@@ -75,6 +78,9 @@ Code: `services/api/api/metrics.py`; tests: `test_metrics.py`.
 
 - Nothing required. The producer still proposes one goal graphic; the API adds the follow-ups. If the
   producer prompt names follow-ups in `alternatives`, keep them out of the line itself.
+- The API ignores decision, package and timing fields in the producer's output (`status`, `decided_*`,
+  `override_line`, `package_*`, `item_label`, `proposed_*`, `warn_at`, `hold_at`). `t_in_ms`/`t_out_ms` are kept
+  because the scheduler (code) sets them.
 
 ### @Pranav (pipeline)
 

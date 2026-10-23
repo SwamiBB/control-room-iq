@@ -53,7 +53,16 @@ from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, w
 from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
-from .timing import SLA_HOLD_S, SLA_WARN_S, shelf_life_ms, sla_times, stale_proposals
+from .timing import (
+    EXPIRY_ACTOR,
+    SLA_ACTOR,
+    SLA_HOLD_S,
+    SLA_WARN_S,
+    SYSTEM_ACTORS,
+    shelf_life_ms,
+    sla_times,
+    stale_proposals,
+)
 from .variant_checks import build_context
 
 
@@ -133,9 +142,6 @@ pipeline = MomentPipeline()
 
 # ---------- approval loop ----------
 
-SLA_ACTOR = "sla-timer"
-EXPIRY_ACTOR = "expiry-rule"
-SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)  # automated actors: they can hold or expire, never air
 AIRING_ACTIONS = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
 
 
@@ -159,7 +165,7 @@ def _open_proposal(proposal_id: str, action: ProposalStatus, d: Decision) -> Ove
 
 def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) -> DecisionLogEntry:
     p.status, p.decided_by, p.decided_at = action, d.actor, hub.now()
-    if d.override_line:
+    if action == ProposalStatus.OVERRIDDEN:
         p.override_line = d.override_line
     entry = DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
                              action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
@@ -219,14 +225,21 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
     return p
 
 
+def _without_override(d: Decision | None) -> Decision:
+    """Replacement text is only accepted on /override, so an approve can never quietly change the line."""
+    if d and d.override_line:
+        raise HTTPException(422, "override_line is only accepted on /override")
+    return d or Decision()
+
+
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
 async def approve(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.APPROVED, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.APPROVED, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
 async def hold(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.HELD, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.HELD, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/override", response_model=OverlayProposal)
@@ -238,7 +251,7 @@ async def override(proposal_id: str, d: Decision):
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.REJECTED, _without_override(d))
 
 
 # ---------- packages: several graphics, one decision ----------
@@ -264,13 +277,14 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     decision row and its own approval id on the packet, so the gate and the audit trail are unchanged."""
     if action not in PACKAGE_ACTIONS:
         raise HTTPException(404, f"action must be one of {sorted(PACKAGE_ACTIONS)}")
+    d = _without_override(d)
+    await _expire_stale()  # choose what to fire only after stale items have left the running order
     items = _package_items(package_id)
     if not items:
         raise HTTPException(404, "package not found")
     open_items = [p for p in items if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)]
     if not open_items:
         raise HTTPException(409, "package already decided")
-    d = d or Decision()
     return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
 
 
@@ -421,9 +435,21 @@ async def _handle_moment(m: Moment) -> None:
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     if res.proposal:
-        lead = res.proposal.model_copy(update={"proposed_at": hub.now()})
+        lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now()})
         for p in build_goal_package(lead, m, hub.meta):
             await _queue_proposal(p)
+
+
+# Decision, package and timing fields belong to the API. The producer agent returns a whole
+# OverlayProposal, so anything it put in these fields is discarded on arrival (e.g. a package_id that
+# would make its graphic fire with someone else's one-click package).
+_API_OWNED = ("status", "decided_by", "decided_at", "override_line", "proposed_at", "proposed_play_ms", "warn_at",
+              "hold_at", "package_id", "package_seq", "package_offset_ms", "item_label")
+
+
+def _from_agent(p: OverlayProposal) -> OverlayProposal:
+    return p.model_copy(update={name: OverlayProposal.model_fields[name].get_default(call_default_factory=True)
+                                for name in _API_OWNED})
 
 
 async def _queue_proposal(p: OverlayProposal) -> None:

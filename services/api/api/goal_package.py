@@ -35,13 +35,16 @@ def _minute(m: Moment) -> int:
     return m.t_ms // 60_000 + (45 if m.period == 2 else 0) + 1
 
 
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
 def stats_line(m: Moment, meta: MatchMeta | None) -> str:
     ps = m.state.players.get(m.player or "")
     name = _player_name(m.player, meta)
     if ps is None:
         return name
-    goals = f"{ps.goals} goal" + ("" if ps.goals == 1 else "s")
-    return f"{name} · {goals} · {ps.shots} shots · xG {ps.xg:.2f} today"
+    return f"{name} · {_count(ps.goals, 'goal')} · {_count(ps.shots, 'shot')} · xG {ps.xg:.2f} today"
 
 
 def ticker_line(m: Moment, meta: MatchMeta | None) -> str:

@@ -66,3 +66,9 @@ def test_other_moments_are_not_packaged():
     lead = _lead()
     assert build_goal_package(lead, moment(), _meta()) == [lead]
     assert lead.package_id is None
+
+
+def test_stats_line_uses_singular_for_one_shot():
+    m = _goal()
+    m.state.players["har-09"].shots = 1
+    assert stats_line(m, _meta()) == "Finn Oakes · 1 goal · 1 shot · xG 0.83 today"

@@ -90,3 +90,23 @@ def test_metrics_endpoint_reports_the_package_click():
     m = client.get("/metrics").json()
     assert m["workload"]["operator_decisions"] == 1 and m["workload"]["packages_fired"] == 1
     assert m["turnaround"]["fired"] == 3
+
+
+def test_override_line_is_refused_outside_the_override_route():
+    ids = _seed_package()
+    client = TestClient(app)
+    assert client.post(f"/packages/{PK}/approve", json={"override_line": "Same text on all three"}).status_code == 422
+    for action in ("approve", "hold", "reject"):
+        assert client.post(f"/proposals/{ids[0]}/{action}", json={"override_line": "x"}).status_code == 422
+    assert hub.packets == [] and all(hub.proposals[i].override_line is None for i in ids)
+
+
+def test_package_decision_expires_stale_items_before_choosing_what_to_fire():
+    ids = _seed_package()
+    for pid in ids[1:]:  # follow-ups were held long ago; the lead is still awaiting a decision
+        hub.proposals[pid].status, hub.proposals[pid].proposed_play_ms = ProposalStatus.HELD, 0
+    hub.clock.play_ms = 10 * 60_000
+    r = TestClient(app).post(f"/packages/{PK}/approve")
+    assert r.status_code == 200 and [p["proposal_id"] for p in r.json()] == ["p-g"]
+    assert [p.source_proposal_id for p in hub.packets] == ["p-g"]
+    assert {hub.proposals[i].status for i in ids[1:]} == {ProposalStatus.EXPIRED}
