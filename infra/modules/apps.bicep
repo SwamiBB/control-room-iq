@@ -1,4 +1,5 @@
-param prefix string
+param app string
+param suffix string
 param location string
 param tags object
 param identityId string
@@ -11,7 +12,7 @@ param foundryProjectEndpoint string
 param openAiEndpoint string
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: '${prefix}-cae'
+  name: 'caenv-${app}-${suffix}'
   location: location
   tags: tags
   properties: {
@@ -37,7 +38,7 @@ var commonEnv = [
 ]
 
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
-  name: '${prefix}-api'
+  name: 'ca-${app}-api-${suffix}'
   location: location
   tags: union(tags, { 'azd-service-name': 'api' })
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
@@ -60,7 +61,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
-  name: '${prefix}-ingest'
+  name: 'ca-${app}-ingest-${suffix}'
   location: location
   tags: union(tags, { 'azd-service-name': 'ingest' })
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
@@ -91,7 +92,7 @@ resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 resource web 'Microsoft.App/containerApps@2024-03-01' = {
-  name: '${prefix}-web'
+  name: 'ca-${app}-web-${suffix}'
   location: location
   tags: union(tags, { 'azd-service-name': 'web' })
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }

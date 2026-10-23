@@ -1,24 +1,26 @@
-param prefix string
+param app string
+param suffix string
 param location string
 param tags object
 
-var shortName = replace(prefix, '-', '')
+// Registry and storage account names allow letters and digits only.
+var flat = replace('${app}${suffix}', '-', '')
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${prefix}-id'
+  name: 'id-${app}-${suffix}'
   location: location
   tags: tags
 }
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: '${prefix}-logs'
+  name: 'law-${app}-${suffix}'
   location: location
   tags: tags
   properties: { sku: { name: 'PerGB2018' }, retentionInDays: 30 }
 }
 
 resource appi 'Microsoft.Insights/components@2020-02-02' = {
-  name: '${prefix}-appi'
+  name: 'appi-${app}-${suffix}'
   location: location
   tags: tags
   kind: 'web'
@@ -26,7 +28,7 @@ resource appi 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: '${shortName}acr'
+  name: 'acr${flat}'
   location: location
   tags: tags
   sku: { name: 'Basic' }
@@ -45,7 +47,7 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: '${shortName}st'
+  name: 'stg${flat}'
   location: location
   tags: tags
   sku: { name: 'Standard_LRS' }

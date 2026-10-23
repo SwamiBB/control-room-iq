@@ -1,10 +1,11 @@
-param prefix string
+param app string
+param suffix string
 param location string
 param tags object
 param identityPrincipalId string
 
 resource ehns 'Microsoft.EventHub/namespaces@2024-01-01' = {
-  name: '${prefix}-ehns'
+  name: 'evhns-${app}-${suffix}'
   location: location
   tags: tags
   sku: { name: 'Standard', tier: 'Standard', capacity: 1 }
@@ -35,7 +36,7 @@ resource ehRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
-  name: '${prefix}-cosmos'
+  name: 'cosmos-${app}-${suffix}'
   location: location
   tags: tags
   kind: 'GlobalDocumentDB'
