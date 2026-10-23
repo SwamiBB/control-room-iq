@@ -1,0 +1,2 @@
+# Patches must keep their exact bytes; CRLF conversion makes `git am` reject them.
+*.patch -text
