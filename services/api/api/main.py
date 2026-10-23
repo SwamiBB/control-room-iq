@@ -24,12 +24,14 @@ from crq_schemas import (
     Lang,
     MatchEvent,
     MatchMeta,
+    MatchState,
     Moment,
     NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
     Persona,
     ProposalStatus,
+    Recap,
 )
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +43,7 @@ from .exports import decisions_to_csv
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
 from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer
+from .recap import RECAP_WINDOWS, build_recap
 
 
 @asynccontextmanager
@@ -73,6 +76,7 @@ class Hub:
         self.viewers: dict[WebSocket, ViewerPrefs] = {}
         self.state: dict | None = None
         self.meta: MatchMeta | None = None
+        self.match_state: MatchState | None = None  # live object folded by the replay
         self.clock = PlayClock()
         self.feed = OverlayFeed()
         self.auto_hold_s = 20.0
@@ -209,6 +213,16 @@ async def state():
     return hub.state
 
 
+@app.get("/recap", response_model=Recap)
+async def recap(minutes: int = 10):
+    # Query strings arrive as text, which Literal[10, 20, 30] will not coerce; check the window explicitly.
+    if minutes not in RECAP_WINDOWS:
+        raise HTTPException(422, f"minutes must be one of {RECAP_WINDOWS}")
+    if hub.match_state is None:
+        raise HTTPException(404, "no match in progress")
+    return build_recap(hub.match_state, minutes, hub.clock.play_ms)
+
+
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
@@ -249,7 +263,9 @@ async def _replay(req: ReplayRequest) -> None:
 async def _start_match(meta: MatchMeta) -> StateFolder:
     hub.meta, hub.clock = meta, PlayClock()
     await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
-    return StateFolder(meta)
+    folder = StateFolder(meta)
+    hub.match_state = folder.state
+    return folder
 
 
 async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest) -> None:
