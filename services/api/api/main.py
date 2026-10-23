@@ -12,18 +12,27 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from agents.workflow import MomentPipeline
+from crq_schemas import (
+    Access,
+    DecisionLogEntry,
+    MatchEvent,
+    MatchMeta,
+    Moment,
+    OverlayPacket,
+    OverlayProposal,
+    Persona,
+    ProposalStatus,
+)
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from ingest.stats import StateFolder
 from pydantic import BaseModel
 
-from agents.workflow import MomentPipeline
-from crq_schemas import (Access, DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
-                         ProposalStatus)
-from ingest.stats import StateFolder
-
+from .clock import PlayClock
 from .exports import decisions_to_csv
 
 app = FastAPI(title="Control Room IQ API", version="0.1.0")
@@ -37,7 +46,7 @@ class Hub:
         self.reset()
 
     def reset(self) -> None:
-        self.now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+        self.now: Callable[[], datetime] = lambda: datetime.now(UTC)
         self.proposals: dict[str, OverlayProposal] = {}
         self.decisions: list[DecisionLogEntry] = []
         self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants
@@ -45,6 +54,7 @@ class Hub:
         self.viewers: dict[WebSocket, dict] = {}
         self.state: dict | None = None
         self.meta: MatchMeta | None = None
+        self.clock = PlayClock()
         self.auto_hold_s = 20.0
 
     async def broadcast_operators(self, msg: dict) -> None:
@@ -178,41 +188,59 @@ async def replay(req: ReplayRequest):
     path = Path(req.file)
     if not path.exists():
         raise HTTPException(404, f"{path} not found; run the simulator first")
-    asyncio.create_task(_replay(path, req.speed, req.min_importance))
+    asyncio.create_task(_replay(req))
     return {"started": True}
 
 
-async def _replay(path: Path, speed: float, min_importance: float) -> None:
-    with path.open(encoding="utf-8") as f:
-        meta = MatchMeta.model_validate_json(f.readline())
-        hub.meta, folder = meta, StateFolder(meta)
-        await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
-        last_t, last_p = 0, 1
-        for line in f:
-            if not line.strip():
-                continue
-            ev = MatchEvent.model_validate_json(line)
-            if ev.period != last_p:
-                last_t, last_p = 0, ev.period
-            await asyncio.sleep(max(0.0, (ev.t_ms - last_t) / 1000 / speed))
-            last_t = ev.t_ms
-            moments = folder.apply(ev)
-            if ev.seq % 10 == 0:
-                hub.state = folder.state.model_dump(mode="json")
-                await hub.broadcast_operators({"type": "state", "state": hub.state})
-            for m in moments:
-                if m.importance < min_importance:
-                    continue
-                res = await pipeline.process(m)
-                hub.results[m.moment_id] = {"explanation": res.explanation.model_dump(), "line": res.line,
-                                            "variants": [v.model_dump(mode="json") for v in res.variants],
-                                            "failures": res.failures}
-                await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
-                                               **hub.results[m.moment_id]})
-                if res.proposal:
-                    hub.proposals[res.proposal.proposal_id] = res.proposal
-                    await hub.broadcast_operators({"type": "proposal", "proposal": res.proposal.model_dump(mode="json")})
-                    asyncio.create_task(_auto_hold(res.proposal.proposal_id))
+async def _replay(req: ReplayRequest) -> None:
+    with Path(req.file).open(encoding="utf-8") as f:
+        folder = await _start_match(MatchMeta.model_validate_json(f.readline()))
+        for line in filter(str.strip, f):
+            await _replay_event(folder, MatchEvent.model_validate_json(line), req)
+
+
+async def _start_match(meta: MatchMeta) -> StateFolder:
+    hub.meta, hub.clock = meta, PlayClock()
+    await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
+    return StateFolder(meta)
+
+
+async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest) -> None:
+    # Pace on play time: the period clock restarts at half time, play time never does.
+    await asyncio.sleep(hub.clock.advance(ev) / 1000 / req.speed)
+    moments = folder.apply(ev)
+    if ev.seq % 10 == 0:
+        await _publish_state(folder)
+    for m in moments:
+        if m.importance >= req.min_importance:
+            await _handle_moment(_stamp_play_time(m))
+
+
+async def _publish_state(folder: StateFolder) -> None:
+    hub.state = folder.state.model_dump(mode="json") | {"play_ms": hub.clock.play_ms}
+    await hub.broadcast_operators({"type": "state", "state": hub.state, "clock": hub.clock.snapshot()})
+
+
+def _stamp_play_time(m: Moment) -> Moment:
+    """Ingest before v0.2 leaves Moment.play_ms at 0; the replay clock knows the real value."""
+    return m if m.play_ms else m.model_copy(update={"play_ms": hub.clock.play_ms})
+
+
+async def _handle_moment(m: Moment) -> None:
+    res = await pipeline.process(m)
+    hub.results[m.moment_id] = {"explanation": res.explanation.model_dump(), "line": res.line,
+                                "variants": [v.model_dump(mode="json") for v in res.variants],
+                                "failures": res.failures}
+    await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
+                                   **hub.results[m.moment_id]})
+    if res.proposal:
+        await _queue_proposal(res.proposal)
+
+
+async def _queue_proposal(p: OverlayProposal) -> None:
+    hub.proposals[p.proposal_id] = p
+    await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+    asyncio.create_task(_auto_hold(p.proposal_id))
 
 
 # ---------- websockets ----------
