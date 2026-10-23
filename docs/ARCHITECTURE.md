@@ -8,14 +8,13 @@ Version 0.2 · October 20, 2026 · Region: East US 2 · Companion to [DESIGN.md]
 ```mermaid
 flowchart LR
     SIM[Match simulator<br/>synthetic events] --> SYS[Control Room IQ<br/>ingest · interpret · explain · render · personalize]
-    SQA[Squad-authoring agent<br/>Foundry] -. squads, storylines .-> SIM
     SYS --> OP[Operator console]
     SYS --> RP[Rendering partner<br/>overlay feed]
-    SYS --> VW[Viewers<br/>analyst · fan · accessibility<br/>EN ES HI AR]
+    SYS --> VW[Viewers<br/>newcomer · fan · analyst · deaf access<br/>EN ES HI]
     OP -- approve / hold / override --> SYS
 ```
 
-Inputs are synthetic match events (and, optionally, agent-authored squads). Outputs are an operator
+Inputs are synthetic match events. Outputs are an operator
 console, a timed machine-readable overlay feed, and personalized viewer streams. The only human in the
 loop is the operator; nothing airs without an operator action or an explicit SLA rule.
 
@@ -38,14 +37,13 @@ flowchart TB
         WEB[web<br/>React console + viewer]
     end
     subgraph Foundry["Microsoft Foundry · crq-dev-foundry"]
-        AGS[Foundry Agent Service<br/>explainer · narrator · personalizer · producer · squad author]
-        MR[model-router<br/>+ gpt-4.1-mini fallback]
+        AGS[Foundry Agent Service<br/>explainer · narrator · producer · personalizer · localizer]
+        MR[model-router: router-quality · router-balanced · router-cost<br/>+ gpt-4.1-mini fallback]
         EVAL[Evaluations]
         TR[Tracing]
     end
     COS[(Cosmos DB · crq<br/>matches · state · moments<br/>proposals · decisions · narratives · evaluations)]
     LA[Logic App<br/>approval SLA]
-    SP[Azure AI Speech]
     AI[Application Insights]
     SIM --> EH1 --> ING --> EH2 --> AGR
     ING --> COS
@@ -56,7 +54,6 @@ flowchart TB
     API --> COS
     API --> EH3
     COS -. change feed .-> LA -. hold .-> API
-    AGR --> SP
     API <--> WEB
     ING & AGR & API --> AI
     AGS --> TR --> AI
@@ -66,7 +63,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | simulator | ACA Job (or local CLI) | Generate and replay matches; publish to `crq-events` | Manual / per match |
 | ingest | Container App, Python | Consume events, fold state, raise moments, persist, publish to `crq-moments` | Event Hubs unprocessed events (KEDA, threshold 64) |
-| agents-runner | Container App, Python | Consume moments, run `MomentPipeline` on Foundry, call evaluation and Speech, hand results to API | Event Hubs lag on `crq-moments` |
+| agents-runner | Container App, Python | Consume moments, run `MomentPipeline` (five agents) on Foundry, call evaluation, hand results to API | Event Hubs lag on `crq-moments` |
 | api | Container App, Python (FastAPI) | Proposal queue, approval loop, decision log, WebSocket fan-out, overlay publishing | HTTP concurrency (1–3 replicas) |
 | web | Container App, nginx | Static React app | 1–2 replicas |
 
@@ -98,7 +95,8 @@ sequenceDiagram
     A->>F: narrator (Balanced)
     F-->>A: line
     par
-        A->>F: personalizer (Cost) → 12 variants
+        A->>F: personalizer (Cost) → 6 English variants
+        A->>F: localizer (Cost) → 12 Spanish and Hindi variants
     and
         A->>F: producer (Quality) → OverlayProposal
     and
@@ -114,8 +112,8 @@ sequenceDiagram
 ```
 
 Latency budget from event to proposal on the console: ingest < 200 ms, explainer ≤ 4 s, narrator ≤ 2 s,
-personalizer ∥ producer ≤ 4 s, total ≤ 10 s; the 8-second agent timeout plus fallbacks caps the worst
-case at about 12 s. Overlay timing uses the match clock, so proposal latency shifts when a graphic is
+(personalizer → localizer) ∥ producer ≤ 6 s, total ≤ 12 s; the 8-second agent timeout plus fallbacks caps the worst
+case at about 20 s (the localizer is a second call after the personalizer). Overlay timing uses the match clock, so proposal latency shifts when a graphic is
 proposed, not when it is scheduled to air.
 
 ## 4. Data
@@ -153,7 +151,6 @@ Pydantic models in `packages/schemas` (see DESIGN.md §2). Overlay `payload` per
 | Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language, content safety |
 | Tracing | All services | OpenTelemetry via Agent Framework instrumentation → Application Insights |
 | Content safety | Foundry resource | Applied to all generated text |
-| Azure AI Speech | agents-runner | Neural voices for accessibility variants in EN/ES/HI/AR |
 
 ## 6. Deployment
 
@@ -162,13 +159,12 @@ flowchart LR
     DEV[Developer<br/>PowerShell · az login · azd] -->|azd up| RG
     GH[GitHub Actions<br/>OIDC federated credential] -->|ci: ruff, pytest, npm build<br/>deploy: azd provision + deploy| RG
     subgraph RG["rg-crq-dev (East US 2)"]
-        ID[User-assigned identity crq-dev-id<br/>Azure AI User · EH Data Owner · Cosmos Data Contributor · AcrPull · Speech User]
+        ID[User-assigned identity crq-dev-id<br/>Azure AI User · EH Data Owner · Cosmos Data Contributor · AcrPull]
         ACR[Container Registry]
         CAE[Container Apps env]
         EHNS[Event Hubs ns]
         COSM[Cosmos DB]
         FND[Foundry + project<br/>model-router · gpt-4.1-mini]
-        SPCH[Speech]
         LAPP[Logic App]
         LOGS[Log Analytics + App Insights]
         KV[Key Vault<br/>local-dev secrets only]
@@ -177,7 +173,7 @@ flowchart LR
 
 `infra/main.bicep` (subscription scope) creates the resource group and four modules: `core`
 (identity, logs, App Insights, ACR, storage), `data` (Event Hubs, Cosmos with RBAC), `ai` (Foundry
-resource, project, model deployments, Speech, role assignments), `apps` (Container Apps environment and
+resource, project, the three model-router deployments and the fallback, role assignments), `apps` (Container Apps environment and
 the three apps with KEDA rules). `azure.yaml` maps the services to Dockerfiles so `azd deploy` builds and
 pushes images and sets the image on each app. GitHub Actions `deploy.yml` runs the same two commands on
 push to `main` using an OIDC federated credential; no secrets are stored.
@@ -216,6 +212,6 @@ with the environment from `azd env get-values`. See [SETUP.md](SETUP.md).
 ## 10. Decisions
 
 [ADR-001](adr/ADR-001-python-agent-framework.md) Python + Agent Framework ·
-[ADR-002](adr/ADR-002-synthetic-data.md) own simulator + LLM squad authoring ·
+[ADR-002](adr/ADR-002-synthetic-data.md) own simulator (LLM squad authoring cut on Oct 22) ·
 [ADR-003](adr/ADR-003-model-router.md) model router over fixed deployments ·
 [ADR-004](adr/ADR-004-container-apps.md) Container Apps over AKS.

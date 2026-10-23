@@ -62,7 +62,7 @@ Three things set it apart:
 | Interpret | The stats engine folds events into match state (score, xG, possession, five-minute windows, pressure trend, momentum, shot ledger, match intelligence) and raises moments: goals, big chances (as two beats: the strike and the result), pressure spikes, stoppages, cards, speed thresholds, standout passes. | `services/ingest` on Azure Container Apps |
 | Explain | The explainer agent says why the moment matters and cites the event IDs it used. | `services/agents` (Microsoft Agent Framework) |
 | Propose and fire | The narrator writes the line and the producer agent proposes the graphic. Placement is code: one story per 30 seconds, a goal or red card bumps the lower third, hold advice when pressure is rising. The graphics operator fires, holds, drops or overrides. A goal becomes a **goal routine**: one click fires the goal graphic, the scorer's stats after the replay and the ticker. | `services/api` + `web` console |
-| Personalize and deliver | The personalizer writes versions for each viewer group. Code checks each one; a failed version is replaced by a template or the English line. Each fired graphic goes out as a packet that carries its approval ID, so a renderer cannot show anything unapproved. | `services/api` → overlay feed and viewer |
+| Personalize and deliver | The personalizer writes English versions for each persona and access setting; the localizer renders them in Spanish and Hindi, keeping numbers and names. Code checks each one; a failed version is replaced by a template or the English line. Each fired graphic goes out as a packet that carries its approval ID, so a renderer cannot show anything unapproved. | `services/api` → overlay feed and viewer |
 
 **Design rules:** numbers come from code and words from the model; the gate is structural (a packet cannot
 be built without an approval); cues are code and captions are AI; placement is code and content is AI; the
@@ -112,9 +112,9 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | Piece | How it is used | Status |
 | --- | --- | --- |
 | Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | [In progress]; until then a fired graphic airs at once |
-| Microsoft Agent Framework | Explainer, narrator, producer and personalizer agents, each with a timeout and a deterministic fallback | Built |
-| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer); the served model is recorded on every trace span | [In progress] |
-| Foundry Agent Service | The four agents registered so they can be inspected in the portal | [In progress] |
+| Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
+| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer); the served model is recorded on every trace span | [In progress] |
+| Foundry Agent Service | The five agents registered so they can be inspected in the portal | [In progress] |
 | Foundry evaluations | Faithfulness, relevance and fluency per language, plus the planted-falsehood set | [In progress] |
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built (feed); [deploy] |
 | Azure Container Apps | Ingest, API and web | [deploy] |
@@ -191,7 +191,7 @@ control-room-iq/
 ├── services/
 │   ├── simulator/    # Scripted, seedable matches, tracking, calibration, replay feed
 │   ├── ingest/       # Stats engine: match state, match intelligence, moments
-│   ├── agents/       # Explainer, narrator, producer, personalizer (Agent Framework) + prompts
+│   ├── agents/       # Explainer, narrator, producer, personalizer, localizer (Agent Framework) + prompts
 │   └── api/          # FastAPI: running order, decisions, goal routine, preview, checks, metrics, feeds
 ├── web/              # React + TypeScript: graphics operator console and viewer
 ├── evals/            # Foundry evaluation runner and datasets

@@ -27,10 +27,12 @@ def test_offline_pipeline_produces_proposal_for_goal():
     assert res.explanation.cites == goal.event_ids
 
 
-def test_offline_variants_cover_every_persona_access_and_language():
+def test_offline_variants_cover_every_persona_and_access_in_english_only():
+    # Offline, the localizer has no model, and English must never be labeled Spanish or Hindi (#17):
+    # those viewers get the API's template line instead.
     res = asyncio.run(MomentPipeline().process(_first_goal()))
     combos = {(v.persona, v.access, v.lang) for v in res.variants}
-    assert combos == {(p, a, lang) for p in Persona for a in get_args(Access) for lang in ("en", "es", "hi")}
+    assert combos == {(p, a, "en") for p in Persona for a in get_args(Access)}
 
 
 def test_offline_deaf_access_states_the_score_for_every_persona():

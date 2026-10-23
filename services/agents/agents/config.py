@@ -26,3 +26,14 @@ class Settings:
 
 
 settings = Settings()
+
+# Routing mode per agent: one model-router deployment per mode (see `router_*` above).
+AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", "narrator": "balanced",
+                                 "personalizer": "cost", "localizer": "cost"}
+
+
+def deployment_for(agent: str) -> str:
+    """The router deployment an agent should call; falls back to the single model-router deployment."""
+    mode = AGENT_ROUTING.get(agent)
+    return {"quality": settings.router_quality, "balanced": settings.router_balanced,
+            "cost": settings.router_cost}.get(mode or "", settings.model_router)

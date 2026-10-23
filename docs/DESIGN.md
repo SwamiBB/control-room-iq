@@ -152,11 +152,10 @@ Calibration (10 seeds): 1,050–1,200 passes, 19–34 shots, 1.4–3.7 xG, 0–4
 needs to mean for the statistics and narratives to feel right. Tunable constants are at the top of the
 file and covered by `tests/test_engine.py`.
 
-### 3.2 Squads (`squads.py`) and the squad-authoring agent
+### 3.2 Squads (`squads.py`)
 
-Offline: deterministic fictional clubs, names, and ratings. Online: the `squad_author` Foundry agent
-writes a `Team` (and three fictional storylines) from a theme prompt; the output is validated against the
-schema before use. Either path feeds the same engine, so ground truth stays reproducible.
+Deterministic fictional clubs, names, and ratings; the reference matches use the hand-written clubs in
+`data/clubs.json`. (The LLM squad-authoring agent was cut on Oct 22; its prompt was removed on Oct 24.)
 
 ### 3.3 Replay
 
@@ -187,13 +186,21 @@ exactly what the operator will see.
 
 ### 5.1 Roles
 
-| Agent | Input | Output | Routing hint | Prompt |
+Five agents, each registered by name in Foundry Agent Service and bound to one model-router deployment
+(`agents/config.py`, `AGENT_ROUTING`):
+
+| Agent | Input | Output | Router deployment | Prompt |
 | --- | --- | --- | --- | --- |
-| Explainer | Moment (with state) | `Explanation` | Quality | `prompts/explainer.md` |
-| Narrator | Moment + Explanation | on-air line (≤ 22 words) or a 4-sentence recap at half/full time | Balanced | `prompts/narrator.md` |
-| Personalizer | line + Moment + requests (persona, lang, focus) | `NarrativeVariant[]` | Cost | `prompts/personalizer.md` |
-| Producer | Moment + Explanation + line + what is on air | `OverlayProposal` or nothing | Quality | `prompts/producer.md` |
-| Squad author | theme | `Team` + storylines | Balanced | `prompts/squad_author.md` |
+| Explainer | Moment (with state) + `intel` | `Explanation` (why it matters, cites) | `router-quality` | `prompts/explainer.md` |
+| Narrator | Moment + Explanation + `intel` | The English on-air line (≤ 22 words), or a 4-sentence recap at half/full time | `router-balanced` | `prompts/narrator.md` |
+| Producer | Moment + Explanation + line + what is on air | `OverlayProposal` (graphic, evidence, alternatives; no timing) or nothing | `router-quality` | `prompts/producer.md` |
+| Personalizer | line + Moment + `intel` + requests (persona, access, focus) | English `NarrativeVariant[]`: newcomer / fan / analyst × none / deaf | `router-cost` | `prompts/personalizer.md` |
+| Localizer | line + the English variants + names + targets (persona, access, lang) | Spanish and Hindi `NarrativeVariant[]`, one call per moment | `router-cost` | `prompts/localizer.md` |
+
+Code, not agents: placement (`scheduler.py`), every number (stats engine, `match_intel.py`), the strike cue
+(`api/fan_cue.py`), the deaf fan's card (`api/fan_card.py`), the goal routine's follow-ups
+(`api/goal_package.py`), and the checks each language version must pass (`api/variant_checks.py`).
+The catch-up card (`/recap`) is facts from code; a Recap agent is out of scope for the hackathon.
 
 All prompts share three rules: use only facts in the input, never invent names or numbers, output JSON
 matching the schema. Prompts are Markdown files under version control so changes are reviewable.
@@ -207,6 +214,7 @@ sequenceDiagram
     participant E as Explainer
     participant N as Narrator
     participant P as Personalizer
+    participant L as Localizer
     participant R as Producer
     participant A as API / Console
     I->>W: Moment (importance ≥ 0.3)
@@ -215,8 +223,10 @@ sequenceDiagram
     W->>N: moment + explanation
     N-->>W: line (or fallback)
     par concurrent
-        W->>P: line + moment + requests
-        P-->>W: variants (or fallback)
+        W->>P: line + moment + English requests
+        P-->>W: English variants (or fallback)
+        W->>L: English variants + names + es/hi targets
+        L-->>W: Spanish and Hindi variants (or none)
     and
         W->>R: moment + explanation + line + on-air
         R-->>W: OverlayProposal (or fallback / none)
@@ -224,8 +234,10 @@ sequenceDiagram
     W-->>A: MomentResult {explanation, line, variants, proposal, failures[]}
 ```
 
-Explainer → narrator is sequential because the line depends on the explanation. Personalizer and producer
-run concurrently because both depend only on the line. Shared state is the `Moment` (immutable snapshot)
+Explainer → narrator is sequential because the line depends on the explanation. The personalizer →
+localizer chain and the producer run concurrently because both depend only on the line. The localizer
+translates the personalizer's English versions in one call, keeping numbers and names; code then keeps only
+the requested targets, copies the English version's cites, and drops anything labeled English. Shared state is the `Moment` (immutable snapshot)
 plus the API's proposal queue, which the producer receives as `on_air` so it can avoid layer collisions.
 
 Agent Framework is used through `Agent(client=OpenAIChatClient(...), instructions=..., response_format=...)`
@@ -241,7 +253,8 @@ template result and appends a failure string to `MomentResult.failures`:
 | --- | --- |
 | Explanation | Summary line + possession, xG, and score from the snapshot; `confidence 0.5` |
 | Line | The explanation headline |
-| Variants | Persona-specific templates (analyst adds xG and possession; accessibility adds the score) |
+| English variants | Persona-specific templates (analyst adds the intel figure or xG and possession; deaf access adds the score) |
+| Spanish and Hindi | None. English is never labeled as another language; those viewers get the API's template line, else the approved English line |
 | Proposal | Layer by moment kind (goal/half/full → full screen; pressure → heat map; momentum → stat panel; else lower third), duration by layer, payload from the snapshot |
 
 `CRQ_OFFLINE=1` forces fallbacks everywhere, which is how the pipeline runs with no Azure access and how
