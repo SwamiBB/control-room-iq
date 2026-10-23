@@ -17,11 +17,13 @@ from pathlib import Path
 
 from agents.workflow import MomentPipeline
 from crq_schemas import (
-    Access,
     DecisionLogEntry,
+    FanCard,
+    Lang,
     MatchEvent,
     MatchMeta,
     Moment,
+    NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
     Persona,
@@ -30,10 +32,11 @@ from crq_schemas import (
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ingest.stats import StateFolder
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .clock import PlayClock
 from .exports import decisions_to_csv
+from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer
 
 app = FastAPI(title="Control Room IQ API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -49,9 +52,10 @@ class Hub:
         self.now: Callable[[], datetime] = lambda: datetime.now(UTC)
         self.proposals: dict[str, OverlayProposal] = {}
         self.decisions: list[DecisionLogEntry] = []
-        self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants
+        self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants/fan_card
+        self.packets: list[OverlayPacket] = []  # canonical packets as aired, before per-viewer variants
         self.operators: set[WebSocket] = set()
-        self.viewers: dict[WebSocket, dict] = {}
+        self.viewers: dict[WebSocket, ViewerPrefs] = {}
         self.state: dict | None = None
         self.meta: MatchMeta | None = None
         self.clock = PlayClock()
@@ -64,15 +68,11 @@ class Hub:
             except Exception:  # noqa: BLE001
                 self.operators.discard(ws)
 
-    async def broadcast_viewers(self, item: OverlayPacket, variants: list[dict]) -> None:
+    async def broadcast_viewers(self, packet: OverlayPacket, variants: list[NarrativeVariant]) -> None:
         for ws, prefs in list(self.viewers.items()):
-            v = next((x for x in variants if (x["persona"], x.get("access", "none"), x["lang"])
-                      == (prefs["persona"], prefs["access"], prefs["lang"])), None)
-            payload = item.model_dump()
-            if v:
-                payload["line"], payload["persona"], payload["lang"] = v["text"], v["persona"], v["lang"]
+            item = for_viewer(packet, variants, prefs).model_dump(mode="json")
             try:
-                await ws.send_json({"type": "overlay", "item": payload})
+                await ws.send_json({"type": "overlay", "item": item})
             except Exception:  # noqa: BLE001
                 self.viewers.pop(ws, None)
 
@@ -83,50 +83,71 @@ pipeline = MomentPipeline()
 
 # ---------- approval loop ----------
 
+SLA_ACTOR = "sla-timer"
+AIRING_ACTIONS = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
+
+
 class Decision(BaseModel):
-    actor: str = "operator"
-    override_line: str | None = None
-    reasoning: str | None = None
+    actor: str = Field(default="operator", min_length=1, max_length=64)
+    override_line: str | None = Field(default=None, min_length=1, max_length=280)
+    reasoning: str | None = Field(default=None, max_length=1000)
 
 
-async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> OverlayProposal:
+def _open_proposal(proposal_id: str, action: ProposalStatus, d: Decision) -> OverlayProposal:
     p = hub.proposals.get(proposal_id)
     if not p:
         raise HTTPException(404, "proposal not found")
     if p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         raise HTTPException(409, f"proposal already {p.status.value}")
+    # No auto-approve path: the SLA timer may only hold, so its name cannot be used to air anything.
+    if d.actor == SLA_ACTOR and action != ProposalStatus.HELD:
+        raise HTTPException(403, f"{SLA_ACTOR} may only hold")
+    return p
+
+
+def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) -> DecisionLogEntry:
     p.status, p.decided_by, p.decided_at = action, d.actor, hub.now()
     if d.override_line:
         p.override_line = d.override_line
-    hub.decisions.append(DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
-                                          action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning))
+    entry = DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
+                             action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning)
+    hub.decisions.append(entry)
+    return entry
+
+
+def _approved_extras(p: OverlayProposal) -> tuple[list[NarrativeVariant], FanCard | None]:
+    result = hub.results.get(p.moment_id, {})
+    # An override replaces the AI line for everyone, so the AI variants of it must not air.
+    variants = [] if p.override_line else [NarrativeVariant.model_validate(v) for v in result.get("variants", [])]
+    card = result.get("fan_card")
+    return variants, FanCard.model_validate(card) if card else None
+
+
+async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
+    variants, card = _approved_extras(p)
+    packet = attach_fan_card(build_packet(p, approval, hub.clock), card)
+    hub.packets.append(packet)
+    await hub.broadcast_viewers(packet, variants)
+    p.status = ProposalStatus.AIRED
+
+
+async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> OverlayProposal:
+    p = _open_proposal(proposal_id, action, d)
+    entry = _record_decision(p, action, d)
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
-    if action in (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN):
-        # The gate is structural: a packet cannot exist without approval fields, so nothing generated
-        # reaches a renderer unless an operator (never the SLA timer) approved or overrode it.
-        entry = hub.decisions[-1]
-        item = OverlayPacket(cue_id=p.cue_id or "c-" + p.proposal_id, match_id=p.match_id, layer=p.layer,
-                             t_in_ms=p.t_in_ms or p.t_start_ms, t_out_ms=p.t_out_ms or p.t_end_ms,
-                             period=1 if (hub.state or {}).get("period", 1) == 1 else 2,
-                             clock_ms=(hub.state or {}).get("t_ms", 0), priority=p.priority, replaces=p.replaces,
-                             min_hold_ms=p.min_hold_ms, line=p.override_line or p.line, payload=p.payload,
-                             verified=p.faithfulness is None or p.faithfulness >= 0.8, fallback=p.fallback,
-                             evidence=[e.event_id for e in p.evidence], source_proposal_id=p.proposal_id,
-                             approval_id=entry.entry_id, approved_by=d.actor, approved_at=p.decided_at)
-        variants = hub.results.get(p.moment_id, {}).get("variants", [])
-        await hub.broadcast_viewers(item, variants)
-        p.status = ProposalStatus.AIRED
+    if action in AIRING_ACTIONS:
+        await _air(p, entry)
     return p
 
 
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
-async def approve(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.APPROVED, d)
+async def approve(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.APPROVED, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
-async def hold(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.HELD, d)
+async def hold(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.HELD, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/override", response_model=OverlayProposal)
@@ -137,8 +158,8 @@ async def override(proposal_id: str, d: Decision):
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
-async def reject(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.REJECTED, d)
+async def reject(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
 
 
 @app.get("/decisions.csv")
@@ -172,7 +193,7 @@ async def _auto_hold(proposal_id: str) -> None:
     await asyncio.sleep(hub.auto_hold_s)
     p = hub.proposals.get(proposal_id)
     if p and p.status == ProposalStatus.PROPOSED:
-        await _decide(proposal_id, ProposalStatus.HELD, Decision(actor="sla-timer", reasoning="no operator action"))
+        await _decide(proposal_id, ProposalStatus.HELD, Decision(actor=SLA_ACTOR, reasoning="no operator action"))
 
 
 # ---------- local replay (full pipeline in-process) ----------
@@ -261,10 +282,9 @@ async def ws_operator(ws: WebSocket):
 
 
 @app.websocket("/ws/viewer")
-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, access: Access = "none", lang: str = "en",
-                    club: str | None = None):
+async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, lang: Lang = "en", club: str | None = None):
     await ws.accept()
-    hub.viewers[ws] = {"persona": persona.value, "access": access, "lang": lang, "club": club}
+    hub.viewers[ws] = ViewerPrefs(persona=persona, lang=lang, club=club)
     try:
         while True:
             await ws.receive_text()

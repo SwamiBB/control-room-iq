@@ -2,19 +2,9 @@ import asyncio
 from pathlib import Path
 
 from api.main import ReplayRequest, _replay, _stamp_play_time, hub
-from api_factories import moment
+from api_factories import RecordingSocket, moment
 from simulator.cli import build_meta
 from simulator.engine import MatchEngine
-
-
-class RecordingSocket:
-    """Stands in for a connected operator console."""
-
-    def __init__(self) -> None:
-        self.sent: list[dict] = []
-
-    async def send_json(self, msg: dict) -> None:
-        self.sent.append(msg)
 
 
 def _write_match(path: Path, per_period: int = 40) -> Path:
