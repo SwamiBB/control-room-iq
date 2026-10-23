@@ -467,7 +467,8 @@ def _result_record(res: MomentResult) -> dict:
     card: FanCard | None = getattr(res, "fan_card", None)
     return {"explanation": res.explanation.model_dump(), "line": res.line,
             "variants": [v.model_dump(mode="json") for v in res.variants], "failures": res.failures,
-            "fan_card": card.model_dump(mode="json") if card else None}
+            "fan_card": card.model_dump(mode="json") if card else None,
+            "intel": getattr(res, "intel", None)}
 
 
 async def _publish_fan_cue(m: Moment) -> None:
@@ -480,7 +481,7 @@ async def _handle_moment(m: Moment) -> None:
     if m.beat == "chance":
         # The cue is code and must air within 1 s, so it goes out before any agent call (up to ~8 s each).
         await _publish_fan_cue(m)
-    res = await pipeline.process(m)
+    res = await pipeline.process(m, meta=hub.meta)
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),

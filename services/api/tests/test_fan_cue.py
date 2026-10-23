@@ -19,7 +19,7 @@ class OrderCheckingPipeline:
         self.deaf = deaf
         self.cues_before_call: int | None = None
 
-    async def process(self, m):
+    async def process(self, m, **_kwargs):
         self.cues_before_call = len(self.deaf.of_type("fan_cue"))
         raise RuntimeError("stop after ordering check")
 
@@ -76,7 +76,7 @@ def test_fan_card_from_the_pipeline_is_held_until_a_decision(monkeypatch):
     result = SimpleNamespace(explanation=fallback_explanation(m), line="Saved", variants=[], failures=[],
                              proposal=None, fan_card=card)
 
-    async def process(_m):
+    async def process(_m, **_kwargs):
         return result
 
     monkeypatch.setattr(main.pipeline, "process", process)

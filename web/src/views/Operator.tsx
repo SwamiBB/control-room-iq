@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { API, WS, clock, decide, type MomentMsg, type Proposal } from "../api";
+import IntelChips from "../components/IntelChips";
+import MatchIntel from "../components/MatchIntel";
+import type { MomentMetrics } from "../intel";
 
 export default function Operator() {
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
@@ -28,6 +31,11 @@ export default function Operator() {
   };
   const start = () => fetch(`${API}/matches/replay`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file: "data/match.jsonl", speed: 20 }) });
 
+  const names: Record<string, string> = Object.fromEntries(
+    [meta?.home, meta?.away].flatMap((t: any) => (t?.players ?? []).map((p: any) => [p.player_id, p.name])));
+  const name = (id?: string | null) => (id ? names[id] ?? id : "");
+  const team = (id?: string | null) => (id === meta?.home?.team_id ? meta.home.short_name : id === meta?.away?.team_id ? meta.away.short_name : id ?? "");
+
   const queue = Object.values(proposals).filter((p) => p.status === "proposed" || p.status === "held").sort((a, b) => b.priority - a.priority);
   const aired = Object.values(proposals).filter((p) => p.status === "aired").slice(-6).reverse();
 
@@ -49,6 +57,8 @@ export default function Operator() {
             <Stat label="PPDA" h={state.home.ppda ?? "–"} a={state.away.ppda ?? "–"} />
           </div>
         )}
+        <h2>Match intelligence</h2>
+        <MatchIntel state={state} name={name} team={team} />
       </section>
       <section className="queue">
         <h2>Next on screen ({queue.length})</h2>
@@ -57,6 +67,7 @@ export default function Operator() {
             <div className="meta"><b>{p.layer}</b> · priority {p.priority.toFixed(2)} · {clock(p.t_start_ms, 1)} → {clock(p.t_end_ms, 1)}
               {p.faithfulness != null && <span className="eval"> · faithfulness {p.faithfulness.toFixed(2)}</span>}</div>
             <p className="line">{p.line}</p>
+            <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={name} />
             <p className="reasoning">{p.reasoning}</p>
             <input placeholder="Override line…" value={override[p.proposal_id] ?? ""} onChange={(e) => setOverride({ ...override, [p.proposal_id]: e.target.value })} />
             <div className="actions">
@@ -74,6 +85,7 @@ export default function Operator() {
             <div className="meta">{clock(m.moment.t_ms, m.moment.period)} · {m.moment.kind} · {m.moment.importance.toFixed(2)}</div>
             <b>{m.explanation.headline}</b>
             <p>{m.explanation.why_it_matters}</p>
+            <IntelChips metrics={m.intel ?? m.moment.metrics} name={name} />
             <small>pattern: {m.explanation.pattern} · cites {m.explanation.cites.join(", ")}{m.failures.length > 0 && ` · fallback used (${m.failures.length})`}</small>
           </article>
         ))}
