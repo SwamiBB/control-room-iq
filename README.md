@@ -199,7 +199,9 @@ control-room-iq/
 └── docs/             # Architecture, design, gallery terms, calibration, handoffs
 ```
 
-[docs/GALLERY-TERMS.md](docs/GALLERY-TERMS.md) maps gallery roles to the screens and lists the on-screen
+Start with [docs/PROJECT-SUMMARY.md](docs/PROJECT-SUMMARY.md) (status, decisions, document index) and
+[docs/END-TO-END-ARCHITECTURE.md](docs/END-TO-END-ARCHITECTURE.md) (components, runtime flows, contracts,
+deployment, acceptance scenario). [docs/GALLERY-TERMS.md](docs/GALLERY-TERMS.md) maps gallery roles to the screens and lists the on-screen
 words (running order, fire, drop, goal routine).
 
 ## Limits
