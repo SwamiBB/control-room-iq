@@ -4,7 +4,8 @@ os.environ["CRQ_OFFLINE"] = "1"
 
 import asyncio  # noqa: E402
 
-from agents.workflow import MomentPipeline  # noqa: E402
+import pytest  # noqa: E402
+from agents.workflow import MomentPipeline, priority_from_importance  # noqa: E402
 from crq_schemas import MomentKind, Persona  # noqa: E402
 from ingest.stats import StateFolder  # noqa: E402
 from simulator.cli import build_meta  # noqa: E402
@@ -21,3 +22,21 @@ def test_offline_pipeline_produces_proposal_for_goal():
     assert res.explanation.cites == goal.event_ids
     assert {v.persona for v in res.variants} == set(Persona)
     assert {v.lang for v in res.variants} == {"en", "es", "hi"}
+
+
+def test_offline_pipeline_produces_valid_proposal_for_non_goal_moments():
+    # Goals have importance 1.0, which hid the float -> int priority break; cover fractional importance too.
+    meta = build_meta(42)
+    folder = StateFolder(meta)
+    moments = [m for ev in MatchEngine(meta).run() for m in folder.apply(ev) if 0.35 <= m.importance < 1.0]
+    assert moments
+    pipeline = MomentPipeline()
+    for m in moments[:10]:
+        res = asyncio.run(pipeline.process(m))
+        assert res.failures == []
+        assert res.proposal is not None and isinstance(res.proposal.priority, int) and res.proposal.priority >= 2
+
+
+@pytest.mark.parametrize(("importance", "expected"), [(1.0, 1), (0.5, 5), (0.35, 6), (0.0, 9)])
+def test_priority_from_importance_maps_unit_score_to_rank(importance, expected):
+    assert priority_from_importance(importance) == expected

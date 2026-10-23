@@ -68,6 +68,11 @@ def fallback_variants(m: Moment, line: str, requests: list[tuple[Persona, str, d
     return out
 
 
+def priority_from_importance(importance: float) -> int:
+    """Map a 0-1 importance score onto the 1-9 priority rank (1 = highest); 0.5 lands on the default of 5."""
+    return 1 + round((1 - importance) * 8)
+
+
 def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal | None:
     if m.importance < 0.35:
         return None
@@ -81,7 +86,7 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
                            payload={"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
                                     "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]},
                            reasoning=f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}.",
-                           priority=m.importance)
+                           priority=priority_from_importance(m.importance))
 
 
 # ---------- agents ----------

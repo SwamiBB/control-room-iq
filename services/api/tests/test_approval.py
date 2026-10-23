@@ -10,7 +10,7 @@ from crq_schemas import OverlayLayer, OverlayProposal  # noqa: E402
 
 def _seed_proposal(pid="p-test"):
     hub.proposals[pid] = OverlayProposal(proposal_id=pid, match_id="m", moment_id="mo", layer=OverlayLayer.LOWER_THIRD,
-                                        t_start_ms=1000, t_end_ms=9000, line="A line", reasoning="r", priority=0.7)
+                                        t_start_ms=1000, t_end_ms=9000, line="A line", reasoning="r", priority=3)
     return pid
 
 
