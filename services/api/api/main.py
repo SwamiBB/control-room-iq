@@ -12,13 +12,15 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agents.workflow import MomentPipeline
+from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     DecisionLogEntry,
     FanCard,
+    FanCue,
     Lang,
     MatchEvent,
     MatchMeta,
@@ -36,9 +38,22 @@ from pydantic import BaseModel, Field
 
 from .clock import PlayClock
 from .exports import decisions_to_csv
+from .fan_cue import build_fan_cue
+from .feed import OverlayFeed, eventhubs_sink_from_env
 from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer
 
-app = FastAPI(title="Control Room IQ API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    sink = eventhubs_sink_from_env()
+    if sink:
+        hub.feed.sinks.append(sink)
+    yield
+    if sink:
+        await sink.close()
+
+
+app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -59,6 +74,7 @@ class Hub:
         self.state: dict | None = None
         self.meta: MatchMeta | None = None
         self.clock = PlayClock()
+        self.feed = OverlayFeed()
         self.auto_hold_s = 20.0
 
     async def broadcast_operators(self, msg: dict) -> None:
@@ -73,6 +89,15 @@ class Hub:
             item = for_viewer(packet, variants, prefs).model_dump(mode="json")
             try:
                 await ws.send_json({"type": "overlay", "item": item})
+            except Exception:  # noqa: BLE001
+                self.viewers.pop(ws, None)
+
+    async def broadcast_fan_cue(self, cue: FanCue) -> None:
+        for ws, prefs in list(self.viewers.items()):
+            if prefs.persona != Persona.DEAF:
+                continue
+            try:
+                await ws.send_json({"type": "fan_cue", "cue": cue.model_dump(mode="json")})
             except Exception:  # noqa: BLE001
                 self.viewers.pop(ws, None)
 
@@ -127,6 +152,7 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
     variants, card = _approved_extras(p)
     packet = attach_fan_card(build_packet(p, approval, hub.clock), card)
     hub.packets.append(packet)
+    await hub.feed.publish("packet", packet)
     await hub.broadcast_viewers(packet, variants)
     p.status = ProposalStatus.AIRED
 
@@ -247,11 +273,26 @@ def _stamp_play_time(m: Moment) -> Moment:
     return m if m.play_ms else m.model_copy(update={"play_ms": hub.clock.play_ms})
 
 
+def _result_record(res: MomentResult) -> dict:
+    # MomentResult gains `fan_card` when the workflow builds it (agents workstream); until then it is absent.
+    card: FanCard | None = getattr(res, "fan_card", None)
+    return {"explanation": res.explanation.model_dump(), "line": res.line,
+            "variants": [v.model_dump(mode="json") for v in res.variants], "failures": res.failures,
+            "fan_card": card.model_dump(mode="json") if card else None}
+
+
+async def _publish_fan_cue(m: Moment) -> None:
+    cue = build_fan_cue(m, home_team=m.state.home.team)
+    await hub.broadcast_fan_cue(cue)
+    await hub.feed.publish("fan_cue", cue)
+
+
 async def _handle_moment(m: Moment) -> None:
+    if m.beat == "chance":
+        # The cue is code and must air within 1 s, so it goes out before any agent call (up to ~8 s each).
+        await _publish_fan_cue(m)
     res = await pipeline.process(m)
-    hub.results[m.moment_id] = {"explanation": res.explanation.model_dump(), "line": res.line,
-                                "variants": [v.model_dump(mode="json") for v in res.variants],
-                                "failures": res.failures}
+    hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     if res.proposal:
@@ -279,6 +320,18 @@ async def ws_operator(ws: WebSocket):
             await ws.receive_text()
     except WebSocketDisconnect:
         hub.operators.discard(ws)
+
+
+@app.websocket("/ws/overlay")
+async def ws_overlay(ws: WebSocket):
+    """Renderer feed: every approved packet and fan cue as {type, match_id, item}."""
+    await ws.accept()
+    hub.feed.renderers.add(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        hub.feed.renderers.discard(ws)
 
 
 @app.websocket("/ws/viewer")
