@@ -62,7 +62,7 @@ def fallback_variants(m: Moment, line: str, requests: list[tuple[Persona, str, d
         text = line
         if persona == Persona.ANALYST:
             text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
-        elif persona == Persona.ACCESSIBILITY:
+        elif persona == Persona.DEAF:
             text = f"{line}. The score is {s.home.goals} to {s.away.goals}."
         out.append(NarrativeVariant(moment_id=m.moment_id, persona=persona, lang=lang, text=text, cites=list(m.event_ids)))  # type: ignore[arg-type]
     return out

@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agents.workflow import MomentPipeline
-from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayItem, OverlayProposal, Persona,
+from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayPacket, OverlayProposal, Persona,
                          ProposalStatus)
 from ingest.stats import StateFolder
 
@@ -48,7 +48,7 @@ class Hub:
             except Exception:  # noqa: BLE001
                 self.operators.discard(ws)
 
-    async def broadcast_viewers(self, item: OverlayItem, variants: list[dict]) -> None:
+    async def broadcast_viewers(self, item: OverlayPacket, variants: list[dict]) -> None:
         for ws, prefs in list(self.viewers.items()):
             v = next((x for x in variants if x["persona"] == prefs["persona"] and x["lang"] == prefs["lang"]), None)
             payload = item.model_dump()
@@ -85,8 +85,17 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
                                           action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning))
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     if action in (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN):
-        item = OverlayItem(item_id="o-" + uuid.uuid4().hex[:8], match_id=p.match_id, layer=p.layer, t_start_ms=p.t_start_ms,
-                           t_end_ms=p.t_end_ms, line=p.override_line or p.line, payload=p.payload, source_proposal_id=p.proposal_id)
+        # The gate is structural: a packet cannot exist without approval fields, so nothing generated
+        # reaches a renderer unless an operator (never the SLA timer) approved or overrode it.
+        entry = hub.decisions[-1]
+        item = OverlayPacket(cue_id=p.cue_id or "c-" + p.proposal_id, match_id=p.match_id, layer=p.layer,
+                             t_in_ms=p.t_in_ms or p.t_start_ms, t_out_ms=p.t_out_ms or p.t_end_ms,
+                             period=1 if (hub.state or {}).get("period", 1) == 1 else 2,
+                             clock_ms=(hub.state or {}).get("t_ms", 0), priority=p.priority, replaces=p.replaces,
+                             min_hold_ms=p.min_hold_ms, line=p.override_line or p.line, payload=p.payload,
+                             verified=p.faithfulness is None or p.faithfulness >= 0.8, fallback=p.fallback,
+                             evidence=[e.event_id for e in p.evidence], source_proposal_id=p.proposal_id,
+                             approval_id=entry.entry_id, approved_by=d.actor, approved_at=p.decided_at)
         variants = hub.results.get(p.moment_id, {}).get("variants", [])
         await hub.broadcast_viewers(item, variants)
         p.status = ProposalStatus.AIRED
@@ -108,6 +117,21 @@ async def override(proposal_id: str, d: Decision):
     if not d.override_line:
         raise HTTPException(422, "override_line required")
     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
+
+
+@app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
+async def reject(proposal_id: str, d: Decision = Decision()):
+    return await _decide(proposal_id, ProposalStatus.REJECTED, d)
+
+
+@app.get("/decisions.csv")
+async def decisions_csv():
+    from fastapi.responses import PlainTextResponse
+    rows = ["entry_id,match_id,proposal_id,action,actor,at,reasoning"]
+    for e in hub.decisions:
+        a = e.action.value if hasattr(e.action, "value") else str(e.action)
+        rows.append(f"{e.entry_id},{e.match_id},{e.proposal_id},{a},{e.actor},{e.at.isoformat()},\"{(e.reasoning or '').replace('\"', '')}\"")
+    return PlainTextResponse("\n".join(rows), media_type="text/csv")
 
 
 @app.get("/proposals")
@@ -206,7 +230,7 @@ async def ws_operator(ws: WebSocket):
 
 
 @app.websocket("/ws/viewer")
-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, lang: str = "en", club: str | None = None):
+async def ws_viewer(ws: WebSocket, persona: Persona = Persona.DEAF, lang: str = "en", club: str | None = None):
     await ws.accept()
     hub.viewers[ws] = {"persona": persona.value, "lang": lang, "club": club}
     try:

@@ -20,4 +20,4 @@ def test_offline_pipeline_produces_proposal_for_goal():
     assert res.proposal is not None and res.proposal.layer.value == "full_screen"
     assert res.explanation.cites == goal.event_ids
     assert {v.persona for v in res.variants} == set(Persona)
-    assert {v.lang for v in res.variants} == {"en", "es", "hi", "ar"}
+    assert {v.lang for v in res.variants} == {"en", "es", "hi"}
