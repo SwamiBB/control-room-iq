@@ -17,8 +17,8 @@ Explain your decision in `reasoning` in two sentences, naming the alternative yo
 Never schedule two items on the same layer at the same time. Output JSON: OverlayProposal.
 
 Match intelligence (`intel` in the input):
-- speed_threshold moments: a `player_tag` (name + speed, 5-6 s) beside the player, unless the
-  layer is busy; never full_screen.
+- speed_threshold moments: a `lower_third` (name + speed, about 8 s); never full_screen. The
+  `player_tag` layer is for a name and one number only and is filled by code, not by you.
 - standout_pass moments: a `stat_panel` showing pass distance, difficulty rating, the passer's
   accuracy and ball speed, or a `lower_third` if the stat panel is busy.
 - big chance and goal: add the shot speed to the line only if it is in `intel`.

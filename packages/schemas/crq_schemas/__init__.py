@@ -535,6 +535,8 @@ class OverlayProposal(BaseModel):
     package_seq: int = Field(default=0, ge=0, description="Running order inside the package; 0 = lead graphic")
     package_offset_ms: int = Field(default=0, ge=0, description="Play-time delay after the package is fired")
     item_label: str = Field(default="", description="Gallery name for this item, e.g. 'Scorer stats'")
+    unsourced_numbers: list[str] = Field(default_factory=list, description=(
+        "Numbers in the line that the stats engine never produced; set by the API and shown to the operator"))
 
 
 class OverlayPacket(BaseModel):

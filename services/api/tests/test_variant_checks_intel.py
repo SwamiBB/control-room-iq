@@ -1,6 +1,6 @@
 """Variants may quote the stats engine's match intelligence (speeds, distances, pass ratings), and nothing else."""
 
-from api.variant_checks import build_context, check_variant
+from api.variant_checks import build_context, check_variant, unsourced_numbers
 from api_factories import match_state, moment, proposal
 from crq_schemas import MomentKind, MomentMetrics, NarrativeVariant, OverlayLayer, PassQuality, TeamStats
 from simulator.cli import build_meta
@@ -12,9 +12,14 @@ METRICS = MomentMetrics(player="har-09", player_speed_kmh=33.1, shot_speed_kmh=1
                                              difficulty=0.82, accuracy_pct=87.0))
 
 
+def _speed_moment():
+    state = match_state(home=TeamStats(team="har", passes=200, passes_completed=170),
+                        away=TeamStats(team="nfu", passes=150, passes_completed=120))
+    return moment(kind=MomentKind.SPEED_THRESHOLD, state=state, event_ids=["e-1"], metrics=METRICS)
+
+
 def _failures(text: str, lang: str = "es") -> list[str]:
-    state = match_state(home=TeamStats(team="har"), away=TeamStats(team="nfu"))
-    m = moment(kind=MomentKind.SPEED_THRESHOLD, state=state, event_ids=["e-1"], metrics=METRICS)
+    m = _speed_moment()
     ctx = build_context(proposal(line=BASE, layer=OverlayLayer.TICKER), m, META)
     v = NarrativeVariant(moment_id="mo-1", persona="analyst", lang=lang, text=text, cites=["e-1"])
     return check_variant(v, ctx)
@@ -44,3 +49,18 @@ def test_team_pass_accuracy_given_to_the_agents_may_be_quoted():
 
 def test_state_numbers_outside_the_allow_list_still_fail():
     assert "numbers" in _team_failures("Ade Pike a 33,1 km/h; PPDA 8,2")
+
+
+def test_a_tenth_of_the_difficulty_rating_is_not_an_allowed_number():
+    assert "numbers" in _failures("Ade Pike, un pase de dificultad 8")
+
+
+def test_numbers_in_the_english_line_are_checked_against_the_data():
+    m = _speed_moment()
+    assert unsourced_numbers("Ade Pike hits 33.1 km/h", m) == []
+    assert unsourced_numbers("Ade Pike hits 33 km/h", m) == []  # rounded for fans, still the same speed
+    assert unsourced_numbers("Ade Pike nearly 35 km/h, 35 again", m) == ["35"]
+
+
+def test_no_moment_no_flag():
+    assert unsourced_numbers("anything 99", None) == []

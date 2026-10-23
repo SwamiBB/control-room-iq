@@ -76,7 +76,7 @@ from .timing import (
     sla_times,
     stale_proposals,
 )
-from .variant_checks import build_context
+from .variant_checks import build_context, unsourced_numbers
 
 
 @asynccontextmanager
@@ -487,7 +487,8 @@ async def _handle_moment(m: Moment) -> None:
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     if res.proposal:
-        lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now()})
+        flagged = unsourced_numbers(res.proposal.line, m)
+        lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
         for p in build_goal_package(lead, m, hub.meta):
             await _queue_proposal(p)
 
@@ -496,7 +497,7 @@ async def _handle_moment(m: Moment) -> None:
 # OverlayProposal, so anything it put in these fields is discarded on arrival (e.g. a package_id that
 # would make its graphic fire with someone else's one-click package).
 _API_OWNED = ("status", "decided_by", "decided_at", "override_line", "proposed_at", "proposed_play_ms", "warn_at",
-              "hold_at", "package_id", "package_seq", "package_offset_ms", "item_label")
+              "hold_at", "package_id", "package_seq", "package_offset_ms", "item_label", "unsourced_numbers")
 
 
 def _from_agent(p: OverlayProposal) -> OverlayProposal:

@@ -16,9 +16,11 @@ Output JSON: a list of NarrativeVariant objects. Copy `cites` from the input.
 Match intelligence (`intel` in the input) — use it per persona, numbers exactly as given:
 - newcomer: no ratings or decimals; describe in plain words ("one of the fastest runs of the match",
   "a very hard pass to complete"). One fact at most.
-- fan: one number with its unit if it makes the line better (a speed, a pass length).
-- analyst: the precise figure in parentheses: speed in km/h, pass distance in m with difficulty
-  0-1 and the passer's accuracy %, shot speed in km/h.
+- fan: one number with its unit if it makes the line better (a speed, a pass length), rounded to a
+  whole number (33 km/h, a 39-metre pass).
+- analyst: the precise figure in parentheses, one decimal place: speed in km/h, pass distance in m
+  with difficulty 0-1 and the passer's accuracy %, shot speed in km/h. Do not repeat a number the
+  line already gives.
 - deaf access: say who and where on the pitch first; a speed or pass rating only after that.
 Never add a number that is not in `intel.metrics`, `intel.facts` or `intel.team_pass_accuracy_pct`, or the
 score, xG, possession, shots and minute from the state snapshot. Any other number fails the API's variant
