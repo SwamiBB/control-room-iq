@@ -303,6 +303,10 @@ class Persona(str, Enum):
 # references; where on the pitch, who, and the score after. Deaf viewers also receive FanCue/FanCard.
 Access = Literal["none", "deaf"]
 
+# Which side the viewer supports in this match. Framing for it (score from their side, team colour,
+# ordering) is deterministic code, so it adds no generated text and no operator approval.
+Allegiance = Literal["home", "away", "neutral"]
+
 
 class NarrativeVariant(BaseModel):
     moment_id: str
@@ -465,6 +469,7 @@ class OverlayPacket(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     profile: Persona = Persona.FAN
     access: Access = "none"
+    allegiance: Allegiance = Field(default="neutral", description="Side the payload's `perspective` is framed for")
     lang: Lang = "en"
     verified: bool = True
     fallback: bool = False
