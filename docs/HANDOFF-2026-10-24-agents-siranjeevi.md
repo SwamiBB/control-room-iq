@@ -55,7 +55,7 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 - `workflow.py` `fallback_variants` (#17): stop copying the English line into `es` / `hi` and labeling it with
   that language. Emit English only; the API then sends the proper template line.
 - **`fan_card`: no longer needed from the agents.** The API builds the deaf fan's card in code
-  (`api/fan_card.py`, in the pending `feat/readme-and-followups` patch). If the workflow ever builds one, the API
+  (`api/fan_card.py`, on `main` (#23)). If the workflow ever builds one, the API
   uses it instead.
 
 **6. `register_agents.py` and evaluations**
