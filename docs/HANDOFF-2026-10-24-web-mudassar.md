@@ -1,6 +1,7 @@
 ## Front end: Mudassar's consolidated list
 
-Last updated: Friday, October 23, 2026, late night (Central). Checked against `main` at `7c99cd1` (#24). Merges the
+Last updated: Friday, October 23, 2026, late night (Central). Checked against `main` at `7c99cd1` (#24) and re-checked at `4e6fecd` (#27: agents and docs only; no route,
+message or field the console uses changed). Merges the
 web items from `HANDOFF-2026-10-23-agents-web.md`, `HANDOFF-2026-10-24-goal-routine-metrics.md`,
 `HANDOFF-2026-10-24-match-intelligence.md` and `HANDOFF-2026-10-24-fan-card.md`, plus preview before firing (#18)
 and the Oct 22 front-end decisions (D1–D3). The API side of every item below is on `main` and tested; only the
