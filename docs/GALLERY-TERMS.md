@@ -28,10 +28,13 @@ API keeps its field and route names (`approve`, `hold`, `reject`) so the contrac
 | Goal routine | Package | The goal's three graphics fired with one click |
 | Lower third, full-screen, ticker, caption | Layer names in code | Shown as written, without underscores |
 | Gallery metrics | Metrics | Turnaround, error rate, workload panel |
+| Holds in 10 s | SLA warning | Card countdown before the timer holds it |
+| Expired | Stale | A held graphic that is too late to air |
 | Program feed | Preview | The pitch view with what is on air |
 
 Decision log and CSV keep the API values (`approved`, `held`, `rejected`, `overridden`, `sla_held`). The
-console shows them as Fired, Held, Dropped, Overridden and Held by the timer.
+console shows them as Fired, Held, Dropped, Overridden, Held by the timer and Expired (a held graphic the
+match moved past before anyone fired it).
 
 ## Sentences to reuse
 

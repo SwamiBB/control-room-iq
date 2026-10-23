@@ -53,6 +53,7 @@ from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, w
 from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
+from .timing import SLA_HOLD_S, SLA_WARN_S, shelf_life_ms, sla_times, stale_proposals
 from .variant_checks import build_context
 
 
@@ -92,7 +93,8 @@ class Hub:
         self.match_state: MatchState | None = None  # live object folded by the replay
         self.clock = PlayClock()
         self.feed = OverlayFeed()
-        self.auto_hold_s = 20.0
+        self.auto_hold_s = SLA_HOLD_S
+        self.warn_s = SLA_WARN_S
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -132,6 +134,8 @@ pipeline = MomentPipeline()
 # ---------- approval loop ----------
 
 SLA_ACTOR = "sla-timer"
+EXPIRY_ACTOR = "expiry-rule"
+SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)  # automated actors: they can hold or expire, never air
 AIRING_ACTIONS = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
 
 
@@ -147,9 +151,9 @@ def _open_proposal(proposal_id: str, action: ProposalStatus, d: Decision) -> Ove
         raise HTTPException(404, "proposal not found")
     if p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         raise HTTPException(409, f"proposal already {p.status.value}")
-    # No auto-approve path: the SLA timer may only hold, so its name cannot be used to air anything.
-    if d.actor == SLA_ACTOR and action != ProposalStatus.HELD:
-        raise HTTPException(403, f"{SLA_ACTOR} may only hold")
+    # No auto-approve path: automated actors may only hold, so their names cannot be used to air anything.
+    if d.actor in SYSTEM_ACTORS and action != ProposalStatus.HELD:
+        raise HTTPException(403, f"{d.actor} may only hold")
     return p
 
 
@@ -194,7 +198,19 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
     p.status = ProposalStatus.AIRED
 
 
+async def _expire_stale() -> list[OverlayProposal]:
+    """Held graphics the match has moved past leave the running order, with a log row for each."""
+    expired = stale_proposals(hub.proposals.values(), hub.clock.play_ms)
+    for p in expired:
+        seconds = shelf_life_ms(p) // 1000
+        _record_decision(p, ProposalStatus.EXPIRED,
+                         Decision(actor=EXPIRY_ACTOR, reasoning=f"held and not fired within {seconds} s of play"))
+        await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+    return expired
+
+
 async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> OverlayProposal:
+    await _expire_stale()  # a graphic that went stale while held cannot be fired late
     p = _open_proposal(proposal_id, action, d)
     entry = _record_decision(p, action, d)
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
@@ -312,8 +328,16 @@ async def healthz():
 
 
 async def _auto_hold(proposal_id: str) -> None:
-    """Approval SLA: a proposal nobody acts on is held, never aired. In Azure this is a Logic App."""
-    await asyncio.sleep(hub.auto_hold_s)
+    """Approval SLA: a warning first, then a proposal nobody acts on is held, never aired.
+    In Azure this is a Logic App."""
+    warn_after = max(0.0, hub.auto_hold_s - hub.warn_s)
+    await asyncio.sleep(warn_after)
+    p = hub.proposals.get(proposal_id)
+    if p and p.status == ProposalStatus.PROPOSED:
+        await hub.broadcast_operators({"type": "sla_warning", "proposal_id": proposal_id, "package_id": p.package_id,
+                                       "seconds_left": hub.auto_hold_s - warn_after,
+                                       "hold_at": p.hold_at.isoformat() if p.hold_at else None})
+    await asyncio.sleep(hub.auto_hold_s - warn_after)
     p = hub.proposals.get(proposal_id)
     if p and p.status == ProposalStatus.PROPOSED:
         await _decide(proposal_id, ProposalStatus.HELD, Decision(actor=SLA_ACTOR, reasoning="no operator action"))
@@ -354,6 +378,7 @@ async def _start_match(meta: MatchMeta) -> StateFolder:
 async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest) -> None:
     # Pace on play time: the period clock restarts at half time, play time never does.
     await asyncio.sleep(hub.clock.advance(ev) / 1000 / req.speed)
+    await _expire_stale()
     moments = folder.apply(ev)
     if ev.seq % 10 == 0:
         await _publish_state(folder)
@@ -402,8 +427,10 @@ async def _handle_moment(m: Moment) -> None:
 
 
 async def _queue_proposal(p: OverlayProposal) -> None:
-    if p.proposed_at is None:
-        p = p.model_copy(update={"proposed_at": hub.now()})
+    proposed_at = p.proposed_at or hub.now()
+    warn_at, hold_at = sla_times(proposed_at, hub.auto_hold_s, hub.warn_s)
+    p = p.model_copy(update={"proposed_at": proposed_at, "proposed_play_ms": hub.clock.play_ms,
+                             "warn_at": warn_at, "hold_at": hold_at})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     asyncio.create_task(_auto_hold(p.proposal_id))

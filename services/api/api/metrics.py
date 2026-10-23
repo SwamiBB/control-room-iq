@@ -14,6 +14,8 @@ from crq_schemas import DecisionLogEntry, OverlayProposal, ProposalStatus
 from pydantic import BaseModel, Field
 
 SLA_ACTOR = "sla-timer"
+EXPIRY_ACTOR = "expiry-rule"
+SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)
 FIRED = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
 TEN_MINUTES_MS = 600_000
 
@@ -41,6 +43,7 @@ class ErrorRate(BaseModel):
 class Workload(BaseModel):
     operator_decisions: int = 0
     sla_holds: int = 0
+    expired: int = Field(default=0, description="Held graphics the match moved past before anyone fired them")
     pending: int = 0
     play_minutes: float = 0.0
     decisions_per_10_min: float | None = None
@@ -81,7 +84,7 @@ def turnaround(proposals: dict[str, OverlayProposal], decisions: list[DecisionLo
 
 def errors(proposals: Iterable[OverlayProposal], decisions: list[DecisionLogEntry],
            deliveries: list[dict]) -> ErrorRate:
-    by_action = Counter(_action(e) for e in decisions if e.actor != SLA_ACTOR)
+    by_action = Counter(_action(e) for e in decisions if e.actor not in SYSTEM_ACTORS)
     decided = sum(by_action[a] for a in ("approved", "overridden", "rejected"))
     failures = Counter(code for d in deliveries for code in d.get("failures", []))
     return ErrorRate(decided=decided, overridden=by_action["overridden"], dropped=by_action["rejected"],
@@ -94,12 +97,13 @@ def errors(proposals: Iterable[OverlayProposal], decisions: list[DecisionLogEntr
 def workload(proposals: Iterable[OverlayProposal], decisions: list[DecisionLogEntry], play_ms: int,
              packets_aired: int) -> Workload:
     proposals = list(proposals)
-    clicks = [e for e in decisions if e.actor != SLA_ACTOR]
+    clicks = [e for e in decisions if e.actor not in SYSTEM_ACTORS]
     # One click on a package fires every item in it, and each item gets its own log row: count the click once.
     click_keys = {(e.package_id, _action(e)) if e.package_id else e.entry_id for e in clicks}
     fired_packages = {e.package_id for e in clicks if e.package_id and _action(e) in {a.value for a in FIRED}}
     minutes = play_ms / 60_000
     return Workload(operator_decisions=len(click_keys), sla_holds=sum(1 for e in decisions if e.actor == SLA_ACTOR),
+                    expired=sum(1 for e in decisions if e.actor == EXPIRY_ACTOR),
                     pending=sum(1 for p in proposals if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)),
                     play_minutes=round(minutes, 1),
                     decisions_per_10_min=round(len(click_keys) / (play_ms / TEN_MINUTES_MS), 2) if play_ms else None,
