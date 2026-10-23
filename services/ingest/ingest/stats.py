@@ -116,7 +116,7 @@ class StateFolder:
                 ps.top_speed_kmh = spd
                 if spd >= SPEED_THRESHOLD_KMH:
                     moments.append(self._moment(ev, MomentKind.SPEED_THRESHOLD, 0.35,
-                                                f"{self._name(ev.player)} hits {spd} km/h"))
+                                                f"{self._name(ev.player)} hits {spd:g} km/h"))
         elif ev.type == EventType.SHOT_TAKEN and ev.team:
             xg = float(ev.attrs.get("xg") or 0)
             if xg >= BIG_CHANCE_XG:  # the chance beat: the strike, before anyone knows the outcome

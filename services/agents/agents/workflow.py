@@ -114,10 +114,10 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
         return None
     layer = {MomentKind.GOAL: OverlayLayer.FULL_SCREEN, MomentKind.HALF_END: OverlayLayer.FULL_SCREEN,
              MomentKind.MATCH_END: OverlayLayer.FULL_SCREEN, MomentKind.PRESSURE_SPIKE: OverlayLayer.HEATMAP,
-             MomentKind.MOMENTUM_SHIFT: OverlayLayer.STAT_PANEL, MomentKind.SPEED_THRESHOLD: OverlayLayer.PLAYER_TAG,
+             MomentKind.MOMENTUM_SHIFT: OverlayLayer.STAT_PANEL,
              MomentKind.STANDOUT_PASS: OverlayLayer.STAT_PANEL}.get(m.kind, OverlayLayer.LOWER_THIRD)
     dur = {OverlayLayer.FULL_SCREEN: 18000, OverlayLayer.STAT_PANEL: 15000,
-           OverlayLayer.HEATMAP: 15000, OverlayLayer.PLAYER_TAG: 6000}.get(layer, 10000)
+           OverlayLayer.HEATMAP: 15000}.get(layer, 10000)
     s = m.state
     payload = {"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
                "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]}
@@ -206,9 +206,9 @@ def with_intel(proposal: OverlayProposal | None, m: Moment, name_of: NameOf | No
 
 
 def _says_already(line: str, clause: str) -> bool:
-    """True when the line already quotes the clause's lead number (e.g. 'hits 32.1 km/h' and 'top speed 32.1 km/h')."""
+    """True when the line already quotes the clause's lead number, compared as values ('32.0' equals '32')."""
     nums = re.findall(r"\d+(?:\.\d+)?", clause)
-    return bool(nums) and nums[0] in re.findall(r"\d+(?:\.\d+)?", line)
+    return bool(nums) and float(nums[0]) in {float(n) for n in re.findall(r"\d+(?:\.\d+)?", line)}
 
 
 def _prefer(m: Moment) -> str | None:

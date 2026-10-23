@@ -113,7 +113,7 @@ def test_facts_carry_names_units_and_the_exact_numbers():
 
 def test_every_quoted_number_is_on_the_allow_list():
     allowed = intel_numbers(_engine_metrics())
-    for n in (33.1, 32, 6.24, 6240, 11, 38.5, 0.82, 8, 82, 87.0, 64.7):
+    for n in (33.1, 32, 6.24, 6240, 11, 38.5, 0.82, 82, 87.0, 64.7):
         assert n in allowed
 
 
@@ -124,10 +124,10 @@ def _expl(m: Moment) -> Explanation:
                        cites=m.event_ids, confidence=0.5)
 
 
-def test_speed_threshold_fallback_is_a_player_tag_carrying_the_intel():
+def test_speed_threshold_fallback_is_a_lower_third_carrying_the_intel():
     m = _moment(kind=MomentKind.SPEED_THRESHOLD, metrics=_engine_metrics(), importance=0.35)
     p = fallback_proposal(m, _expl(m), "Ade Pike hits 33.1 km/h")
-    assert p is not None and p.layer == OverlayLayer.PLAYER_TAG
+    assert p is not None and p.layer == OverlayLayer.LOWER_THIRD
     assert p.payload["intel"]["thresholds"][0]["value"] == 33.1
     assert p.payload["intel"]["short"] == "top speed 33.1 km/h"
 
@@ -228,3 +228,18 @@ def test_the_result_and_the_graphic_carry_display_names_for_the_viewer():
                                                        importance=0.35), meta=meta))
     assert res.intel is not None and res.intel["names"] == {pid: meta.home.players[8].name}
     assert res.proposal is not None and res.proposal.payload["intel"]["names"] == res.intel["names"]
+
+
+def test_analyst_text_does_not_repeat_a_speed_written_without_decimals():
+    m = _moment(kind=MomentKind.SPEED_THRESHOLD, importance=0.35, summary="Ade Pike hits 32 km/h")
+    m.state.thresholds = [ThresholdIndicator(kind="top_speed", player="har-09", event_id=m.event_ids[0],
+                                             value=32.0, threshold=32, unit="km/h")]
+    analyst = fallback_variants(m, "Ade Pike hits 32 km/h", [(Persona.ANALYST, "none", "en", {})])[0].text
+    assert analyst == "Ade Pike hits 32 km/h"
+
+
+def test_allow_list_keeps_the_rating_and_its_percent_form_only():
+    from agents.match_intel import intel_numbers
+    kp = PassQuality(event_id="e", team="har", player="har-08", distance_m=38.5, difficulty=0.82)
+    nums = intel_numbers(MomentMetrics(key_pass=kp))
+    assert 0.82 in nums and 82 in nums and 8 not in nums

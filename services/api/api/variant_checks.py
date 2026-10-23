@@ -87,11 +87,26 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
 
 # ---------- checks ----------
 
-def _invents_numbers(v: NarrativeVariant, ctx: CheckContext) -> bool:
+def _unallowed(text: str, allowed_numbers: tuple[float, ...] | list[float]) -> list[str]:
+    """Number tokens in the text that match no allowed number (compared at the token's own precision)."""
     def allowed(token: str) -> bool:
         decimals = len(re.split(r"[.,]", token)[1]) if re.search(r"[.,]", token) else 0
-        return any(abs(round(a, decimals) - _value(token)) < 1e-9 for a in ctx.allowed_numbers)
-    return not all(allowed(t) for t in _number_tokens(v.text))
+        return any(abs(round(a, decimals) - _value(token)) < 1e-9 for a in allowed_numbers)
+    return [t for t in _number_tokens(text) if not allowed(t)]
+
+
+def _invents_numbers(v: NarrativeVariant, ctx: CheckContext) -> bool:
+    return bool(_unallowed(v.text, ctx.allowed_numbers))
+
+
+def unsourced_numbers(line: str, m: Moment | None) -> list[str]:
+    """Numbers in the English line that the stats engine never produced, for the operator to see before firing.
+
+    The variants are checked against the approved line; this checks the line itself against the data. It flags,
+    it does not block: the graphics operator decides. Without the moment there is nothing to check against."""
+    if m is None:
+        return []
+    return list(dict.fromkeys(_unallowed(line, _state_numbers(m.state, m))))
 
 
 def _breaks_names(v: NarrativeVariant, ctx: CheckContext) -> bool:

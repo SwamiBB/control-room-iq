@@ -58,11 +58,17 @@ Until this lands, the agents derive what they can from state (speed moments get 
   `intel` block for graphics. Pure code, no model calls.
 - Every agent now receives `intel` = `{metrics, facts, team_pass_accuracy_pct}`. Prompts updated: explainer (why the run or
   pass mattered), narrator (one fact, exact), personalizer (newcomer words, fan one number, analyst the figures, deaf: who
-  and where first), producer (speed → `player_tag`, standout pass → `stat_panel`).
+  and where first), producer (speed → `lower_third`, standout pass → `stat_panel`). Numbers: one decimal for
+  analysts (33.1 km/h), whole numbers for fans (33 km/h), plain words for newcomers.
 - **Numbers from code:** after the producer runs, `payload.intel` is overwritten with the stats engine's numbers plus
   `names` (player id → display name) and `short` (one clause). The producer cannot put its own numbers there.
-- Fallbacks: `speed_threshold` → `player_tag` (6 s), `standout_pass` → `stat_panel`; the analyst variant quotes the intel
-  on those moments.
+- Fallbacks: `speed_threshold` → `lower_third`, `standout_pass` → `stat_panel`; the analyst variant quotes the intel
+  on those moments and does not repeat a number the line already gives (compared as values, so "32" equals "32.0").
+  Speed moments are not player tags: a tag is a name and one number beside the player (40 characters), too short
+  for the deaf and analyst versions. A code-built tag ("Ade Pike · 33.1 km/h") can come later, like the ticker.
+- **The English line is checked too:** the API compares every number in the line the operator will fire with the
+  stats engine's data and lists any it cannot find in `OverlayProposal.unsourced_numbers`. It flags, it does not
+  block. Producer output in that field is discarded.
 - `MomentResult.intel` carries the block; the API adds it to the operator `moment` message.
 - `variant_checks.py`: intel numbers and team pass accuracy are on the allow-list, so a Spanish or Hindi variant may
   quote "33,1 km/h" or "84%"; a speed the stats engine never produced still fails `numbers`.
@@ -70,6 +76,7 @@ Until this lands, the agents derive what they can from state (speed moments get 
   score, xG, possession, shots and minute from the state snapshot. The personalizer prompt now says exactly this.
   Anything else (passes, PPDA, pressures, momentum) fails the checks, and that viewer gets a template line. Before the
   correction the prompt allowed "any number in the state snapshot", so faithful variants were silently replaced.
+- The pass difficulty is allowed as 0.82 and 82, not as 8.
 - Not touched: the personalizer prompt still lists the old `accessibility` persona and Arabic; that rewrite is Siranjeevi's
   open item from `HANDOFF-2026-10-23-agents-web.md`.
 
@@ -82,6 +89,9 @@ Until this lands, the agents derive what they can from state (speed moments get 
   team pass accuracy, fastest shot.
 - `web/src/components/IntelChips.tsx`: chips on proposal cards (`payload.intel`), moment cards (`intel`) and the viewer
   overlay (fan register for fan and deaf, analyst for analyst; names from `payload.intel.names`).
+- **Card flag:** when `unsourced_numbers` is not empty, show an amber "Number not from the data: 35" on the card,
+  next to the intel chips, so the operator can compare before firing.
+- Chip labels stay in English for every language for now; translate the dozen labels before the video if time allows.
 - Wired into the current `Operator.tsx` and `Viewer.tsx` with a few lines each. Both components are self-contained, so
   they drop into the rebuilt console as they are.
 
@@ -89,7 +99,8 @@ Until this lands, the agents derive what they can from state (speed moments get 
 
 `services/agents/tests/test_match_intel.py` (20) and `services/api/tests/test_variant_checks_intel.py` (4, including
 team pass accuracy allowed and PPDA refused). Existing fakes of `pipeline.process` accept the new `meta=` keyword.
-Full offline suite on `main` after #19: 235 passed.
+Full offline suite on `main` after #19: 235 passed. The follow-up fix adds tests for the English-line
+number flag, the lower-third layer, the no-repeat rule and the rating allow-list.
 
 ## 6. What you will see today
 

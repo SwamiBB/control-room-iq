@@ -188,7 +188,7 @@ def intel_numbers(metrics: MomentMetrics | None) -> list[float]:
         out.append(round(metrics.player_distance_km * 1000))
     kp = metrics.key_pass
     if kp is not None:
-        out += [kp.distance_m, kp.difficulty, round(kp.difficulty * 10), round(kp.difficulty * 100)]
+        out += [kp.distance_m, kp.difficulty, round(kp.difficulty * 100)]
         out += [v for v in (kp.accuracy_pct, kp.ball_speed_kmh) if v is not None]
     for t in metrics.thresholds:
         out += [t.value, t.threshold]

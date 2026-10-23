@@ -17,7 +17,7 @@ def test_api_owned_fields_from_the_agent_are_reset_on_arrival(monkeypatch):
     injected = proposal("p-ai", package_id="pk-p-goal", package_seq=1, package_offset_ms=90_000, item_label="x",
                         status=ProposalStatus.APPROVED, decided_by="model", override_line="sneaky",
                         proposed_play_ms=1, t_in_ms=5_000, t_out_ms=9_000)
-    result = SimpleNamespace(explanation=fallback_explanation(m), line="l", variants=[], failures=[],
+    result = SimpleNamespace(moment=m, explanation=fallback_explanation(m), line="l", variants=[], failures=[],
                              proposal=injected, fan_card=None)
 
     async def process(_m, **_kwargs):

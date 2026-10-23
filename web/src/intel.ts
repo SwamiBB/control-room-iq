@@ -36,7 +36,7 @@ export type IntelState = {
 };
 export type NameOf = (playerId?: string | null) => string;
 
-// Viewer register for the numbers: newcomer gets words, fan one number, analyst the full figures.
+// Viewer register for the numbers: newcomer gets words, fan one whole number, analyst the full figures (one decimal).
 export type IntelRegister = "newcomer" | "fan" | "analyst";
 
 const BANDS: [number, DifficultyLabel][] = [[0.8, "very_hard"], [0.6, "hard"], [0.35, "testing"]];
@@ -77,13 +77,13 @@ export function intelChips(m: MomentMetrics | null | undefined, name: NameOf, re
     const who = t.player ? name(t.player) : "Ball";
     chips.push(register === "newcomer"
       ? { key: `t${i}`, label: who, value: t.kind === "top_speed" || t.kind === "sprint" ? "One of the fastest runs" : thresholdKind(t.kind), tone: "alert" }
-      : { key: `t${i}`, label: `${thresholdKind(t.kind)} · ${who}`, value: register === "fan" ? `${num(t.value)}${t.unit === "rating" ? "" : ` ${t.unit}`}` : thresholdLabel(t), tone: "alert" });
+      : { key: `t${i}`, label: `${thresholdKind(t.kind)} · ${who}`, value: register === "fan" ? `${t.unit === "rating" ? t.value.toFixed(2) : Math.round(t.value)}${t.unit === "rating" ? "" : ` ${t.unit}`}` : thresholdLabel(t), tone: "alert" });
   }
   const kp = m.key_pass;
   if (kp) {
     const label = passLabel(kp);
     if (register === "newcomer") chips.push({ key: "pass", label: `Pass by ${name(kp.player)}`, value: `${DIFFICULTY_TEXT[label]} to complete`, tone: label === "routine" ? "info" : "hot" });
-    else if (register === "fan") chips.push({ key: "pass", label: `Pass by ${name(kp.player)}`, value: `${metres(kp.distance_m)} · ${DIFFICULTY_TEXT[label]}`, tone: "hot" });
+    else if (register === "fan") chips.push({ key: "pass", label: `Pass by ${name(kp.player)}`, value: `${Math.round(kp.distance_m)} m · ${DIFFICULTY_TEXT[label]}`, tone: "hot" });
     else {
       chips.push({ key: "pass", label: `Pass · ${name(kp.player)}${kp.receiver ? ` → ${name(kp.receiver)}` : ""}`, value: metres(kp.distance_m), tone: "info" });
       chips.push({ key: "diff", label: "Difficulty", value: `${kp.difficulty.toFixed(2)} · ${DIFFICULTY_TEXT[label]}`, tone: label === "very_hard" || label === "hard" ? "hot" : "info" });
