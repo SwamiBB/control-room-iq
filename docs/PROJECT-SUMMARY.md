@@ -33,6 +33,7 @@ Where documents disagree, the newest decision wins, and the contract in `package
 that changes *how existing code works* belongs to the engineer.
 
 Open work per person is in the handoff docs: [HANDOFF-2026-10-24-agents-siranjeevi.md](HANDOFF-2026-10-24-agents-siranjeevi.md),
+[HANDOFF-2026-10-24-web-mudassar.md](HANDOFF-2026-10-24-web-mudassar.md) (consolidated front-end list),
 [HANDOFF-2026-10-24-match-intelligence.md](HANDOFF-2026-10-24-match-intelligence.md),
 [HANDOFF-2026-10-24-goal-routine-metrics.md](HANDOFF-2026-10-24-goal-routine-metrics.md),
 [HANDOFF-2026-10-24-fan-card.md](HANDOFF-2026-10-24-fan-card.md).
