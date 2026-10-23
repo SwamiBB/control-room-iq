@@ -1,17 +1,22 @@
 targetScope = 'subscription'
 
+// The {env} part of every name, e.g. poc in the sandbox. Seven characters at most keeps container app names within 32.
 @minLength(1)
-@maxLength(16)
+@maxLength(7)
 param environmentName string
 param location string = 'eastus2'
+// The {instance} part of every name; bump it if a globally unique name is taken.
+param instance string = '01'
 param ownerAlias string = 'aicoe'
 param expires string = '2026-11-30'
 
-var prefix = 'crq-${environmentName}'
+// Naming convention: resource group {app}-rg-{env}-{region}-{instance}, resources {type}-{app}-{env}-{region}-{instance}.
+var app = 'crq'
+var suffix = toLower('${environmentName}-${location}-${instance}')
 var tags = { project: 'control-room-iq', owner: ownerAlias, expires: expires, 'azd-env-name': environmentName }
 
 resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
-  name: 'rg-${prefix}'
+  name: '${app}-rg-${suffix}'
   location: location
   tags: tags
 }
@@ -19,26 +24,27 @@ resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
 module core 'modules/core.bicep' = {
   name: 'core'
   scope: rg
-  params: { prefix: prefix, location: location, tags: tags }
+  params: { app: app, suffix: suffix, location: location, tags: tags }
 }
 
 module data 'modules/data.bicep' = {
   name: 'data'
   scope: rg
-  params: { prefix: prefix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
+  params: { app: app, suffix: suffix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
 }
 
 module ai 'modules/ai.bicep' = {
   name: 'ai'
   scope: rg
-  params: { prefix: prefix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
+  params: { app: app, suffix: suffix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
 }
 
 module apps 'modules/apps.bicep' = {
   name: 'apps'
   scope: rg
   params: {
-    prefix: prefix
+    app: app
+    suffix: suffix
     location: location
     tags: tags
     identityId: core.outputs.identityId

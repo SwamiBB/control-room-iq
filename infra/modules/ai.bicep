@@ -1,18 +1,19 @@
-param prefix string
+param app string
+param suffix string
 param location string
 param tags object
 param identityPrincipalId string
 
 // Microsoft Foundry resource (AIServices kind) with a project, model router, and a fallback model.
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
-  name: '${prefix}-foundry'
+  name: 'aif-${app}-${suffix}'
   location: location
   tags: tags
   kind: 'AIServices'
   sku: { name: 'S0' }
   identity: { type: 'SystemAssigned' }
   properties: {
-    customSubDomainName: '${prefix}-foundry'
+    customSubDomainName: 'aif-${app}-${suffix}'
     allowProjectManagement: true
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
@@ -21,16 +22,18 @@ resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
 
 resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
   parent: foundry
-  name: 'crq'
+  name: 'proj-${app}-${suffix}'
   location: location
   tags: tags
   identity: { type: 'SystemAssigned' }
   properties: { displayName: 'Control Room IQ', description: 'Inside the Game hackathon' }
 }
 
+// The account takes one operation at a time, so the project and deployments are created in sequence.
 resource modelRouter 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: foundry
   name: 'model-router'
+  dependsOn: [ project ]
   sku: { name: 'GlobalStandard', capacity: 100 }
   properties: {
     model: { format: 'OpenAI', name: 'model-router', version: '2025-11-18' }
@@ -48,12 +51,12 @@ resource fallback 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-p
 }
 
 resource speech 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
-  name: '${prefix}-speech'
+  name: 'spch-${app}-${suffix}'
   location: location
   tags: tags
   kind: 'SpeechServices'
   sku: { name: 'S0' }
-  properties: { customSubDomainName: '${prefix}-speech', disableLocalAuth: true }
+  properties: { customSubDomainName: 'spch-${app}-${suffix}', disableLocalAuth: true }
 }
 
 // Azure AI User on the Foundry resource for the workload identity
