@@ -44,6 +44,7 @@ from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
 from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer
 from .recap import RECAP_WINDOWS, build_recap
+from .schedule import ScheduleView, build_schedule
 
 
 @asynccontextmanager
@@ -211,6 +212,11 @@ async def decisions():
 @app.get("/state")
 async def state():
     return hub.state
+
+
+@app.get("/schedule", response_model=ScheduleView)
+async def schedule():
+    return build_schedule(hub.packets, hub.proposals.values(), hub.clock)
 
 
 @app.get("/recap", response_model=Recap)
