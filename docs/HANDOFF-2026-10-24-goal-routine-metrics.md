@@ -1,6 +1,6 @@
 ## Goal routine, gallery words and metrics: what changed and what you need to do
 
-Four changes on `feat/goal-package-metrics`. Everything is additive: no field or route was renamed or removed.
+Five changes on `feat/goal-package-metrics`. Everything is additive: no field or route was renamed or removed.
 
 ### 1. Goal routine (one click fires three graphics)
 
@@ -52,7 +52,20 @@ Code: `services/api/api/metrics.py`; tests: `test_metrics.py`.
 - `GET /metrics` → `workload.expired` counts them, apart from operator decisions.
 - Code: `services/api/api/timing.py`; tests: `test_timing.py`, `test_sla_expiry_api.py`.
 
-### 4. Gallery words
+### 4. Preview before firing (the operator picks the viewer groups)
+
+- `GET /viewer-groups` lists every option for the picker: persona × access × language × side, each with a
+  `key` such as `newcomer.none.hi.away`.
+- `GET /proposals/{id}/preview?view=<key>&view=<key>` (repeatable, at most 12, side optional) returns, for
+  each picked group in the order picked: the `text` they would see, `source` (variant / template / base /
+  override), `lang_shown`, `failures` (why a variant would not air) and `perspective` (supporter framing).
+  With no `view`, it previews the groups watching now, or the default viewer (fan, no access mode,
+  English, neutral) when nobody is.
+- `&override_line=...` previews a typed override before it is fired: English, for everyone.
+- Read-only: it builds no packet, logs no decision and sends nothing. The same delivery rules as airing.
+- Code: `services/api/api/preview.py`; tests: `test_preview.py`, `test_preview_api.py`.
+
+### 5. Gallery words
 
 `docs/GALLERY-TERMS.md` has the role mapping and the on-screen words. The API is unchanged; only labels move.
 
@@ -73,6 +86,11 @@ Code: `services/api/api/metrics.py`; tests: `test_metrics.py`.
 5. Countdown on every open card from `hold_at`. From `warn_at` (or on the `sla_warning` message) turn the
    card amber and show "Holds in 10 s". Held cards show "Expires at" from `proposed_play_ms` plus the
    shelf life; remove a card when its status becomes `expired`.
+
+6. **Preview for** row on each card: chips for the operator's picked viewer groups plus "+ Pick", which
+   opens a picker built from `GET /viewer-groups`. Remember the picks per console (browser storage is fine).
+   Show one line per group: the text, then "✓ variant", "↩ template" or "↩ English line" with the failure
+   code. Refresh it when the card changes and as the operator types an override (`override_line`).
 
 ### @Siranjeevi (agents)
 
