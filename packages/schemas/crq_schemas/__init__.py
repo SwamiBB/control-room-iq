@@ -452,6 +452,15 @@ class OverlayProposal(BaseModel):
     decided_at: datetime | None = None
     override_line: str | None = None
     meta: AgentMeta = Field(default_factory=AgentMeta)
+    proposed_at: datetime | None = Field(default=None, description="When the proposal reached the running order")
+    proposed_play_ms: int | None = Field(default=None, description="Play time when it reached the running order")
+    warn_at: datetime | None = Field(default=None, description="When the console starts warning: no decision yet")
+    hold_at: datetime | None = Field(default=None, description="When the SLA timer holds it if nobody decides")
+    # Package: several graphics for one moment, fired with one decision (e.g. the goal routine)
+    package_id: str | None = Field(default=None, description="Shared by every item of a package")
+    package_seq: int = Field(default=0, ge=0, description="Running order inside the package; 0 = lead graphic")
+    package_offset_ms: int = Field(default=0, ge=0, description="Play-time delay after the package is fired")
+    item_label: str = Field(default="", description="Gallery name for this item, e.g. 'Scorer stats'")
 
 
 class OverlayPacket(BaseModel):
@@ -504,6 +513,7 @@ class DecisionLogEntry(BaseModel):
     actor: str
     at: datetime
     reasoning: str | None = None
+    package_id: str | None = None
 
 
 # ---------------------------------------------------------------------------------------------

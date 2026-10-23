@@ -46,12 +46,14 @@ def packet_slot(p: OverlayProposal, now_play_ms: int) -> tuple[int, int]:
     """Play-time window for the packet.
 
     Uses the scheduler's t_in/t_out when it has placed the proposal. Until scheduler.py lands, an
-    unplaced proposal airs now for its proposed duration; this is not collision-aware.
+    unplaced proposal airs now for its proposed duration; this is not collision-aware. A package item
+    starts its `package_offset_ms` after the package is fired (the scorer's stats wait for the replay).
     """
     if p.t_out_ms > p.t_in_ms:
         return p.t_in_ms, p.t_out_ms
     duration = max(p.t_end_ms - p.t_start_ms, p.min_hold_ms)
-    return now_play_ms, now_play_ms + duration
+    start = now_play_ms + p.package_offset_ms
+    return start, start + duration
 
 
 def _is_verified(p: OverlayProposal) -> bool:

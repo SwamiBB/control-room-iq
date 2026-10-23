@@ -47,10 +47,22 @@ from .exports import decisions_to_csv
 from .fallback_text import template_line
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
+from .goal_package import build_goal_package, is_code_built
+from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
+from .timing import (
+    EXPIRY_ACTOR,
+    SLA_ACTOR,
+    SLA_HOLD_S,
+    SLA_WARN_S,
+    SYSTEM_ACTORS,
+    shelf_life_ms,
+    sla_times,
+    stale_proposals,
+)
 from .variant_checks import build_context
 
 
@@ -90,7 +102,8 @@ class Hub:
         self.match_state: MatchState | None = None  # live object folded by the replay
         self.clock = PlayClock()
         self.feed = OverlayFeed()
-        self.auto_hold_s = 20.0
+        self.auto_hold_s = SLA_HOLD_S
+        self.warn_s = SLA_WARN_S
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -129,7 +142,6 @@ pipeline = MomentPipeline()
 
 # ---------- approval loop ----------
 
-SLA_ACTOR = "sla-timer"
 AIRING_ACTIONS = (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN)
 
 
@@ -145,29 +157,36 @@ def _open_proposal(proposal_id: str, action: ProposalStatus, d: Decision) -> Ove
         raise HTTPException(404, "proposal not found")
     if p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         raise HTTPException(409, f"proposal already {p.status.value}")
-    # No auto-approve path: the SLA timer may only hold, so its name cannot be used to air anything.
-    if d.actor == SLA_ACTOR and action != ProposalStatus.HELD:
-        raise HTTPException(403, f"{SLA_ACTOR} may only hold")
+    # No auto-approve path: automated actors may only hold, so their names cannot be used to air anything.
+    if d.actor in SYSTEM_ACTORS and action != ProposalStatus.HELD:
+        raise HTTPException(403, f"{d.actor} may only hold")
     return p
 
 
 def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) -> DecisionLogEntry:
     p.status, p.decided_by, p.decided_at = action, d.actor, hub.now()
-    if d.override_line:
+    if action == ProposalStatus.OVERRIDDEN:
         p.override_line = d.override_line
     entry = DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
-                             action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning)
+                             action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
+                             package_id=p.package_id)
     hub.decisions.append(entry)
     return entry
 
 
 def _fan_card(p: OverlayProposal) -> FanCard | None:
+    if p.package_seq > 0:  # the deaf fan's caption travels with the lead graphic only
+        return None
     card = hub.results.get(p.moment_id, {}).get("fan_card")
     return FanCard.model_validate(card) if card else None
 
 
 def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
     m = hub.moments.get(p.moment_id)
+    if is_code_built(p):
+        # Stats and ticker lines are code from the official data, not AI: no variants or templates apply.
+        return DeliveryPlan(variants=(), ctx=build_context(p, m, hub.meta), templates={}, is_high_stakes=False,
+                            is_override=bool(p.override_line))
     variants = [NarrativeVariant.model_validate(v) for v in hub.results.get(p.moment_id, {}).get("variants", [])]
     templates = {lang: line for lang in get_args(Lang) if m and (line := template_line(m, lang, hub.meta))}
     # An override replaces the AI line for everyone, so neither variants nor templates of it may air.
@@ -185,7 +204,19 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
     p.status = ProposalStatus.AIRED
 
 
+async def _expire_stale() -> list[OverlayProposal]:
+    """Held graphics the match has moved past leave the running order, with a log row for each."""
+    expired = stale_proposals(hub.proposals.values(), hub.clock.play_ms)
+    for p in expired:
+        seconds = shelf_life_ms(p) // 1000
+        _record_decision(p, ProposalStatus.EXPIRED,
+                         Decision(actor=EXPIRY_ACTOR, reasoning=f"held and not fired within {seconds} s of play"))
+        await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+    return expired
+
+
 async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> OverlayProposal:
+    await _expire_stale()  # a graphic that went stale while held cannot be fired late
     p = _open_proposal(proposal_id, action, d)
     entry = _record_decision(p, action, d)
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
@@ -194,14 +225,21 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
     return p
 
 
+def _without_override(d: Decision | None) -> Decision:
+    """Replacement text is only accepted on /override, so an approve can never quietly change the line."""
+    if d and d.override_line:
+        raise HTTPException(422, "override_line is only accepted on /override")
+    return d or Decision()
+
+
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
 async def approve(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.APPROVED, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.APPROVED, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
 async def hold(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.HELD, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.HELD, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/override", response_model=OverlayProposal)
@@ -213,7 +251,47 @@ async def override(proposal_id: str, d: Decision):
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
-    return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
+    return await _decide(proposal_id, ProposalStatus.REJECTED, _without_override(d))
+
+
+# ---------- packages: several graphics, one decision ----------
+
+PACKAGE_ACTIONS = {"approve": ProposalStatus.APPROVED, "hold": ProposalStatus.HELD, "reject": ProposalStatus.REJECTED}
+
+
+def _package_items(package_id: str) -> list[OverlayProposal]:
+    return sorted((p for p in hub.proposals.values() if p.package_id == package_id), key=lambda p: p.package_seq)
+
+
+@app.get("/packages/{package_id}", response_model=list[OverlayProposal])
+async def get_package(package_id: str):
+    items = _package_items(package_id)
+    if not items:
+        raise HTTPException(404, "package not found")
+    return items
+
+
+@app.post("/packages/{package_id}/{action}", response_model=list[OverlayProposal])
+async def decide_package(package_id: str, action: str, d: Decision | None = None):
+    """One click applies the decision to every open item, in running order. Each item still gets its own
+    decision row and its own approval id on the packet, so the gate and the audit trail are unchanged."""
+    if action not in PACKAGE_ACTIONS:
+        raise HTTPException(404, f"action must be one of {sorted(PACKAGE_ACTIONS)}")
+    d = _without_override(d)
+    await _expire_stale()  # choose what to fire only after stale items have left the running order
+    items = _package_items(package_id)
+    if not items:
+        raise HTTPException(404, "package not found")
+    open_items = [p for p in items if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)]
+    if not open_items:
+        raise HTTPException(409, "package already decided")
+    return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
+
+
+@app.get("/metrics", response_model=GalleryMetrics)
+async def metrics():
+    """Turnaround, error rate and operator workload for the match so far."""
+    return gallery_metrics(hub.proposals, hub.decisions, hub.deliveries, hub.clock.play_ms, len(hub.packets))
 
 
 @app.get("/decisions.csv")
@@ -264,8 +342,16 @@ async def healthz():
 
 
 async def _auto_hold(proposal_id: str) -> None:
-    """Approval SLA: a proposal nobody acts on is held, never aired. In Azure this is a Logic App."""
-    await asyncio.sleep(hub.auto_hold_s)
+    """Approval SLA: a warning first, then a proposal nobody acts on is held, never aired.
+    In Azure this is a Logic App."""
+    warn_after = max(0.0, hub.auto_hold_s - hub.warn_s)
+    await asyncio.sleep(warn_after)
+    p = hub.proposals.get(proposal_id)
+    if p and p.status == ProposalStatus.PROPOSED:
+        await hub.broadcast_operators({"type": "sla_warning", "proposal_id": proposal_id, "package_id": p.package_id,
+                                       "seconds_left": hub.auto_hold_s - warn_after,
+                                       "hold_at": p.hold_at.isoformat() if p.hold_at else None})
+    await asyncio.sleep(hub.auto_hold_s - warn_after)
     p = hub.proposals.get(proposal_id)
     if p and p.status == ProposalStatus.PROPOSED:
         await _decide(proposal_id, ProposalStatus.HELD, Decision(actor=SLA_ACTOR, reasoning="no operator action"))
@@ -306,6 +392,7 @@ async def _start_match(meta: MatchMeta) -> StateFolder:
 async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest) -> None:
     # Pace on play time: the period clock restarts at half time, play time never does.
     await asyncio.sleep(hub.clock.advance(ev) / 1000 / req.speed)
+    await _expire_stale()
     moments = folder.apply(ev)
     if ev.seq % 10 == 0:
         await _publish_state(folder)
@@ -348,10 +435,28 @@ async def _handle_moment(m: Moment) -> None:
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     if res.proposal:
-        await _queue_proposal(res.proposal)
+        lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now()})
+        for p in build_goal_package(lead, m, hub.meta):
+            await _queue_proposal(p)
+
+
+# Decision, package and timing fields belong to the API. The producer agent returns a whole
+# OverlayProposal, so anything it put in these fields is discarded on arrival (e.g. a package_id that
+# would make its graphic fire with someone else's one-click package).
+_API_OWNED = ("status", "decided_by", "decided_at", "override_line", "proposed_at", "proposed_play_ms", "warn_at",
+              "hold_at", "package_id", "package_seq", "package_offset_ms", "item_label")
+
+
+def _from_agent(p: OverlayProposal) -> OverlayProposal:
+    return p.model_copy(update={name: OverlayProposal.model_fields[name].get_default(call_default_factory=True)
+                                for name in _API_OWNED})
 
 
 async def _queue_proposal(p: OverlayProposal) -> None:
+    proposed_at = p.proposed_at or hub.now()
+    warn_at, hold_at = sla_times(proposed_at, hub.auto_hold_s, hub.warn_s)
+    p = p.model_copy(update={"proposed_at": proposed_at, "proposed_play_ms": hub.clock.play_ms,
+                             "warn_at": warn_at, "hold_at": hold_at})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     asyncio.create_task(_auto_hold(p.proposal_id))

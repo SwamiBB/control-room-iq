@@ -8,7 +8,7 @@ from collections.abc import Iterable
 
 from crq_schemas import DecisionLogEntry
 
-CSV_HEADER = ["entry_id", "match_id", "proposal_id", "action", "actor", "at", "reasoning"]
+CSV_HEADER = ["entry_id", "match_id", "proposal_id", "action", "actor", "at", "reasoning", "package_id"]
 # Spreadsheets execute cells starting with these as formulas; actor and reasoning are free text.
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -19,7 +19,8 @@ def _cell(value: str) -> str:
 
 def _row(e: DecisionLogEntry) -> list[str]:
     action = e.action.value if hasattr(e.action, "value") else str(e.action)
-    return [e.entry_id, e.match_id, e.proposal_id, action, _cell(e.actor), e.at.isoformat(), _cell(e.reasoning or "")]
+    return [e.entry_id, e.match_id, e.proposal_id, action, _cell(e.actor), e.at.isoformat(), _cell(e.reasoning or ""),
+            e.package_id or ""]
 
 
 def decisions_to_csv(entries: Iterable[DecisionLogEntry]) -> str:
