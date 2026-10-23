@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from crq_schemas import MatchEvent, MatchMeta
@@ -26,7 +25,7 @@ from .squads import generate_team, pick_venue
 
 def build_meta(seed: int, home_idx: int = 0, away_idx: int = 1) -> MatchMeta:
     return MatchMeta(match_id=new_match_id() if seed == 0 else f"m-{seed:06d}",
-                     venue=pick_venue(seed), kickoff_utc=datetime.now(timezone.utc),
+                     venue=pick_venue(seed), kickoff_utc=datetime.now(UTC),
                      home=generate_team(home_idx, seed), away=generate_team(away_idx, seed), seed=seed)
 
 
