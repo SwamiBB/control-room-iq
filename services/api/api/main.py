@@ -14,10 +14,12 @@ import logging
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import get_args
+from typing import Annotated, get_args
 
+from agents.config import settings
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     Access,
@@ -36,7 +38,7 @@ from crq_schemas import (
     ProposalStatus,
     Recap,
 )
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ingest.stats import StateFolder
 from pydantic import BaseModel, Field
@@ -51,6 +53,7 @@ from .goal_package import build_goal_package, is_code_built
 from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
+from .preview import DEFAULT_VIEW, MAX_VIEWS, Preview, ViewerGroup, parse_view, preview, view_key, viewer_groups
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
 from .timing import (
@@ -286,6 +289,43 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     if not open_items:
         raise HTTPException(409, "package already decided")
     return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
+
+
+# ---------- preview before firing ----------
+
+@app.get("/viewer-groups", response_model=list[ViewerGroup])
+async def list_viewer_groups():
+    """Options for the console's preview picker: persona x access x language x side."""
+    return viewer_groups(settings.languages)
+
+
+def _connected_views() -> list[ViewerPrefs]:
+    """The viewer groups watching now, or the default viewer when nobody is connected."""
+    seen: dict[str, ViewerPrefs] = {view_key(v): v for v in hub.viewers.values()}
+    return list(seen.values()) or [DEFAULT_VIEW]
+
+
+@app.get("/proposals/{proposal_id}/preview", response_model=Preview)
+async def preview_proposal(proposal_id: str, view: Annotated[list[str] | None, Query()] = None,
+                           override_line: Annotated[str | None, Query(min_length=1, max_length=280)] = None):
+    """What the viewer groups the operator picks would see if this graphic were fired now, and why.
+
+    `view` is repeatable, `persona.access.lang[.allegiance]`, e.g. `?view=fan.deaf.es&view=newcomer.none.hi.away`.
+    With no `view`, previews the groups watching now. `override_line` previews a typed override.
+    Read-only: builds no packet, logs no decision, sends nothing."""
+    p = hub.proposals.get(proposal_id)
+    if not p:
+        raise HTTPException(404, "proposal not found")
+    try:
+        views = [parse_view(v) for v in view or []]
+    except ValueError as ex:
+        raise HTTPException(422, str(ex)) from ex
+    if len(views) > MAX_VIEWS:
+        raise HTTPException(422, f"pick at most {MAX_VIEWS} viewer groups")
+    plan = _delivery_plan(p)
+    if override_line:
+        plan = replace(plan, is_override=True)
+    return preview(p, plan, views or _connected_views(), hub.match_state, hub.meta, override_line)
 
 
 @app.get("/metrics", response_model=GalleryMetrics)
