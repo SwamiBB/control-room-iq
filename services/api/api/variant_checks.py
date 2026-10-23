@@ -9,6 +9,7 @@ never translated. Pure functions: no I/O and no model calls.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from agents.match_intel import intel_for, intel_numbers, team_pass_accuracy
@@ -87,11 +88,25 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
 
 # ---------- checks ----------
 
+def _is_sourced(token: str, allowed: Iterable[float]) -> bool:
+    """A number is sourced when some allowed value, rounded to the token's own precision, equals it."""
+    decimals = len(re.split(r"[.,]", token)[1]) if re.search(r"[.,]", token) else 0
+    return any(abs(round(a, decimals) - _value(token)) < 1e-9 for a in allowed)
+
+
 def _invents_numbers(v: NarrativeVariant, ctx: CheckContext) -> bool:
-    def allowed(token: str) -> bool:
-        decimals = len(re.split(r"[.,]", token)[1]) if re.search(r"[.,]", token) else 0
-        return any(abs(round(a, decimals) - _value(token)) < 1e-9 for a in ctx.allowed_numbers)
-    return not all(allowed(t) for t in _number_tokens(v.text))
+    return not all(_is_sourced(t, ctx.allowed_numbers) for t in _number_tokens(v.text))
+
+
+def unsourced_numbers(line: str, m: Moment | None) -> list[str]:
+    """Numbers in the line the operator will fire that the stats engine never produced, each listed once.
+
+    A flag for the operator's card, not a block: the operator approves the English line and may know better.
+    """
+    if m is None:
+        return []
+    allowed = _state_numbers(m.state, m)
+    return list(dict.fromkeys(t for t in _number_tokens(line) if not _is_sourced(t, allowed)))
 
 
 def _breaks_names(v: NarrativeVariant, ctx: CheckContext) -> bool:
