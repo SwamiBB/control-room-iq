@@ -11,18 +11,24 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from agents.workflow import MomentPipeline
+from crq_schemas import (
+    Access,
+    DecisionLogEntry,
+    MatchEvent,
+    MatchMeta,
+    OverlayPacket,
+    OverlayProposal,
+    Persona,
+    ProposalStatus,
+)
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from agents.workflow import MomentPipeline
-from crq_schemas import (DecisionLogEntry, MatchEvent, MatchMeta, OverlayItem, OverlayProposal, Persona,
-                         ProposalStatus)
 from ingest.stats import StateFolder
+from pydantic import BaseModel
 
 app = FastAPI(title="Control Room IQ API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -48,9 +54,10 @@ class Hub:
             except Exception:  # noqa: BLE001
                 self.operators.discard(ws)
 
-    async def broadcast_viewers(self, item: OverlayItem, variants: list[dict]) -> None:
+    async def broadcast_viewers(self, item: OverlayPacket, variants: list[dict]) -> None:
         for ws, prefs in list(self.viewers.items()):
-            v = next((x for x in variants if x["persona"] == prefs["persona"] and x["lang"] == prefs["lang"]), None)
+            v = next((x for x in variants if (x["persona"], x.get("access", "none"), x["lang"])
+                      == (prefs["persona"], prefs["access"], prefs["lang"])), None)
             payload = item.model_dump()
             if v:
                 payload["line"], payload["persona"], payload["lang"] = v["text"], v["persona"], v["lang"]
@@ -78,15 +85,25 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
         raise HTTPException(404, "proposal not found")
     if p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         raise HTTPException(409, f"proposal already {p.status.value}")
-    p.status, p.decided_by, p.decided_at = action, d.actor, datetime.now(timezone.utc)
+    p.status, p.decided_by, p.decided_at = action, d.actor, datetime.now(UTC)
     if d.override_line:
         p.override_line = d.override_line
-    hub.decisions.append(DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
+    hub.decisions.append(DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id,
+                                          proposal_id=p.proposal_id,
                                           action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning))
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     if action in (ProposalStatus.APPROVED, ProposalStatus.OVERRIDDEN):
-        item = OverlayItem(item_id="o-" + uuid.uuid4().hex[:8], match_id=p.match_id, layer=p.layer, t_start_ms=p.t_start_ms,
-                           t_end_ms=p.t_end_ms, line=p.override_line or p.line, payload=p.payload, source_proposal_id=p.proposal_id)
+        # The gate is structural: a packet cannot exist without approval fields, so nothing generated
+        # reaches a renderer unless an operator (never the SLA timer) approved or overrode it.
+        entry = hub.decisions[-1]
+        item = OverlayPacket(cue_id=p.cue_id or "c-" + p.proposal_id, match_id=p.match_id, layer=p.layer,
+                             t_in_ms=p.t_in_ms or p.t_start_ms, t_out_ms=p.t_out_ms or p.t_end_ms,
+                             period=1 if (hub.state or {}).get("period", 1) == 1 else 2,
+                             clock_ms=(hub.state or {}).get("t_ms", 0), priority=p.priority, replaces=p.replaces,
+                             min_hold_ms=p.min_hold_ms, line=p.override_line or p.line, payload=p.payload,
+                             verified=p.faithfulness is None or p.faithfulness >= 0.8, fallback=p.fallback,
+                             evidence=[e.event_id for e in p.evidence], source_proposal_id=p.proposal_id,
+                             approval_id=entry.entry_id, approved_by=d.actor, approved_at=p.decided_at)
         variants = hub.results.get(p.moment_id, {}).get("variants", [])
         await hub.broadcast_viewers(item, variants)
         p.status = ProposalStatus.AIRED
@@ -94,13 +111,13 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
 
 
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
-async def approve(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.APPROVED, d)
+async def approve(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.APPROVED, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
-async def hold(proposal_id: str, d: Decision = Decision()):
-    return await _decide(proposal_id, ProposalStatus.HELD, d)
+async def hold(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.HELD, d or Decision())
 
 
 @app.post("/proposals/{proposal_id}/override", response_model=OverlayProposal)
@@ -108,6 +125,23 @@ async def override(proposal_id: str, d: Decision):
     if not d.override_line:
         raise HTTPException(422, "override_line required")
     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
+
+
+@app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
+async def reject(proposal_id: str, d: Decision | None = None):
+    return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
+
+
+@app.get("/decisions.csv")
+async def decisions_csv():
+    from fastapi.responses import PlainTextResponse
+    rows = ["entry_id,match_id,proposal_id,action,actor,at,reasoning"]
+    for e in hub.decisions:
+        a = e.action.value if hasattr(e.action, "value") else str(e.action)
+        # Python 3.11 cannot reuse quotes inside f-string expressions; #2 replaces this with csv.writer.
+        reasoning = (e.reasoning or "").replace('"', "")
+        rows.append(f'{e.entry_id},{e.match_id},{e.proposal_id},{a},{e.actor},{e.at.isoformat()},"{reasoning}"')
+    return PlainTextResponse("\n".join(rows), media_type="text/csv")
 
 
 @app.get("/proposals")
@@ -184,7 +218,8 @@ async def _replay(path: Path, speed: float, min_importance: float) -> None:
                                                **hub.results[m.moment_id]})
                 if res.proposal:
                     hub.proposals[res.proposal.proposal_id] = res.proposal
-                    await hub.broadcast_operators({"type": "proposal", "proposal": res.proposal.model_dump(mode="json")})
+                    msg = {"type": "proposal", "proposal": res.proposal.model_dump(mode="json")}
+                    await hub.broadcast_operators(msg)
                     asyncio.create_task(_auto_hold(res.proposal.proposal_id))
 
 
@@ -206,9 +241,10 @@ async def ws_operator(ws: WebSocket):
 
 
 @app.websocket("/ws/viewer")
-async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, lang: str = "en", club: str | None = None):
+async def ws_viewer(ws: WebSocket, persona: Persona = Persona.FAN, access: Access = "none", lang: str = "en",
+                    club: str | None = None):
     await ws.accept()
-    hub.viewers[ws] = {"persona": persona.value, "lang": lang, "club": club}
+    hub.viewers[ws] = {"persona": persona.value, "access": access, "lang": lang, "club": club}
     try:
         while True:
             await ws.receive_text()

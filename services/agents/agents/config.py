@@ -18,7 +18,11 @@ class Settings:
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
-    languages: tuple[str, ...] = tuple(os.environ.get("CRQ_LANGS", "en,es,hi,ar").split(","))
+    languages: tuple[str, ...] = tuple(os.environ.get("CRQ_LANGS", "en,es,hi").split(","))
+    # Routing mode is a per-deployment setting on model router, so one deployment per mode.
+    router_quality: str = os.environ.get("ROUTER_QUALITY", "router-quality")
+    router_balanced: str = os.environ.get("ROUTER_BALANCED", "router-balanced")
+    router_cost: str = os.environ.get("ROUTER_COST", "router-cost")
 
 
 settings = Settings()

@@ -15,9 +15,18 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import get_args
 
-from crq_schemas import (Explanation, Moment, MomentKind, NarrativeVariant, OverlayLayer, OverlayProposal,
-                         Persona)
+from crq_schemas import (
+    Access,
+    Explanation,
+    Moment,
+    MomentKind,
+    NarrativeVariant,
+    OverlayLayer,
+    OverlayProposal,
+    Persona,
+)
 
 from .clients import make_agent
 from .config import settings
@@ -43,8 +52,9 @@ class MomentResult:
 
 def fallback_explanation(m: Moment) -> Explanation:
     s = m.state
-    pattern = {MomentKind.GOAL: "individual", MomentKind.BIG_CHANCE: "chaos", MomentKind.PRESSURE_SPIKE: "pressure_shift",
-               MomentKind.MOMENTUM_SHIFT: "rhythm_change", MomentKind.SPEED_THRESHOLD: "individual"}.get(m.kind, "control")
+    pattern = {MomentKind.GOAL: "individual", MomentKind.BIG_CHANCE: "chaos",
+               MomentKind.PRESSURE_SPIKE: "pressure_shift", MomentKind.MOMENTUM_SHIFT: "rhythm_change",
+               MomentKind.SPEED_THRESHOLD: "individual"}.get(m.kind, "control")
     why = (f"{m.summary}. Possession {s.home.possession_pct:.0f}-{s.away.possession_pct:.0f}, "
            f"xG {s.home.xg:.2f}-{s.away.xg:.2f}, score {s.home.goals}-{s.away.goals}.")
     return Explanation(moment_id=m.moment_id, headline=m.summary[:60], why_it_matters=why, pattern=pattern,  # type: ignore[arg-type]
@@ -55,17 +65,28 @@ def fallback_line(m: Moment, e: Explanation) -> str:
     return e.headline
 
 
-def fallback_variants(m: Moment, line: str, requests: list[tuple[Persona, str, dict]]) -> list[NarrativeVariant]:
+VariantRequest = tuple[Persona, Access, str, dict]  # persona, access, lang, focus
+
+
+def _fallback_text(m: Moment, line: str, persona: Persona, access: Access) -> str:
     s = m.state
-    out = []
-    for persona, lang, _focus in requests:
-        text = line
-        if persona == Persona.ANALYST:
-            text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
-        elif persona == Persona.ACCESSIBILITY:
-            text = f"{line}. The score is {s.home.goals} to {s.away.goals}."
-        out.append(NarrativeVariant(moment_id=m.moment_id, persona=persona, lang=lang, text=text, cites=list(m.event_ids)))  # type: ignore[arg-type]
-    return out
+    text = line
+    if persona == Persona.ANALYST:
+        text = f"{line} (xG {s.home.xg:.2f}-{s.away.xg:.2f}, possession {s.home.possession_pct:.0f}%)"
+    if access == "deaf":
+        text = f"{text}. The score is {s.home.goals} to {s.away.goals}."
+    return text
+
+
+def fallback_variants(m: Moment, line: str, requests: list[VariantRequest]) -> list[NarrativeVariant]:
+    return [NarrativeVariant(moment_id=m.moment_id, persona=persona, access=access, lang=lang,  # type: ignore[arg-type]
+                             text=_fallback_text(m, line, persona, access), cites=list(m.event_ids))
+            for persona, access, lang, _focus in requests]
+
+
+def priority_from_importance(importance: float) -> int:
+    """Map a 0-1 importance score onto the 1-9 priority rank (1 = highest); 0.5 lands on the default of 5."""
+    return 1 + round((1 - importance) * 8)
 
 
 def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal | None:
@@ -74,14 +95,16 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
     layer = {MomentKind.GOAL: OverlayLayer.FULL_SCREEN, MomentKind.HALF_END: OverlayLayer.FULL_SCREEN,
              MomentKind.MATCH_END: OverlayLayer.FULL_SCREEN, MomentKind.PRESSURE_SPIKE: OverlayLayer.HEATMAP,
              MomentKind.MOMENTUM_SHIFT: OverlayLayer.STAT_PANEL}.get(m.kind, OverlayLayer.LOWER_THIRD)
-    dur = {OverlayLayer.FULL_SCREEN: 18000, OverlayLayer.STAT_PANEL: 15000, OverlayLayer.HEATMAP: 15000}.get(layer, 10000)
+    dur = {OverlayLayer.FULL_SCREEN: 18000, OverlayLayer.STAT_PANEL: 15000,
+           OverlayLayer.HEATMAP: 15000}.get(layer, 10000)
     s = m.state
-    return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id, layer=layer,
-                           t_start_ms=m.t_ms + 2000, t_end_ms=m.t_ms + 2000 + dur, line=line,
-                           payload={"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
-                                    "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]},
-                           reasoning=f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}.",
-                           priority=m.importance)
+    payload = {"score": [s.home.goals, s.away.goals], "xg": [s.home.xg, s.away.xg],
+               "possession": [s.home.possession_pct, s.away.possession_pct], "momentum": s.momentum[-10:]}
+    reasoning = f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}."
+    return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id,
+                           layer=layer, t_start_ms=m.t_ms + 2000, t_end_ms=m.t_ms + 2000 + dur, line=line,
+                           payload=payload, reasoning=reasoning,
+                           priority=priority_from_importance(m.importance))
 
 
 # ---------- agents ----------
@@ -105,8 +128,9 @@ class MomentPipeline:
         self.producer = make_agent("producer", _prompt("producer"), OverlayProposal)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
-                      requests: list[tuple[Persona, str, dict]] | None = None) -> MomentResult:
-        requests = requests or [(p, lang, {}) for p in Persona for lang in settings.languages]
+                      requests: list[VariantRequest] | None = None) -> MomentResult:
+        requests = requests or [(p, a, lang, {})
+                                for p in Persona for a in get_args(Access) for lang in settings.languages]
         failures: list[str] = []
         moment_json = json.loads(m.model_dump_json())
 
@@ -120,8 +144,8 @@ class MomentPipeline:
 
         # personalizer and producer are independent once the line exists -> run concurrently
         async def _variants():
-            res, e = await _run(self.personalizer, {"line": line, "moment": moment_json,
-                                                    "requests": [{"persona": p.value, "lang": l, "focus": f} for p, l, f in requests]},
+            wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in requests]
+            res, e = await _run(self.personalizer, {"line": line, "moment": moment_json, "requests": wanted},
                                 None, lambda: fallback_variants(m, line, requests))
             if isinstance(res, str):
                 try:
@@ -138,4 +162,5 @@ class MomentPipeline:
 
         (variants, e1), (proposal, e2) = await asyncio.gather(_variants(), _proposal())
         failures += [e for e in (e1, e2) if e]
-        return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal, failures=failures)
+        return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
+                            failures=failures)

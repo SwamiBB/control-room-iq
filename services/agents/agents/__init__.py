@@ -3,7 +3,7 @@
 Agents (see prompts/):
 - explainer     why a moment matters, citing event IDs           -> Explanation
 - narrator      on-air line + running narrative + recaps         -> str
-- personalizer  persona x language variants                      -> NarrativeVariant[]
+- personalizer  persona x access x language variants             -> NarrativeVariant[]
 - producer      what goes on screen, when; proposal for approval -> OverlayProposal
 - squad_author  generates fictional squads and storylines        -> Team (data innovation)
 
