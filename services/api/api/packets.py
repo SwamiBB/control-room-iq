@@ -13,7 +13,6 @@ from crq_schemas import (
     DecisionLogEntry,
     FanCard,
     Lang,
-    NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
     Persona,
@@ -77,19 +76,6 @@ def build_packet(p: OverlayProposal, approval: DecisionLogEntry, clock: PlayCloc
 def attach_fan_card(packet: OverlayPacket, card: FanCard | None) -> OverlayPacket:
     return packet.model_copy(update={"fan_card": card}) if card else packet
 
-
-def for_viewer(packet: OverlayPacket, variants: list[NarrativeVariant], prefs: ViewerPrefs) -> OverlayPacket:
-    """The approved packet as one viewer sees it: their persona, access and language variant if one exists.
-
-    Without an exact match the viewer gets the approved base line: a near match (say the hearing variant
-    for a deaf viewer) could break the access rules. Callers pass no variants for an override, so the
-    operator's line reaches everyone verbatim.
-    """
-    wanted = (prefs.persona, prefs.access, prefs.lang)
-    v = next((v for v in variants if (v.persona, v.access, v.lang) == wanted), None)
-    if v is None:
-        return packet
-    return packet.model_copy(update={"line": v.text, "profile": v.persona, "access": v.access, "lang": v.lang})
 
 
 def with_perspective(packet: OverlayPacket, framing: dict | None) -> OverlayPacket:

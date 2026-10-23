@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 from api.main import ViewerPrefs, _auto_hold, app, hub
-from api_factories import RecordingSocket, proposal
-from crq_schemas import FanCard, OverlayPacket, Persona
+from api_factories import RecordingSocket, match_state, moment, proposal
+from crq_schemas import FanCard, OverlayPacket, Persona, TeamStats
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
@@ -67,7 +67,10 @@ def test_scheduled_proposal_keeps_scheduler_times_and_displays_their_clock():
 def test_approve_sends_each_viewer_their_persona_access_and_language_variant():
     newcomer_es, analyst, deaf_analyst = (_viewer(Persona.NEWCOMER, "es"), _viewer(Persona.ANALYST),
                                           _viewer(Persona.ANALYST, access="deaf"))
-    pid = _seed(variants=[_variant("newcomer", "es", "Gran ocasión"), _variant("analyst", "en", "xG 0.41 chance"),
+    # The variants' numbers must be backed by the approved line (xG) or the moment's state (1-0 score).
+    hub.moments["mo-1"] = moment(state=match_state(home=TeamStats(team="har", goals=1), away=TeamStats(team="nor")))
+    pid = _seed(proposal(line="Big chance, xG 0.41"),
+                variants=[_variant("newcomer", "es", "Gran ocasión"), _variant("analyst", "en", "xG 0.41 chance"),
                           _variant("analyst", "en", "xG 0.41 chance. The score is 1 to 0.", access="deaf")])
     TestClient(app).post(f"/proposals/{pid}/approve")
     (es,), (an,), (da,) = _aired(newcomer_es), _aired(analyst), _aired(deaf_analyst)

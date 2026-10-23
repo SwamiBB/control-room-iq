@@ -16,6 +16,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
@@ -41,13 +42,16 @@ from ingest.stats import StateFolder
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
+from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
 from .exports import decisions_to_csv
+from .fallback_text import template_line
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
-from .packets import ViewerPrefs, attach_fan_card, build_packet, for_viewer, parse_viewer, with_perspective
+from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
+from .variant_checks import build_context
 
 
 @asynccontextmanager
@@ -77,6 +81,8 @@ class Hub:
         self.decisions: list[DecisionLogEntry] = []
         self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants/fan_card
         self.packets: list[OverlayPacket] = []  # canonical packets as aired, before per-viewer variants
+        self.moments: dict[str, Moment] = {}  # moment_id -> moment, for variant checks and template lines
+        self.deliveries: list[dict] = []  # audit: what each viewer group got for each approval, and why
         self.operators: set[WebSocket] = set()
         self.viewers: dict[WebSocket, ViewerPrefs] = {}
         self.state: dict | None = None
@@ -93,14 +99,19 @@ class Hub:
             except Exception:  # noqa: BLE001
                 self.operators.discard(ws)
 
-    async def broadcast_viewers(self, packet: OverlayPacket, variants: list[NarrativeVariant]) -> None:
+    async def broadcast_viewers(self, packet: OverlayPacket, plan: DeliveryPlan) -> list[dict]:
+        """Sends each viewer their delivery; returns one audit entry per viewer group, not per socket."""
+        chosen: dict[tuple, Delivery] = {}
         for ws, prefs in list(self.viewers.items()):
+            group = (prefs.persona, prefs.access, prefs.lang)
+            d = chosen.setdefault(group, choose_delivery(plan, prefs))
             framing = perspective(self.match_state, prefs, self.meta) if self.match_state else None
-            item = with_perspective(for_viewer(packet, variants, prefs), framing).model_dump(mode="json")
+            item = with_perspective(apply_delivery(packet, d), framing).model_dump(mode="json")
             try:
                 await ws.send_json({"type": "overlay", "item": item})
             except Exception:  # noqa: BLE001
                 self.viewers.pop(ws, None)
+        return [d.audit(packet) for d in chosen.values()]
 
     async def broadcast_fan_cue(self, cue: FanCue) -> None:
         for ws, prefs in list(self.viewers.items()):
@@ -150,20 +161,27 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
     return entry
 
 
-def _approved_extras(p: OverlayProposal) -> tuple[list[NarrativeVariant], FanCard | None]:
-    result = hub.results.get(p.moment_id, {})
-    # An override replaces the AI line for everyone, so the AI variants of it must not air.
-    variants = [] if p.override_line else [NarrativeVariant.model_validate(v) for v in result.get("variants", [])]
-    card = result.get("fan_card")
-    return variants, FanCard.model_validate(card) if card else None
+def _fan_card(p: OverlayProposal) -> FanCard | None:
+    card = hub.results.get(p.moment_id, {}).get("fan_card")
+    return FanCard.model_validate(card) if card else None
+
+
+def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
+    m = hub.moments.get(p.moment_id)
+    variants = [NarrativeVariant.model_validate(v) for v in hub.results.get(p.moment_id, {}).get("variants", [])]
+    templates = {lang: line for lang in get_args(Lang) if m and (line := template_line(m, lang, hub.meta))}
+    # An override replaces the AI line for everyone, so neither variants nor templates of it may air.
+    return DeliveryPlan(variants=tuple(variants), ctx=build_context(p, m, hub.meta), templates=templates,
+                        is_high_stakes=bool(m and m.kind in HIGH_STAKES_KINDS), is_override=bool(p.override_line))
 
 
 async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
-    variants, card = _approved_extras(p)
-    packet = attach_fan_card(build_packet(p, approval, hub.clock), card)
+    packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
     hub.packets.append(packet)
     await hub.feed.publish("packet", packet)
-    await hub.broadcast_viewers(packet, variants)
+    audits = await hub.broadcast_viewers(packet, _delivery_plan(p))
+    hub.deliveries += audits
+    await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id, "deliveries": audits})
     p.status = ProposalStatus.AIRED
 
 
@@ -207,6 +225,12 @@ async def decisions_csv():
 @app.get("/proposals")
 async def list_proposals(status: ProposalStatus | None = None):
     return [p for p in hub.proposals.values() if status is None or p.status == status]
+
+
+@app.get("/deliveries")
+async def deliveries():
+    """Audit: for each approval, which text each viewer group received (variant/template/base) and why."""
+    return hub.deliveries
 
 
 @app.get("/decisions")
@@ -319,6 +343,7 @@ async def _handle_moment(m: Moment) -> None:
         # The cue is code and must air within 1 s, so it goes out before any agent call (up to ~8 s each).
         await _publish_fan_cue(m)
     res = await pipeline.process(m)
+    hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
