@@ -21,8 +21,8 @@ def _rows() -> list[list[str]]:
 def test_decisions_csv_round_trips_commas_quotes_and_newlines():
     _log('Held: "too early", crowd\nstill up')
     header, row = _rows()
-    assert header == ["entry_id", "match_id", "proposal_id", "action", "actor", "at", "reasoning"]
-    assert row == ["d-0", "m", "p", "approved", "op", hub.now().isoformat(), 'Held: "too early", crowd\nstill up']
+    assert header == ["entry_id", "match_id", "proposal_id", "action", "actor", "at", "reasoning", "package_id"]
+    assert row == ["d-0", "m", "p", "approved", "op", hub.now().isoformat(), 'Held: "too early", crowd\nstill up', ""]
 
 
 def test_decisions_csv_neutralises_spreadsheet_formulas():
@@ -34,3 +34,10 @@ def test_decisions_csv_neutralises_spreadsheet_formulas():
 def test_decisions_csv_is_offered_as_a_download():
     r = TestClient(app).get("/decisions.csv")
     assert r.headers["content-disposition"] == 'attachment; filename="decisions.csv"'
+
+
+def test_decisions_csv_carries_the_package_id():
+    hub.decisions.append(DecisionLogEntry(entry_id="d-0", match_id="m", proposal_id="p-1", package_id="pk-p-1",
+                                          action=ProposalStatus.APPROVED, actor="op", at=hub.now()))
+    _, row = _rows()
+    assert row[-1] == "pk-p-1"

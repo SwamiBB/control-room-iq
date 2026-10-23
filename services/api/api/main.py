@@ -47,6 +47,8 @@ from .exports import decisions_to_csv
 from .fallback_text import template_line
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
+from .goal_package import build_goal_package, is_code_built
+from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
 from .recap import RECAP_WINDOWS, build_recap
@@ -156,18 +158,25 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
     if d.override_line:
         p.override_line = d.override_line
     entry = DecisionLogEntry(entry_id="d-" + uuid.uuid4().hex[:8], match_id=p.match_id, proposal_id=p.proposal_id,
-                             action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning)
+                             action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
+                             package_id=p.package_id)
     hub.decisions.append(entry)
     return entry
 
 
 def _fan_card(p: OverlayProposal) -> FanCard | None:
+    if p.package_seq > 0:  # the deaf fan's caption travels with the lead graphic only
+        return None
     card = hub.results.get(p.moment_id, {}).get("fan_card")
     return FanCard.model_validate(card) if card else None
 
 
 def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
     m = hub.moments.get(p.moment_id)
+    if is_code_built(p):
+        # Stats and ticker lines are code from the official data, not AI: no variants or templates apply.
+        return DeliveryPlan(variants=(), ctx=build_context(p, m, hub.meta), templates={}, is_high_stakes=False,
+                            is_override=bool(p.override_line))
     variants = [NarrativeVariant.model_validate(v) for v in hub.results.get(p.moment_id, {}).get("variants", [])]
     templates = {lang: line for lang in get_args(Lang) if m and (line := template_line(m, lang, hub.meta))}
     # An override replaces the AI line for everyone, so neither variants nor templates of it may air.
@@ -214,6 +223,45 @@ async def override(proposal_id: str, d: Decision):
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
     return await _decide(proposal_id, ProposalStatus.REJECTED, d or Decision())
+
+
+# ---------- packages: several graphics, one decision ----------
+
+PACKAGE_ACTIONS = {"approve": ProposalStatus.APPROVED, "hold": ProposalStatus.HELD, "reject": ProposalStatus.REJECTED}
+
+
+def _package_items(package_id: str) -> list[OverlayProposal]:
+    return sorted((p for p in hub.proposals.values() if p.package_id == package_id), key=lambda p: p.package_seq)
+
+
+@app.get("/packages/{package_id}", response_model=list[OverlayProposal])
+async def get_package(package_id: str):
+    items = _package_items(package_id)
+    if not items:
+        raise HTTPException(404, "package not found")
+    return items
+
+
+@app.post("/packages/{package_id}/{action}", response_model=list[OverlayProposal])
+async def decide_package(package_id: str, action: str, d: Decision | None = None):
+    """One click applies the decision to every open item, in running order. Each item still gets its own
+    decision row and its own approval id on the packet, so the gate and the audit trail are unchanged."""
+    if action not in PACKAGE_ACTIONS:
+        raise HTTPException(404, f"action must be one of {sorted(PACKAGE_ACTIONS)}")
+    items = _package_items(package_id)
+    if not items:
+        raise HTTPException(404, "package not found")
+    open_items = [p for p in items if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)]
+    if not open_items:
+        raise HTTPException(409, "package already decided")
+    d = d or Decision()
+    return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
+
+
+@app.get("/metrics", response_model=GalleryMetrics)
+async def metrics():
+    """Turnaround, error rate and operator workload for the match so far."""
+    return gallery_metrics(hub.proposals, hub.decisions, hub.deliveries, hub.clock.play_ms, len(hub.packets))
 
 
 @app.get("/decisions.csv")
@@ -348,10 +396,14 @@ async def _handle_moment(m: Moment) -> None:
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     if res.proposal:
-        await _queue_proposal(res.proposal)
+        lead = res.proposal.model_copy(update={"proposed_at": hub.now()})
+        for p in build_goal_package(lead, m, hub.meta):
+            await _queue_proposal(p)
 
 
 async def _queue_proposal(p: OverlayProposal) -> None:
+    if p.proposed_at is None:
+        p = p.model_copy(update={"proposed_at": hub.now()})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     asyncio.create_task(_auto_hold(p.proposal_id))
