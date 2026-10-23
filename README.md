@@ -85,6 +85,22 @@ python -m simulator.cli reference                              # regenerate data
 python -m simulator.cli calibrate --out docs/CALIBRATION.md    # realism table
 ```
 
+## Human in the loop, by design
+
+The AI proposes; the graphics operator fires every graphic. Nothing reaches air without that click.
+If nobody decides, the console warns at 10 seconds and the timer holds the graphic at 20; a held graphic
+expires once the match has moved past it. The timer and the expiry rule can hold, never air.
+
+**Next step:** if the graphics operator is away, the producer's console takes over; the AI never does.
+
+## Limits
+
+- No sign-in or roles yet: anyone who can reach the API can fire a graphic, and the operator's name is
+  free text. Roles through Microsoft Entra ID come with the producer takeover above.
+- All match data is synthetic. Distance covered counts only runs with the ball until the tracking
+  totals are wired in.
+- Spanish and Hindi templates and labels still need a native-speaker review.
+
 ## Status
 
 Build week: October 20–27, 2026. See [docs/PLAN.md](docs/PLAN.md) for the day-by-day plan and

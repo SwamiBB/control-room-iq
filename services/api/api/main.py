@@ -47,6 +47,7 @@ from .clock import PlayClock
 from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
 from .exports import decisions_to_csv
 from .fallback_text import template_line
+from .fan_card import build_fan_card
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
 from .goal_package import build_goal_package, is_code_built
@@ -463,8 +464,8 @@ def _stamp_play_time(m: Moment) -> Moment:
 
 
 def _result_record(res: MomentResult) -> dict:
-    # MomentResult gains `fan_card` when the workflow builds it (agents workstream); until then it is absent.
-    card: FanCard | None = getattr(res, "fan_card", None)
+    # The card is built in code from the stats engine's facts; a workflow-built card, if one exists, wins.
+    card: FanCard | None = getattr(res, "fan_card", None) or build_fan_card(res.moment, res.line, hub.meta)
     return {"explanation": res.explanation.model_dump(), "line": res.line,
             "variants": [v.model_dump(mode="json") for v in res.variants], "failures": res.failures,
             "fan_card": card.model_dump(mode="json") if card else None,
