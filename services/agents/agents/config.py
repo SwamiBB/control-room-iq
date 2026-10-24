@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+from typing import get_args
 
+from crq_schemas import Lang
 from dotenv import load_dotenv
 
 # Must run before Settings is defined: its defaults read os.environ at class-creation time.
 load_dotenv()
+
+
+def _languages() -> tuple[str, ...]:
+    """CRQ_LANGS, keeping only languages the schemas support; any other value would fail variant validation."""
+    wanted = [x.strip() for x in os.environ.get("CRQ_LANGS", "en,es,hi").split(",") if x.strip()]
+    supported = get_args(Lang)
+    if dropped := [x for x in wanted if x not in supported]:
+        logging.getLogger(__name__).warning("CRQ_LANGS: ignoring unsupported %s (supported: %s)",
+                                            ", ".join(dropped), ", ".join(supported))
+    return tuple(x for x in wanted if x in supported) or ("en",)
 
 
 @dataclass(frozen=True)
@@ -18,7 +31,7 @@ class Settings:
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
-    languages: tuple[str, ...] = tuple(os.environ.get("CRQ_LANGS", "en,es,hi").split(","))
+    languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.
     router_quality: str = os.environ.get("ROUTER_QUALITY", "router-quality")
     router_balanced: str = os.environ.get("ROUTER_BALANCED", "router-balanced")
