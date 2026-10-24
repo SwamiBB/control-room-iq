@@ -17,7 +17,8 @@ Access (applied on top of any persona):
   pitch first, never refer to sound, and always end with the score.
 
 Keep player and club names exactly as given. Copy `cites` from the input.
-Output JSON: a list of NarrativeVariant objects with `lang` = "en", one per request.
+Output JSON: VariantsOut, an object whose `variants` list has one entry per request, each with `persona`,
+`access`, `lang` = "en", `text` and `cites`.
 
 Match intelligence (`intel` in the input), numbers exactly as given:
 - newcomer: no ratings or decimals; describe in plain words ("one of the fastest runs of the match",

@@ -21,10 +21,12 @@ def chat_client():
     if settings.offline:
         return None
     try:
-        from agent_framework.openai import OpenAIChatClient
+        # Chat Completions, not OpenAIChatClient: that one calls the Responses API, which model-router rejects
+        # with 400 "The requested operation is unsupported" (#10).
+        from agent_framework.openai import OpenAIChatCompletionClient
         from azure.identity import DefaultAzureCredential
 
-        return OpenAIChatClient(
+        return OpenAIChatCompletionClient(
             azure_endpoint=settings.azure_openai_endpoint or settings.foundry_project_endpoint,
             credential=DefaultAzureCredential(),
             model=settings.model_router,

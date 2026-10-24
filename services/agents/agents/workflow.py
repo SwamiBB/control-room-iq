@@ -30,7 +30,9 @@ from typing import get_args
 
 from crq_schemas import (
     Access,
+    Alternative,
     Explanation,
+    Lang,
     MatchMeta,
     Moment,
     MomentKind,
@@ -39,6 +41,7 @@ from crq_schemas import (
     OverlayProposal,
     Persona,
 )
+from pydantic import BaseModel, Field
 
 from .clients import make_agent
 from .config import settings
@@ -141,10 +144,15 @@ def keep_localized(raw: list[NarrativeVariant], english: list[NarrativeVariant],
     return list(out.values())
 
 
-def _parse_variants(res, err: str | None, label: str, fallback) -> tuple[list[NarrativeVariant], str | None]:
+def _parse_variants(res, err: str | None, label: str, fallback,
+                    moment_id: str) -> tuple[list[NarrativeVariant], str | None]:
+    """The moment id comes from code, not the model; models also sometimes wrap the list in an object."""
     if isinstance(res, str):
         try:
-            return [NarrativeVariant.model_validate(v) for v in json.loads(res)], err
+            items = json.loads(res)
+            if isinstance(items, dict):
+                items = next((v for v in items.values() if isinstance(v, list)), [items])
+            return [NarrativeVariant.model_validate({**v, "moment_id": moment_id}) for v in items], err
         except Exception as ex:  # noqa: BLE001
             return fallback(), err or f"{label}: bad JSON: {ex}"
     return res, err
@@ -153,6 +161,45 @@ def _parse_variants(res, err: str | None, label: str, fallback) -> tuple[list[Na
 def priority_from_importance(importance: float) -> int:
     """Map a 0-1 importance score onto the 1-9 priority rank (1 = highest); 0.5 lands on the default of 5."""
     return 1 + round((1 - importance) * 8)
+
+
+class VariantOut(BaseModel):
+    persona: Persona
+    access: Access
+    lang: Lang
+    text: str
+    cites: list[str]
+
+
+class VariantsOut(BaseModel):
+    """Personalizer and localizer output. Structured, because free-form JSON dropped required fields live."""
+    variants: list[VariantOut]
+
+
+class ProducerDecision(BaseModel):
+    """What the producer model writes. Strict structured output rejects free-form objects, so the renderer
+    payload travels as a JSON string; ids, status and approval fields are set by code, not invented (#33)."""
+    propose: bool = Field(description="False when the moment does not deserve a graphic")
+    layer: OverlayLayer
+    t_start_ms: int
+    t_end_ms: int
+    line: str
+    payload_json: str = Field(description="JSON object with the renderer's fields for this layer")
+    reasoning: str
+    alternatives: list[Alternative]
+
+
+def proposal_from(d: ProducerDecision, m: Moment) -> OverlayProposal | None:
+    if not d.propose:
+        return None
+    try:
+        payload = json.loads(d.payload_json)
+    except ValueError:
+        payload = {}
+    return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id,
+                           layer=d.layer, t_start_ms=d.t_start_ms, t_end_ms=d.t_end_ms, line=d.line,
+                           payload=payload if isinstance(payload, dict) else {}, reasoning=d.reasoning,
+                           alternatives=d.alternatives, priority=priority_from_importance(m.importance))
 
 
 def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal | None:
@@ -173,7 +220,7 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
     reasoning = f"Template fallback: {m.kind.value} with importance {m.importance} maps to {layer.value}."
     return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id,
                            layer=layer, t_start_ms=m.t_ms + 2000, t_end_ms=m.t_ms + 2000 + dur, line=line,
-                           payload=payload, reasoning=reasoning,
+                           payload=payload, reasoning=reasoning, fallback=True,
                            priority=priority_from_importance(m.importance))
 
 
@@ -194,9 +241,9 @@ class MomentPipeline:
     def __init__(self) -> None:
         self.explainer = make_agent("explainer", _prompt("explainer"), Explanation)
         self.narrator = make_agent("narrator", _prompt("narrator"))
-        self.personalizer = make_agent("personalizer", _prompt("personalizer"))
-        self.localizer = make_agent("localizer", _prompt("localizer"))
-        self.producer = make_agent("producer", _prompt("producer"), OverlayProposal)
+        self.personalizer = make_agent("personalizer", _prompt("personalizer"), VariantsOut)
+        self.localizer = make_agent("localizer", _prompt("localizer"), VariantsOut)
+        self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
                       requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None) -> MomentResult:
@@ -224,7 +271,8 @@ class MomentPipeline:
             raw, e1 = await _run(self.personalizer, {"line": line, "moment": moment_json, "intel": intel,
                                                      "requests": wanted},
                                  None, lambda: fallback_variants(m, line, en_requests))
-            english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests))
+            english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests),
+                                          m.moment_id)
             english = [v for v in english if v.lang == BASE_LANG]
             if not targets:
                 return english, [e1]
@@ -232,13 +280,16 @@ class MomentPipeline:
             source = [v.model_dump(mode="json") for v in english]
             raw, e2 = await _run(self.localizer, {"line": line, "variants": source, "moment": moment_json,
                                                   "intel": intel, "names": _names(meta), "targets": want}, None, list)
-            localized, e2 = _parse_variants(raw, e2, "localizer", list)
+            localized, e2 = _parse_variants(raw, e2, "localizer", list, m.moment_id)
             return english + keep_localized(localized, english, targets), [e1, e2]
 
         async def _proposal():
-            return await _run(self.producer, {"moment": moment_json, "explanation": expl.model_dump(), "line": line,
-                                              "intel": intel, "on_air": on_air or []}, OverlayProposal,
-                              lambda: fallback_proposal(m, expl, line))
+            decision, err = await _run(self.producer, {"moment": moment_json, "explanation": expl.model_dump(),
+                                                       "line": line, "intel": intel, "on_air": on_air or []},
+                                       ProducerDecision, lambda: None)
+            if decision is None:
+                return fallback_proposal(m, expl, line), err
+            return proposal_from(decision, m), None
 
         (variants, variant_errors), (proposal, e3) = await asyncio.gather(_variants(), _proposal())
         proposal = with_intel(proposal, m, _name_of(meta))

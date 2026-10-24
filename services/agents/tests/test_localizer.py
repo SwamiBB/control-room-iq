@@ -10,6 +10,7 @@ import json  # noqa: E402
 from agents.config import deployment_for, settings  # noqa: E402
 from agents.workflow import (  # noqa: E402
     MomentPipeline,
+    ProducerDecision,
     english_requests,
     fallback_explanation,
     fallback_proposal,
@@ -21,6 +22,13 @@ from crq_schemas import MomentKind, NarrativeVariant, Persona, TeamStats  # noqa
 from simulator.cli import build_meta  # noqa: E402
 
 META = build_meta(42)
+
+
+def _decision(p):
+    """The producer's reply shape (#33), built from a template proposal."""
+    return ProducerDecision(propose=True, layer=p.layer, t_start_ms=p.t_start_ms, t_end_ms=p.t_end_ms, line=p.line,
+                            payload_json=json.dumps(p.payload), reasoning=p.reasoning,
+                            alternatives=[]).model_dump_json()
 
 
 def _moment():
@@ -78,7 +86,7 @@ def _pipeline(personalizer_reply: str, localizer_reply: str) -> MomentPipeline:
     p.narrator = _Agent("Big chance for Harbor City")
     p.personalizer = _Agent(personalizer_reply)
     p.localizer = _Agent(localizer_reply, name="localizer")
-    p.producer = _Agent(fallback_proposal(m, fallback_explanation(m), "x").model_dump_json())
+    p.producer = _Agent(_decision(fallback_proposal(m, fallback_explanation(m), "x")))
     return p
 
 

@@ -14,7 +14,8 @@ load_dotenv()
 
 def _languages() -> tuple[str, ...]:
     """CRQ_LANGS, keeping only languages the schemas support; any other value would fail variant validation."""
-    wanted = [x.strip() for x in os.environ.get("CRQ_LANGS", "en,es,hi").split(",") if x.strip()]
+    wanted = list(dict.fromkeys(x.strip().lower() for x in os.environ.get("CRQ_LANGS", "en,es,hi").split(",")
+                                if x.strip()))
     supported = get_args(Lang)
     if dropped := [x for x in wanted if x not in supported]:
         logging.getLogger(__name__).warning("CRQ_LANGS: ignoring unsupported %s (supported: %s)",
