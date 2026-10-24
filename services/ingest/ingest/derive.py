@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 WINDOW_MS = 5 * 60 * 1000  # TeamStats.xg_last_5min / shots_last_5min
 TREND_MS = 3 * 60 * 1000  # MatchState.pressure_trend looks at the last 3 minutes of play
 BIG_CHANCE_XG = 0.25  # a shot at or above this is a big chance: a chance beat on the strike, a result beat after
@@ -11,6 +13,42 @@ BIG_CHANCE_XG = 0.25  # a shot at or above this is a big chance: a chance beat o
 # chance never reads as pressure building (it must not trigger hold advice on its own).
 TREND_DELTA = 0.1
 TREND_MIN_SHOTS = 2
+
+
+# Match intelligence (organizers' expectation ii; docs/HANDOFF-2026-10-24-match-intelligence.md). A crossing raises
+# a ThresholdIndicator on MatchState.thresholds and on the moment it belongs to.
+TOP_SPEED_KMH = 32.0  # a run at or above this is a speed moment
+SPRINT_KMH = 25.0  # a carry at or above this counts as a sprint
+DISTANCE_KM = (5.0, 10.0)  # running-distance milestones (needs tracking: carry-only distance is far too low)
+PASS_DIFFICULTY = 0.8  # a completed pass at or above this is very hard
+PASS_DISTANCE_M = 30.0  # a completed pass at or above this is long (the simulator's longest are ~35 m)
+SHOT_SPEED_KMH = 100.0
+KEEP_THRESHOLDS = 20  # MatchState.thresholds keeps the most recent crossings
+HARD_PASS = 0.6  # hard_passes_completed counts completed passes from here (hard and very hard)
+# routine < 0.35 <= testing < 0.6 <= hard < 0.8 <= very_hard
+DIFFICULTY_BANDS = ((0.8, "very_hard"), (0.6, "hard"), (0.35, "testing"))
+
+
+def difficulty_label(difficulty: float) -> str:
+    return next((label for floor, label in DIFFICULTY_BANDS if difficulty >= floor), "routine")
+
+
+def _num(v: float) -> str:
+    return f"{v:.0f}" if float(v).is_integer() else f"{v:.1f}"
+
+
+def threshold_label(value: float, threshold: float, unit: str) -> str:
+    """Deterministic display text, e.g. '33.1 km/h (over 32)' or '0.86 (over 0.8)' for a rating."""
+    if unit == "rating":
+        return f"{value:.2f} (over {threshold:g})"
+    return f"{_num(value)} {unit} (over {_num(threshold)})"
+
+
+def distance_to_goal(x: float | None, y: float | None) -> float | None:
+    """Metres from (x, y) to the centre of the goal at (100, 50), on a 105 x 68 m pitch."""
+    if x is None or y is None:
+        return None
+    return round(math.hypot((100 - x) * 1.05, (50 - y) * 0.68), 1)
 
 
 def zone(x: float | None, y: float | None) -> str:

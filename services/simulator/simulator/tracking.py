@@ -178,8 +178,11 @@ def build_tracking(meta: MatchMeta, events: list[MatchEvent]) -> tuple[list[Fram
     return frames, summary
 
 
-def write_tracking(path: Path, frames: list[Frame]) -> None:
-    """gzip with mtime=0 so the same seed writes a byte-identical file."""
+def write_tracking(path: Path, frames: list[Frame], meta: MatchMeta) -> None:
+    """First line {match_id, seed, frame_ms}, then one frame per line, like a match file's MatchMeta header.
+    gzip with mtime=0 so the same seed writes a byte-identical file."""
     with open(path, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
+        header = {"match_id": meta.match_id, "seed": meta.seed, "frame_ms": FRAME_MS}
+        gz.write((json.dumps(header, separators=(",", ":")) + "\n").encode("utf-8"))
         for fr in frames:
             gz.write((json.dumps(fr, separators=(",", ":")) + "\n").encode("utf-8"))
