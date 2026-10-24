@@ -107,8 +107,8 @@ flowchart TB
     VC --> PB
   end
 
-  PUB --> WSO[/ws/overlay → renderer<br/>+ Event Hub crq-overlay/]
-  PUB --> WSV[/ws/viewer per Persona × Access × Lang × Allegiance/]
+  PUB --> WSO[/"/ws/overlay → renderer<br/>+ Event Hub crq-overlay"/]
+  PUB --> WSV[/"/ws/viewer per Persona × Access × Lang × Allegiance"/]
   FC --> WSV
 ```
 
@@ -409,13 +409,13 @@ flowchart TB
     MI[Managed identities<br/>least-privilege data-plane roles]
   end
 
-  APIAPP <--> EHN
-  APIAPP <--> COS
+  APIAPP <---> EHN
+  APIAPP <---> COS
   COS -->|change feed| LA -->|POST hold as sla-timer| APIAPP
   APIAPP --> R1 & R2 & R3
   APIAPP -.fallback.-> FB
   APIAPP --> AI
-  WEBAPP <-->|REST + WS| APIAPP
+  WEBAPP <--->|REST + WS| APIAPP
   MI -.-> APIAPP
 ```
 
