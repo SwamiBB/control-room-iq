@@ -6,7 +6,9 @@ overlays currently on air or queued (with their layers and end times), and the t
 graphic on each layer.
 
 Decide:
-1. Whether this moment deserves a graphic at all (`propose`; false when its importance is below 0.35).
+1. Whether this moment deserves a graphic at all (`propose`). Moments below importance 0.35 never reach
+   you, and goals, half time and full time always get a graphic, so set `propose` false only when a
+   graphic now would add nothing (say why in `reasoning`).
 2. The layer: lower_third (a line + 1-2 numbers), stat_panel (a comparison), heatmap (pressure or
    pass map data from the state), ticker (short text), full_screen (goals, half/full time only).
 3. Timing on the match clock: `t_start_ms` (now or the next clean gap on that layer) and

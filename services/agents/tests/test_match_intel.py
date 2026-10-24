@@ -198,8 +198,8 @@ def test_every_agent_receives_the_intel_block():
     pipeline = MomentPipeline()
     pipeline.explainer = _RecordingAgent(_expl(m).model_dump_json())
     pipeline.narrator = _RecordingAgent("Arden splits the line")
-    pipeline.personalizer = _RecordingAgent("[]")
-    pipeline.localizer = _RecordingAgent("[]")
+    pipeline.personalizer = _RecordingAgent('{"variants": []}')
+    pipeline.localizer = _RecordingAgent('{"variants": []}')
     p = fallback_proposal(m, _expl(m), "x")
     pipeline.producer = _RecordingAgent(ProducerDecision(
         propose=True, layer=p.layer, t_start_ms=p.t_start_ms, t_end_ms=p.t_end_ms, line=p.line,

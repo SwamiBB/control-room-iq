@@ -9,7 +9,7 @@ import logging  # noqa: E402
 from agent_framework import Agent  # noqa: E402
 from agent_framework.openai import OpenAIChatCompletionClient  # noqa: E402
 from agents import clients, config  # noqa: E402
-from agents.workflow import MomentPipeline, ProducerDecision, VariantsOut  # noqa: E402
+from agents.workflow import ExplanationOut, MomentPipeline, ProducerDecision, VariantsOut  # noqa: E402
 from crq_schemas import Explanation  # noqa: E402
 from openai.lib._pydantic import to_strict_json_schema  # noqa: E402
 
@@ -62,7 +62,7 @@ def _open_objects(node, path=""):
 
 def test_structured_outputs_are_strict_schema_safe():
     # model-router answered 400 "additionalProperties ... must be false" for OverlayProposal's payload (#33).
-    for model in (Explanation, ProducerDecision, VariantsOut):
+    for model in (ExplanationOut, ProducerDecision, VariantsOut):
         assert _open_objects(to_strict_json_schema(model)) == [], model.__name__
 
 
