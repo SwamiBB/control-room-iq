@@ -10,9 +10,7 @@ from __future__ import annotations
 
 from crq_schemas import MatchState, Moment, MomentKind, MomentMetrics, PassQuality, ThresholdIndicator
 
-from .derive import TOP_SPEED_KMH
-
-MIN_DISTANCE_M = 1000  # below this a running total is not worth quoting
+from .derive import MIN_DISTANCE_M, TOP_SPEED_KMH  # noqa: F401  (MIN_DISTANCE_M re-exported for the agents)
 
 
 def _shot_speed(m: Moment) -> float | None:

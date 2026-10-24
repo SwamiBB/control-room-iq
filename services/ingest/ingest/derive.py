@@ -23,7 +23,9 @@ DISTANCE_KM = (5.0, 10.0)  # running-distance milestones (needs tracking: carry-
 PASS_DIFFICULTY = 0.8  # a completed pass at or above this is very hard
 PASS_DISTANCE_M = 30.0  # a completed pass at or above this is long (the simulator's longest are ~35 m)
 SHOT_SPEED_KMH = 100.0
-KEEP_THRESHOLDS = 20  # MatchState.thresholds keeps the most recent crossings
+KEEP_PER_KIND = 5  # MatchState.thresholds keeps the latest crossings OF EACH KIND, so ~44 distance marks a match
+#                   never push the speed and shot markers out
+MIN_DISTANCE_M = 1000  # below this a running total is not worth quoting (an agent would say '0.3 km covered')
 HARD_PASS = 0.6  # hard_passes_completed counts completed passes from here (hard and very hard)
 # routine < 0.35 <= testing < 0.6 <= hard < 0.8 <= very_hard
 DIFFICULTY_BANDS = ((0.8, "very_hard"), (0.6, "hard"), (0.35, "testing"))

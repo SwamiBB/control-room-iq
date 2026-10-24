@@ -4,7 +4,7 @@ import statistics
 
 import pytest
 from crq_schemas import MomentKind
-from ingest.derive import PASS_DIFFICULTY, SHOT_SPEED_KMH, difficulty_label, threshold_label
+from ingest.derive import KEEP_PER_KIND, PASS_DIFFICULTY, SHOT_SPEED_KMH, difficulty_label, threshold_label
 from ingest.stats import SPEED_THRESHOLD_KMH, StateFolder
 from simulator.cli import build_meta
 from simulator.engine import MatchEngine
@@ -69,7 +69,8 @@ def test_threshold_crossings_are_recorded_and_labelled(ref):
     folder, moments = ref
     kinds = {t.kind for m in moments if m.metrics for t in m.metrics.thresholds}
     assert {"top_speed", "pass_difficulty", "shot_speed"} <= kinds
-    assert len(folder.state.thresholds) <= 20
+    final = [t.kind for t in folder.state.thresholds]  # review of #30: distance marks must not evict these
+    assert "top_speed" in final and max(final.count(k) for k in set(final)) <= KEEP_PER_KIND
     for m in moments:
         for t in (m.metrics.thresholds if m.metrics else []):
             assert t.value >= t.threshold and t.label == threshold_label(t.value, t.threshold, t.unit)
@@ -97,7 +98,8 @@ def test_hero_scene_carries_its_key_pass_and_shot_speed(ref):
     assert hero.metrics.shot_speed_kmh and hero.metrics.player_distance_km > 1
     goal = next(m for m in moments if m.kind == MomentKind.GOAL)
     assert goal.metrics.shot_speed_kmh and goal.metrics.key_pass is None, "a rebound has no pass that set it up"
-    fast = [m for m in moments if m.metrics and m.metrics.shot_speed_kmh and m.metrics.shot_speed_kmh >= SHOT_SPEED_KMH]
+    fast = [m for m in moments if m.beat == "result" and m.metrics and m.metrics.shot_speed_kmh
+            and m.metrics.shot_speed_kmh >= SHOT_SPEED_KMH]  # the crossing is recorded on the result
     assert all(any(t.kind == "shot_speed" for t in m.metrics.thresholds) for m in fast)
 
 

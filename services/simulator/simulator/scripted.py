@@ -169,7 +169,8 @@ class ScriptedEngine(MatchEngine):
     def _split_shot(self, shot: MatchEvent) -> list[MatchEvent]:
         """Unscripted shot -> shot_taken (the strike, carrying xG) + shot (the result, after the ball's flight)."""
         taken = self._mk(EventType.SHOT_TAKEN, shot.t_ms, shot.team, shot.player, x=shot.x, y=shot.y,
-                         attrs={"xg": shot.attrs.get("xg"), "body": shot.attrs.get("body", "foot")})
+                         attrs={"xg": shot.attrs.get("xg"), "body": shot.attrs.get("body", "foot"),
+                                "speed_kmh": shot.attrs.get("speed_kmh")})
         shot.t_ms += self.flight_rng.randint(400, 900)
         return [taken, shot]
 
@@ -185,7 +186,7 @@ class ScriptedEngine(MatchEngine):
             if s.get(k) is not None:
                 attrs[k] = s[k]
         taken = self._mk(EventType.SHOT_TAKEN, t, team.team_id, s["player"], x=x, y=y,
-                         attrs={"xg": s["xg"], "body": body})
+                         attrs={"xg": s["xg"], "body": body, "speed_kmh": speed})
         shot = self._mk(EventType.SHOT, t + self.flight_rng.randint(400, 900), team.team_id, s["player"], x=x, y=y,
                         end_x=100.0, end_y=end_y, outcome=s["outcome"], attrs=attrs)
         return [taken, shot], shot

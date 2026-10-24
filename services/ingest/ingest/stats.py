@@ -41,7 +41,8 @@ from .derive import (
     BIG_CHANCE_XG,
     DISTANCE_KM,
     HARD_PASS,
-    KEEP_THRESHOLDS,
+    KEEP_PER_KIND,
+    MIN_DISTANCE_M,
     PASS_DIFFICULTY,
     PASS_DISTANCE_M,
     SHOT_SPEED_KMH,
@@ -59,12 +60,23 @@ from .derive import (
 )
 from .tracking_distance import TrackingDistances, find_tracking
 
-SPEED_THRESHOLD_KMH = TOP_SPEED_KMH  # kept under this name: agents/match_intel.py reads it
+SPEED_THRESHOLD_KMH = TOP_SPEED_KMH  # the old name, kept for anything importing it
 STANDOUT_GAP_MS = 5 * 60 * 1000  # at most one standout_pass moment per team in this much play
 MOMENTUM_SHIFT_DELTA = 0.6
 PRESSURE_SPIKE_PER_MIN = 9
 RECAP_MIN_IMPORTANCE = 0.6
 PHASE_EVENTS = (EventType.PASS, EventType.CARRY, EventType.SHOT_TAKEN, EventType.SHOT)
+
+
+def _keep_latest_per_kind(crossings: list[ThresholdIndicator]) -> list[ThresholdIndicator]:
+    """The newest KEEP_PER_KIND crossings of each kind, in time order (newest last)."""
+    seen: dict[str, int] = {}
+    kept = []
+    for t in reversed(crossings):
+        seen[t.kind] = seen.get(t.kind, 0) + 1
+        if seen[t.kind] <= KEEP_PER_KIND:
+            kept.append(t)
+    return kept[::-1]
 
 
 @dataclass
@@ -83,7 +95,8 @@ class StateFolder:
     tracking: TrackingDistances | None = None  # found automatically for reference matches; see tracking_distance.py
     use_tracking: bool = True
     _crossed: list[ThresholdIndicator] = field(default_factory=list)  # crossed on the event being applied
-    _pass_sums: dict[str, list[float]] = field(default_factory=dict)  # player or team -> [passes, metres, difficulty]
+    _player_passes: dict[str, list[float]] = field(default_factory=dict)  # player -> [passes, metres, difficulty]
+    _team_passes: dict[str, list[float]] = field(default_factory=dict)  # team -> [passes, metres, difficulty]
     _pass_to: dict[str, tuple[PassQuality, str | None]] = field(default_factory=dict)  # receiver -> (pass, phase_id)
     _distance_marks: dict[str, set[float]] = field(default_factory=dict)
     _standout_at: dict[str, int] = field(default_factory=dict)  # team -> play_ms of its last standout_pass
@@ -271,7 +284,7 @@ class StateFolder:
         t = ThresholdIndicator(kind=kind, player=player, team=team, event_id=ev.event_id if ev else None,  # type: ignore[arg-type]
                                play_ms=self.state.play_ms, value=round(value, 2), threshold=threshold, unit=unit,  # type: ignore[arg-type]
                                label=threshold_label(round(value, 2), threshold, unit))
-        self.state.thresholds = [*self.state.thresholds, t][-KEEP_THRESHOLDS:]
+        self.state.thresholds = _keep_latest_per_kind([*self.state.thresholds, t])
         if ev is not None:
             self._crossed.append(t)
         return t
@@ -297,9 +310,9 @@ class StateFolder:
         if a.get("distance_m") is None:
             return []
         dist, diff = float(a["distance_m"]), min(1.0, float(a.get("difficulty") or 0.0))
-        for key, stats in ((ev.player or "", ps), (ev.team or "", ts)):
-            n, metres, rating = self._pass_sums.setdefault(key, [0, 0.0, 0.0])
-            self._pass_sums[key] = [n + 1, metres + dist, rating + diff]
+        for sums, key, stats in ((self._player_passes, ev.player or "", ps), (self._team_passes, ev.team or "", ts)):
+            n, metres, rating = sums.setdefault(key, [0, 0.0, 0.0])
+            sums[key] = [n + 1, metres + dist, rating + diff]
             stats.avg_pass_difficulty = round((rating + diff) / (n + 1), 3)
             if stats is ps:
                 ps.avg_pass_distance_m = round((metres + dist) / (n + 1), 1)
@@ -341,14 +354,14 @@ class StateFolder:
             if kind == MomentKind.SPEED_THRESHOLD:
                 m.player_speed_kmh = ev.attrs.get("speed_kmh")
             m.player_top_speed_kmh = ps.top_speed_kmh or None
-            m.player_distance_km = round(ps.distance_m / 1000, 2) if self.tracking is not None else None
+            if self.tracking is not None and ps.distance_m >= MIN_DISTANCE_M:  # carry-only totals are never quoted
+                m.player_distance_km = round(ps.distance_m / 1000, 2)
             m.player_sprints = ps.sprints or None
         if kind in (MomentKind.BIG_CHANCE, MomentKind.GOAL):
             sent = self._pass_to.get(ev.player or "")
             if sent and sent[1] == ev.phase_id:  # the pass that set this chance up, in the same move
                 m.key_pass = sent[0]
-            if ev.type == EventType.SHOT:
-                m.shot_speed_kmh = ev.attrs.get("speed_kmh")
+            m.shot_speed_kmh = ev.attrs.get("speed_kmh")  # on the strike too, so the live chance overlay has it
         if kind == MomentKind.STANDOUT_PASS and self.state.last_pass is not None:
             m.key_pass = self.state.last_pass
             m.ball_speed_kmh = self.state.last_pass.ball_speed_kmh

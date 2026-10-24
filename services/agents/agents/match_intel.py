@@ -22,11 +22,10 @@ from crq_schemas import (
     ThresholdIndicator,
 )
 
-# The readers live with the stats engine (handoff item 7); re-exported here so existing imports keep working.
+# The readers and the difficulty bands live with the stats engine (handoff item 7); re-exported here so existing
+# imports keep working, and the bands are never kept in two places.
+from ingest.derive import difficulty_label as _engine_label
 from ingest.intel import MIN_DISTANCE_M, intel_for, intel_numbers, team_pass_accuracy  # noqa: F401
-
-# Mirror of the stats engine's labels, used only when a pass arrives without one. Keep in step with ingest.
-_DIFFICULTY_BANDS: tuple[tuple[float, DifficultyLabel], ...] = ((0.8, "very_hard"), (0.6, "hard"), (0.35, "testing"))
 
 DIFFICULTY_WORDS: dict[str, dict[DifficultyLabel, str]] = {
     "en": {"routine": "routine", "testing": "testing", "hard": "hard", "very_hard": "very hard"},
@@ -38,7 +37,8 @@ NameOf = Callable[[str | None], str]
 
 
 def difficulty_label(difficulty: float) -> DifficultyLabel:
-    return next((label for floor, label in _DIFFICULTY_BANDS if difficulty >= floor), "routine")
+    """The stats engine's label, for a pass that arrives without one."""
+    return _engine_label(difficulty)  # type: ignore[return-value]
 
 
 def _num(v: float) -> str:
