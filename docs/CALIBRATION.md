@@ -13,7 +13,7 @@ Event realism: mean over 200 seeded matches (seeds 1000–1199), compared with a
 | Fouls per match | 20.8 | 16.0–30.0 | yes |
 | Yellow cards per match | 3.2 | 2.0–5.0 | yes |
 | Home possession share | 0.469 | 0.450–0.550 | yes |
-| Distance per outfield player, full match (km) | 11.3 | 9.5–12.5 | yes |
+| Distance per outfield player, full match (km) | 11.6 | 9.5–12.5 | yes |
 | Top speed per outfield player (km/h) | 31.4 | 28.0–36.0 | yes |
 
 Running rows come from the tracking stream of the reference match (storyline.json) (outfield players who played the full match).

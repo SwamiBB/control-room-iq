@@ -1,13 +1,15 @@
 """Tracking-style position stream for the pitch view: ball and every player on the pitch, 4 times a second.
 
-Derived from the event stream and deterministic per seed. Each player has a formation slot; the team
-stretches in possession and compacts toward the ball out of it, the player on the ball runs to it, the
-keeper follows the ball a little, and a slow drift keeps everyone moving. Steps are capped by a speed
-from the player's pace. Not physics: enough for a broadcast-style top-down view and realistic running
-totals.
+Derived from the event stream and deterministic per seed. Every player knows their next touch of the ball (as
+passer, receiver, carrier, shooter or tackler) from the events, and runs there so that they arrive on time; with
+no touch coming they hold a formation slot that stretches in possession and compacts toward the ball out of it,
+with a slow drift. The nearest defender presses the player on the ball, and the keeper follows the ball a little.
+Movement has velocity: acceleration and speed are capped (the speed by each player's pace), so nobody jumps.
+Long passes and shots give the ball a height. Not physics: enough for a broadcast-style top-down view, players
+who are at the ball when the events say they play it, and realistic running totals.
 
 Output coordinates are absolute (screen) coordinates, 0-100: the home team attacks toward x = 100 in the
-first half and toward x = 0 in the second.
+first half and toward x = 0 in the second. The ball is [x, y, height in metres].
 """
 
 from __future__ import annotations
@@ -40,7 +42,13 @@ SLOTS = {
 }
 ON_BALL = {EventType.PASS, EventType.CARRY, EventType.SHOT_TAKEN, EventType.SHOT, EventType.KICKOFF,
            EventType.POSSESSION_CHANGE, EventType.INTERCEPTION, EventType.TACKLE}
-DRIFT_X, DRIFT_Y = 2.4, 3.2  # amplitude of the slow drift, grid units
+DRIFT_X, DRIFT_Y = 1.5, 2.0  # amplitude of the slow drift, grid units
+LOOKAHEAD_MS = 6000  # a player starts heading for their next touch this long before it
+A_MAX = 5.0  # m/s^2: acceleration cap (elite players reach about 5-6)
+CRUISE = 0.45  # share of top speed used to get back into shape (no sprinting to a formation slot)
+BALL_PULL_IN, BALL_PULL_OUT = 0.22, 0.20  # how far the shape follows the ball; calibrated to ~11 km a player
+PRESS_MS = 3000  # the player on the ball counts as "on the ball" this long after their touch
+LOFT_M = 25.0  # passes longer than this are lofted
 
 
 @dataclass
@@ -58,6 +66,8 @@ class _Mover:
     per_b: float
     dist_m: float = 0.0
     top_kmh: float = 0.0
+    vx: float = 0.0  # m/s
+    vy: float = 0.0
 
 
 def _attacks_right(team_id: str, home_id: str, period: int) -> bool:
@@ -95,25 +105,96 @@ def _target(m: _Mover, right: bool, in_possession: bool, ball: tuple[float, floa
     sx, sy = m.slot
     if m.keeper:
         tx, ty = (3.6 if bx < 33 else 3.6 + (bx - 33) * 0.08), 50 + (by - 50) * 0.1
-    elif in_possession:  # ball weights calibrated to ~11 km per outfield player (docs/CALIBRATION.md)
-        tx = sx * 0.65 + bx * 0.35 + 6 + DRIFT_X * math.sin(t / m.per_a + m.phase_a)
+    elif in_possession:  # stretched: wide players hold the width
+        tx = sx * (1 - BALL_PULL_IN) + bx * BALL_PULL_IN + 6 + DRIFT_X * math.sin(t / m.per_a + m.phase_a)
         ty = sy * 0.88 + by * 0.12 + DRIFT_Y * math.sin(t / m.per_b + m.phase_b)
     else:
-        tx = sx * 0.68 + bx * 0.32 - 8 + DRIFT_X * math.sin(t / m.per_a + m.phase_a)
-        ty = sy * 0.68 + by * 0.32 + DRIFT_Y * math.sin(t / m.per_b + m.phase_b)
+        tx = sx * (1 - BALL_PULL_OUT) + bx * BALL_PULL_OUT - 8 + DRIFT_X * math.sin(t / m.per_a + m.phase_a)
+        ty = sy * (1 - BALL_PULL_OUT) + by * BALL_PULL_OUT + DRIFT_Y * math.sin(t / m.per_b + m.phase_b)
     return _to_abs(right, min(max(tx, 1.0), 99.0), min(max(ty, 1.0), 99.0))
 
 
-def _step(m: _Mover, tx: float, ty: float, dt_s: float) -> None:
-    want = math.hypot((tx - m.x) * M_PER_X, (ty - m.y) * M_PER_Y)
-    if want <= 1e-6:
-        return
-    step = min(want * 0.35, m.vmax * dt_s)
-    ratio = step / want
-    m.x += (tx - m.x) * ratio
-    m.y += (ty - m.y) * ratio
-    m.dist_m += step
-    m.top_kmh = max(m.top_kmh, step / dt_s * 3.6)
+Touch = tuple[int, float, float]  # (t_ms, x, y): where and when a player plays the ball, screen coordinates
+
+
+def _travel_ms(e: MatchEvent) -> int:
+    dist_m = math.hypot((e.end_x - e.x) * M_PER_X, (e.end_y - e.y) * M_PER_Y)  # type: ignore[operator]
+    speed = (e.attrs.get("ball_speed_kmh") or e.attrs.get("speed_kmh") or 60) / 3.6
+    return int(1000 * dist_m / max(speed, 3.0))
+
+
+def _touches(events: list[MatchEvent], home_id: str, period: int) -> dict[str, list[Touch]]:
+    """Every player's touches of the ball in this period, in time order, from the events."""
+    out: dict[str, list[Touch]] = {}
+
+    def add(pid: str | None, t: int, team: str, x: float, y: float) -> None:
+        if pid:
+            out.setdefault(pid, []).append((t, *_to_abs(_attacks_right(team, home_id, period), x, y)))
+
+    for e in events:
+        if e.period != period or e.team is None or e.x is None or e.y is None:
+            continue
+        if e.type in (EventType.PASS, EventType.CARRY, EventType.SHOT_TAKEN, EventType.POSSESSION_CHANGE,
+                      EventType.INTERCEPTION, EventType.TACKLE):
+            add(e.player, e.t_ms, e.team, e.x, e.y)
+        if e.end_x is not None and e.end_y is not None:
+            if e.type == EventType.CARRY:
+                add(e.player, e.t_ms + _travel_ms(e), e.team, e.end_x, e.end_y)
+            elif e.type == EventType.PASS and e.outcome == "success":
+                add(e.attrs.get("receiver"), e.t_ms + _travel_ms(e), e.team, e.end_x, e.end_y)
+    for touches in out.values():
+        touches.sort()
+    return out
+
+
+def _flights(events: list[MatchEvent], period: int) -> list[tuple[int, int, float]]:
+    """(start, end, peak height m) for lofted passes and shots, so the ball can rise and fall."""
+    out = []
+    for e in events:
+        if e.period != period or e.end_x is None or e.x is None:
+            continue
+        if e.type == EventType.PASS:
+            dist_m = math.hypot((e.end_x - e.x) * M_PER_X, (e.end_y - e.y) * M_PER_Y)  # type: ignore[operator]
+            if dist_m >= LOFT_M:
+                out.append((e.t_ms, e.t_ms + _travel_ms(e), min(14.0, 0.25 * dist_m)))
+        elif e.type == EventType.SHOT:
+            out.append((e.t_ms - 700, e.t_ms, 1.5 if e.attrs.get("body") != "header" else 2.4))
+    return sorted(out)
+
+
+def _height(flights: list[tuple[int, int, float]], t: int) -> float:
+    for t0, t1, peak in flights:
+        if t0 <= t <= t1 and t1 > t0:
+            f = (t - t0) / (t1 - t0)
+            return round(4 * peak * f * (1 - f), 2)
+        if t0 > t:
+            break
+    return 0.0
+
+
+def _step(m: _Mover, tx: float, ty: float, speed: float, dt_s: float) -> None:
+    """Steer toward (tx, ty) at `speed` m/s, with acceleration capped at A_MAX and speed at the player's pace."""
+    tx, ty = min(max(tx, 1.0), 99.0), min(max(ty, 1.0), 99.0)  # aim inside the lines; never run into them
+    dx, dy = (tx - m.x) * M_PER_X, (ty - m.y) * M_PER_Y
+    dist = math.hypot(dx, dy)
+    want = min(speed, m.vmax, math.sqrt(2 * A_MAX * dist))  # "arrive": slow enough to stop on the target
+    wx, wy = (dx / dist * want, dy / dist * want) if dist > 1e-6 else (0.0, 0.0)
+    ax, ay = (wx - m.vx) / dt_s, (wy - m.vy) / dt_s
+    a = math.hypot(ax, ay)
+    if a > A_MAX:
+        ax, ay = ax / a * A_MAX, ay / a * A_MAX
+    m.vx, m.vy = m.vx + ax * dt_s, m.vy + ay * dt_s
+    v = math.hypot(m.vx, m.vy)
+    if v > m.vmax:
+        m.vx, m.vy, v = m.vx / v * m.vmax, m.vy / v * m.vmax, m.vmax
+    m.x, m.y = m.x + m.vx * dt_s / M_PER_X, m.y + m.vy * dt_s / M_PER_Y
+    if not 0.0 <= m.x <= 100.0:  # at a line: stop the movement out of play, keep the movement along it
+        m.x, m.vx = min(max(m.x, 0.0), 100.0), 0.0
+    if not 0.0 <= m.y <= 100.0:
+        m.y, m.vy = min(max(m.y, 0.0), 100.0), 0.0
+    v = math.hypot(m.vx, m.vy)
+    m.dist_m += v * dt_s
+    m.top_kmh = max(m.top_kmh, v * 3.6)
 
 
 def build_tracking(meta: MatchMeta, events: list[MatchEvent]) -> tuple[list[Frame], dict[str, dict[str, float]]]:
@@ -135,11 +216,15 @@ def build_tracking(meta: MatchMeta, events: list[MatchEvent]) -> tuple[list[Fram
     ci = 0
     for period in (1, 2):
         keys = _ball_keys(events, home, period)
+        flights = _flights(events, period)
+        plan = _touches(events, home, period)
+        nxt = dict.fromkeys(plan, 0)  # per player: index of their next touch
         touches = [(e.t_ms, e.team, e.player) for e in events if e.period == period and e.type in ON_BALL and e.team]
         end = max(e.t_ms for e in events if e.period == period)
         for m in on_pitch.values():  # line up in the team's own half for the kickoff
             right = _attacks_right(m.team, home, period)
             m.x, m.y = _to_abs(right, m.slot[0] * 0.5, m.slot[1])
+            m.vx = m.vy = 0.0
         possession, actor, actor_t = touches[0][1] if touches else home, None, -10**9
         ki = ti = 0
         for t in range(0, end + 1, FRAME_MS):
@@ -164,14 +249,34 @@ def build_tracking(meta: MatchMeta, events: list[MatchEvent]) -> tuple[list[Fram
             k1 = keys[ki + 1] if ki + 1 < len(keys) else k0
             f = 0.0 if k1[0] == k0[0] else min(1.0, max(0.0, (t - k0[0]) / (k1[0] - k0[0])))
             ball = (k0[1] + (k1[1] - k0[1]) * f, k0[2] + (k1[2] - k0[2]) * f)
+            carrier = on_pitch.get(actor or "") if t - actor_t < PRESS_MS else None
+            presser = None
+            if carrier is not None:  # the nearest opponent without a touch of their own coming closes him down
+                rivals = [m for m in on_pitch.values() if m.team != carrier.team and not m.keeper]
+                presser = min(rivals, key=lambda m: math.hypot((m.x - carrier.x) * M_PER_X,
+                                                               (m.y - carrier.y) * M_PER_Y), default=None)
             for m in on_pitch.values():
-                if m.player_id == actor and t - actor_t < 2500:
-                    tx, ty = ball
+                own = plan.get(m.player_id, [])
+                i = nxt.get(m.player_id, 0)
+                while i < len(own) and own[i][0] < t - FRAME_MS:
+                    i += 1
+                nxt[m.player_id] = i
+                if i < len(own) and own[i][0] - t <= LOOKAHEAD_MS:  # get to the next touch on time
+                    tt, tx, ty = own[i]
+                    gap = math.hypot((tx - m.x) * M_PER_X, (ty - m.y) * M_PER_Y)
+                    speed = gap / max((tt - t) / 1000, dt_s)
+                elif m is presser and carrier is not None:
+                    right = _attacks_right(m.team, home, period)
+                    cx, cy = _to_abs(right, carrier.x, carrier.y)  # carrier in the presser's own frame
+                    tx, ty = _to_abs(right, max(cx - 2.0, 1.0), cy)  # goal-side of him
+                    speed = 0.8 * m.vmax
                 else:
                     tx, ty = _target(m, _attacks_right(m.team, home, period), possession == m.team, ball, t)
-                _step(m, tx, ty, dt_s)
+                    speed = CRUISE * m.vmax
+                _step(m, tx, ty, speed, dt_s)
+            z = _height(flights, t)
             frames.append({"frame": frame_index(period, t, p1_end), "play_ms": play_ms(period, t, p1_end),
-                           "period": period, "t_ms": t, "ball": [round(ball[0], 2), round(ball[1], 2)],
+                           "period": period, "t_ms": t, "ball": [round(ball[0], 2), round(ball[1], 2), z],
                            "players": {pid: [round(m.x, 2), round(m.y, 2)] for pid, m in on_pitch.items()}})
     summary = {pid: {"distance_km": round(m.dist_m / 1000, 2), "top_speed_kmh": round(m.top_kmh, 1)}
                for pid, m in {**finished, **on_pitch}.items()}
