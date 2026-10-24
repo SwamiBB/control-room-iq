@@ -29,6 +29,7 @@ packages = ["crq_schemas", "simulator", "ingest", "agents", "api"]
 
 [tool.setuptools.package-data]
 agents = ["prompts/*.md"]
+simulator = ["viewer.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["services"]

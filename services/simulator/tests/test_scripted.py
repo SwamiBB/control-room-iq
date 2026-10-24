@@ -198,3 +198,17 @@ def test_committed_reference_files_are_current(story):
     meta, events = generate(story)
     lines = [meta.model_dump_json()] + [e.model_dump_json() for e in events]
     assert reference_paths(story)[0].read_text(encoding="utf-8").splitlines() == lines
+
+
+@pytest.mark.parametrize("seed", [42, 7, 101])
+def test_viewer_builds_for_every_reference_match(seed, tmp_path):
+    import json
+
+    from simulator.viewer import build_view
+
+    out = tmp_path / f"view-{seed}.html"
+    n = build_view(seed, out)
+    html = out.read_text(encoding="utf-8")
+    assert n > 20_000 and "/*DATA*/null" not in html
+    data = json.loads(html.split("const D = ", 1)[1].split(";\n", 1)[0])
+    assert data["jumps"] and len(data["frames"]) == n and data["meta"]["homeColor"].startswith("#")

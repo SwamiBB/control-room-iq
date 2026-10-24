@@ -6,6 +6,7 @@
   python -m simulator.cli generate --storyline data/storyline.json --out data/reference/match-042.jsonl
   python -m simulator.cli reference              # all data/storyline*.json -> data/reference/ (+ tracking)
   python -m simulator.cli calibrate --start 1000 --count 200 --out docs/CALIBRATION.md
+  python -m simulator.cli view --seed 42              # top-down preview -> data/view-042.html
 
 The first line of a match file is the MatchMeta record; the rest are MatchEvent records.
 """
@@ -22,7 +23,7 @@ from pathlib import Path
 
 from crq_schemas import MatchEvent, MatchMeta
 
-from . import calibrate, scripted, tracking
+from . import calibrate, scripted, tracking, viewer
 from .engine import MatchEngine, new_match_id
 from .squads import generate_team, pick_venue
 
@@ -78,6 +79,12 @@ def cmd_reference(args: argparse.Namespace) -> None:
             tracking.write_tracking(tracking_path, frames, meta)
             msg += f", {len(frames)} frames -> {tracking_path.name}"
         print(msg, file=sys.stderr)
+
+
+def cmd_view(args: argparse.Namespace) -> None:
+    out = Path(args.out or scripted.DATA_DIR / f"view-{args.seed:03d}.html")
+    n = viewer.build_view(args.seed, out)
+    print(f"{n} frames -> {out}  (open it in a browser)", file=sys.stderr)
 
 
 def cmd_calibrate(args: argparse.Namespace) -> None:
@@ -153,6 +160,10 @@ def main(argv: list[str] | None = None) -> None:
     ref.add_argument("storyline", nargs="*", help="storyline files (default: all data/storyline*.json)")
     ref.add_argument("--no-tracking", action="store_true")
     ref.set_defaults(fn=cmd_reference)
+    view = sub.add_parser("view", help="top-down preview of a reference match (one HTML file)")
+    view.add_argument("--seed", type=int, default=42, help="42 reference, 7 red card, 101 comeback")
+    view.add_argument("--out", help="default: data/view-<seed>.html")
+    view.set_defaults(fn=cmd_view)
     cal = sub.add_parser("calibrate", help="realism table over a seed range")
     cal.add_argument("--start", type=int, default=1000)
     cal.add_argument("--count", type=int, default=200)

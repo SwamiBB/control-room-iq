@@ -11,5 +11,6 @@ dist/
 !.env.example
 .azure/
 data/*.jsonl
+data/view-*.html
 web/node_modules/
 web/dist/

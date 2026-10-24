@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracking Viewer</title>
+<style>
+  :root { --bg: #0f1412; --panel: #18201c; --text: #e9efe9; --muted: #9fb0a5; --accent: #ffd36b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .score { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+  .clock { font-variant-numeric: tabular-nums; background: var(--panel); padding: 4px 10px; border-radius: 6px; }
+  .tag { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid #2c3a32; padding: 3px 8px; border-radius: 4px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; background: #1c4a30; }
+  .caption { min-height: 26px; margin: 10px 0; font-size: 16px; color: var(--accent); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button, select, input { background: var(--panel); color: var(--text); border: 1px solid #2c3a32; border-radius: 6px; padding: 6px 10px; font: inherit; }
+  button:hover { border-color: #4b6655; cursor: pointer; }
+  input[type=range] { flex: 1; min-width: 200px; padding: 0; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <span class="score" id="score"></span>
+    <span class="clock" id="clock">0:00</span>
+    <span class="tag">SYNTHETIC FEED · fictional clubs</span>
+  </div>
+  <canvas id="pitch" width="1050" height="680"></canvas>
+  <div class="caption" id="caption"></div>
+  <div class="controls">
+    <button id="play">Pause</button>
+    <select id="speed"><option value="1">1×</option><option value="4">4×</option><option value="8" selected>8×</option><option value="20">20×</option></select>
+    <span id="jumps"></span>
+    <input type="range" id="seek" min="0" max="1" step="1" value="0">
+  </div>
+  <p class="note" id="note"></p>
+</div>
+<script>
+const D = /*DATA*/null;
+const cv = document.getElementById("pitch"), g = cv.getContext("2d");
+const W = cv.width, H = cv.height, sx = W / 100, sy = H / 100, M = W / 105; // metres to px
+const F = D.frames, N = D.ids.length, step = D.frameMs;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let t = F[0][0], playing = true, speed = 8, last = performance.now(), trail = [];
+const seek = document.getElementById("seek");
+seek.max = F[F.length - 1][0];
+document.getElementById("note").textContent =
+  `${D.meta.home} (${D.meta.homeColor}) v ${D.meta.away} at ${D.meta.venue}. Teams change ends at half time. ` +
+  `The ball grows as it rises. ${N} players tracked at ${1000 / step} Hz, interpolated.`;
+
+function idx(ms) { let lo = 0, hi = F.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (F[m][0] <= ms) lo = m; else hi = m - 1; } return lo; }
+function lerp(a, b, f) { return a + (b - a) * f; }
+
+function drawPitch() {
+  g.fillStyle = "#1c4a30"; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 10; i++) if (i % 2) { g.fillStyle = "rgba(255,255,255,0.025)"; g.fillRect(i * W / 10, 0, W / 10, H); }
+  g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 2;
+  g.strokeRect(1, 1, W - 2, H - 2);
+  g.beginPath(); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.stroke();
+  g.beginPath(); g.arc(W / 2, H / 2, 9.15 * M, 0, 7); g.stroke();
+  for (const side of [0, 1]) {
+    const x0 = side ? W - 16.5 * M : 0, x6 = side ? W - 5.5 * M : 0;
+    g.strokeRect(x0, H / 2 - 20.16 * M, 16.5 * M, 40.32 * M);
+    g.strokeRect(x6, H / 2 - 9.16 * M, 5.5 * M, 18.32 * M);
+    g.beginPath(); g.arc(side ? W - 11 * M : 11 * M, H / 2, 9.15 * M, side ? 0.705 * Math.PI : -0.295 * Math.PI, side ? 1.295 * Math.PI : 0.295 * Math.PI); g.stroke();
+    g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(side ? W - 3 : 0, H / 2 - 3.66 * M, 3, 7.32 * M);
+  }
+}
+
+function frameAt(ms) {
+  const i = idx(ms), a = F[i], b = F[Math.min(i + 1, F.length - 1)];
+  const f = reduce || b[1] !== a[1] ? 0 : Math.min(1, Math.max(0, (ms - a[0]) / step));
+  const ball = [lerp(a[3], b[3], f), lerp(a[4], b[4], f), lerp(a[5], b[5], f)];
+  const pos = [];
+  for (let k = 0; k < N; k++) {
+    const ax = a[6 + 2 * k], ay = a[7 + 2 * k], bx = b[6 + 2 * k], by = b[7 + 2 * k];
+    pos.push(ax < 0 ? null : bx < 0 ? [ax, ay] : [lerp(ax, bx, f), lerp(ay, by, f)]);
+  }
+  return { period: a[1], tms: a[2], ball, pos };
+}
+
+function draw() {
+  const fr = frameAt(t);
+  drawPitch();
+  // ball trail
+  trail.push([fr.ball[0], fr.ball[1]]); if (trail.length > 24) trail.shift();
+  g.strokeStyle = "rgba(255,255,255,0.25)"; g.lineWidth = 2; g.beginPath();
+  trail.forEach((p, i) => i ? g.lineTo(p[0] * sx, p[1] * sy) : g.moveTo(p[0] * sx, p[1] * sy)); g.stroke();
+  // players
+  D.ids.forEach((pid, k) => {
+    const p = fr.pos[k]; if (!p) return;
+    const info = D.players[pid], homeSide = info.team === D.meta.homeId;
+    const x = p[0] * sx, y = p[1] * sy, r = 11;
+    g.beginPath(); g.arc(x, y, r, 0, 7);
+    g.fillStyle = info.gk ? (homeSide ? "#e0c341" : "#41c5e0") : (homeSide ? D.meta.homeColor : D.meta.awayColor);
+    g.fill(); g.lineWidth = 2; g.strokeStyle = "rgba(0,0,0,0.55)"; g.stroke();
+    g.fillStyle = info.gk ? "#111" : (homeSide ? D.meta.homeText : D.meta.awayText);
+    g.font = "bold 11px system-ui"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(info.n, x, y + 0.5);
+  });
+  // ball: shadow on the grass, ball raised by its height
+  const [bx, by, bz] = fr.ball, lift = bz * 2.2;
+  g.fillStyle = "rgba(0,0,0,0.35)"; g.beginPath(); g.ellipse(bx * sx, by * sy, 6, 3, 0, 0, 7); g.fill();
+  g.fillStyle = "#fff"; g.beginPath(); g.arc(bx * sx, by * sy - lift, 5 + bz * 0.35, 0, 7); g.fill();
+  g.strokeStyle = "#222"; g.lineWidth = 1; g.stroke();
+  // clock, score, caption
+  const min = Math.floor(fr.tms / 60000) + (fr.period === 2 ? 45 : 0), sec = Math.floor(fr.tms / 1000) % 60;
+  document.getElementById("clock").textContent = `${fr.period === 1 ? "1st" : "2nd"} · ${min}:${String(sec).padStart(2, "0")}`;
+  let cap = null; for (const c of D.captions) { if (c[0] <= t) cap = c; else break; }
+  const sc = cap ? cap[2] : { [D.meta.homeId]: 0, [D.meta.awayId]: 0 };
+  document.getElementById("score").textContent = `${D.meta.home} ${sc[D.meta.homeId]}–${sc[D.meta.awayId]} ${D.meta.away}`;
+  document.getElementById("caption").textContent = cap && t - cap[0] < 6000 ? cap[1] : "";
+  seek.value = t;
+}
+
+function loop(now) {
+  if (playing) t = Math.min(t + (now - last) * speed, F[F.length - 1][0]);
+  last = now; draw(); requestAnimationFrame(loop);
+}
+document.getElementById("play").onclick = e => { playing = !playing; e.target.textContent = playing ? "Pause" : "Play"; };
+document.getElementById("speed").onchange = e => { speed = +e.target.value; };
+seek.oninput = e => { t = +e.target.value; trail = []; };
+const jumps = document.getElementById("jumps");
+for (const j of D.jumps) {  // the storyline's demo moments, a few seconds before each
+  const b = document.createElement("button");
+  b.dataset.jump = `${j.period}:${j.minute}:${j.second}`; b.textContent = j.label; jumps.append(b, " ");
+}
+document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => {
+  const [p, m, s] = b.dataset.jump.split(":").map(Number);
+  const target = (m - (p === 2 ? 45 : 0)) * 60000 + s * 1000;
+  const i = F.findIndex(r => r[1] === p && r[2] >= target);
+  if (i >= 0) { t = F[i][0]; trail = []; }
+});
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
