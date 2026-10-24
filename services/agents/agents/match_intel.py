@@ -5,9 +5,9 @@ The numbers are ground truth from the stats engine, which fills `Moment.metrics`
 `MatchState.thresholds`. This module only reads them, turns them into plain facts the prompts and fallbacks
 can quote, and builds the `intel` block the renderer and console draw. Models never compute these numbers.
 
-Until the stats engine fills `Moment.metrics`, `intel_for` derives what it can from the state snapshot
-(the player's running totals, the shot ledger, the last rated pass) so the path works end to end today.
-Pure functions: no I/O, no model calls.
+The readers (`intel_for`, `intel_numbers`, `team_pass_accuracy`) live with the stats engine in `ingest.intel`
+and are re-exported here. The stats engine now fills `Moment.metrics`; `intel_for` still derives what it can from
+the state snapshot for files folded without it. Pure functions: no I/O, no model calls.
 """
 
 from __future__ import annotations
@@ -16,16 +16,16 @@ from collections.abc import Callable
 
 from crq_schemas import (
     DifficultyLabel,
-    MatchState,
     Moment,
-    MomentKind,
     MomentMetrics,
     PassQuality,
     ThresholdIndicator,
 )
 
-# Mirror of the stats engine's labels, used only when a pass arrives without one. Keep in step with ingest.
-_DIFFICULTY_BANDS: tuple[tuple[float, DifficultyLabel], ...] = ((0.8, "very_hard"), (0.6, "hard"), (0.35, "testing"))
+# The readers and the difficulty bands live with the stats engine (handoff item 7); re-exported here so existing
+# imports keep working, and the bands are never kept in two places.
+from ingest.derive import difficulty_label as _engine_label
+from ingest.intel import MIN_DISTANCE_M, intel_for, intel_numbers, team_pass_accuracy  # noqa: F401
 
 DIFFICULTY_WORDS: dict[str, dict[DifficultyLabel, str]] = {
     "en": {"routine": "routine", "testing": "testing", "hard": "hard", "very_hard": "very hard"},
@@ -34,72 +34,16 @@ DIFFICULTY_WORDS: dict[str, dict[DifficultyLabel, str]] = {
 }
 
 NameOf = Callable[[str | None], str]
-MIN_DISTANCE_M = 1000  # below this a running total is not worth quoting
 
 
 def difficulty_label(difficulty: float) -> DifficultyLabel:
-    return next((label for floor, label in _DIFFICULTY_BANDS if difficulty >= floor), "routine")
+    """The stats engine's label, for a pass that arrives without one."""
+    return _engine_label(difficulty)  # type: ignore[return-value]
 
 
 def _num(v: float) -> str:
     """One decimal, but whole numbers stay whole (32 km/h, not 32.0)."""
     return f"{v:.0f}" if float(v).is_integer() else f"{v:.1f}"
-
-
-# ---------- reading the stats engine's output ----------
-
-def _shot_speed(m: Moment) -> float | None:
-    rec = next((r for r in m.state.shots if r.event_id in m.event_ids), None)
-    return rec.speed_kmh if rec else None
-
-
-def _key_pass(m: Moment) -> PassQuality | None:
-    lp = m.state.last_pass
-    if lp is None:
-        return None
-    if lp.event_id in m.event_ids or (m.player and lp.receiver == m.player and lp.completed):
-        return lp
-    return None
-
-
-def _thresholds(m: Moment) -> list[ThresholdIndicator]:
-    return [t for t in m.state.thresholds
-            if (t.event_id and t.event_id in m.event_ids) or (t.player == m.player and t.play_ms == m.play_ms)]
-
-
-def _derived_speed_threshold(m: Moment, top_kmh: float) -> list[ThresholdIndicator]:
-    """The stats engine raised a speed_threshold moment but sent no indicator: rebuild it from its own rule."""
-    from ingest.stats import SPEED_THRESHOLD_KMH  # the engine's rule, not a second copy of it
-
-    return [ThresholdIndicator(kind="top_speed", player=m.player, team=m.team, event_id=m.event_ids[0],
-                               play_ms=m.play_ms, value=top_kmh, threshold=SPEED_THRESHOLD_KMH, unit="km/h")]
-
-
-def intel_for(m: Moment) -> MomentMetrics | None:
-    """The moment's expectation (ii) numbers: the stats engine's `metrics` if present, else derived from state.
-
-    The derived path is deliberately narrow: running totals (speed, distance, sprints) only on a speed moment,
-    and distance only once it reaches a kilometre, so a card or a foul does not carry noise.
-    """
-    if m.metrics is not None:
-        return m.metrics
-    ps = m.state.players.get(m.player or "")
-    run = ps if ps is not None and m.kind == MomentKind.SPEED_THRESHOLD else None
-    thresholds = _thresholds(m)
-    if run is not None and not thresholds and run.top_speed_kmh:
-        thresholds = _derived_speed_threshold(m, run.top_speed_kmh)
-    derived = MomentMetrics(
-        player=m.player,
-        player_speed_kmh=run.top_speed_kmh or None if run else None,
-        player_top_speed_kmh=run.top_speed_kmh or None if run else None,
-        player_distance_km=round(run.distance_m / 1000, 2) if run and run.distance_m >= MIN_DISTANCE_M else None,
-        player_sprints=run.sprints or None if run else None,
-        key_pass=_key_pass(m),
-        shot_speed_kmh=_shot_speed(m),
-        thresholds=thresholds,
-    )
-    has_any = any(v not in (None, []) for k, v in derived.model_dump().items() if k != "player")
-    return derived if has_any else None
 
 
 # ---------- facts for prompts, fallbacks and checks ----------
@@ -175,26 +119,6 @@ def intel_short(metrics: MomentMetrics | None, prefer: str | None = None) -> str
     return None
 
 
-def intel_numbers(metrics: MomentMetrics | None) -> list[float]:
-    """Every number a variant may quote from the moment's intel (the variant checks' allow-list)."""
-    if metrics is None:
-        return []
-    out: list[float] = []
-    for v in (metrics.player_speed_kmh, metrics.player_top_speed_kmh, metrics.player_distance_km,
-              metrics.player_sprints, metrics.shot_speed_kmh, metrics.ball_speed_kmh):
-        if v is not None:
-            out.append(float(v))
-    if metrics.player_distance_km is not None:
-        out.append(round(metrics.player_distance_km * 1000))
-    kp = metrics.key_pass
-    if kp is not None:
-        out += [kp.distance_m, kp.difficulty, round(kp.difficulty * 100)]
-        out += [v for v in (kp.accuracy_pct, kp.ball_speed_kmh) if v is not None]
-    for t in metrics.thresholds:
-        out += [t.value, t.threshold]
-    return out
-
-
 def _player_ids(metrics: MomentMetrics) -> list[str]:
     kp = metrics.key_pass
     ids = [metrics.player, *(t.player for t in metrics.thresholds), *((kp.player, kp.receiver) if kp else ())]
@@ -224,12 +148,3 @@ def intel_context(m: Moment, name_of: NameOf) -> dict:
     return {"metrics": metrics.model_dump(mode="json", exclude_none=True) if metrics else None,
             "facts": intel_facts(metrics, name_of),
             "team_pass_accuracy_pct": team_pass_accuracy(m.state)}
-
-
-def team_pass_accuracy(state: MatchState) -> dict[str, float | None]:
-    """Completion % per team, as given to the agents (and so on the variant checks' allow-list)."""
-    def acc(t) -> float | None:
-        if t.pass_accuracy_pct is not None:
-            return t.pass_accuracy_pct
-        return round(100 * t.passes_completed / t.passes, 1) if t.passes else None
-    return {state.home.team: acc(state.home), state.away.team: acc(state.away)}
