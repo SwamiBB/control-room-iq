@@ -1,0 +1,81 @@
+/* Top-down pitch for the program feed. Drawn from event coordinates, never video. */
+
+.pitch-view {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pitch-view svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  background: #1d4f33;
+  border-radius: 4px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pitch-view svg { background: #163b27; }
+}
+:root[data-theme="dark"] .pitch-view svg { background: #163b27; }
+
+.pitch-view .lines {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.35;
+}
+.pitch-view .lines .spot { fill: rgba(255, 255, 255, 0.55); stroke: none; }
+.pitch-view .lines .goal { fill: rgba(255, 255, 255, 0.28); stroke: rgba(255, 255, 255, 0.55); }
+
+/* The third the pressure is coming from, while it is rising. */
+.pitch-view .tint { fill: rgba(255, 214, 140, 0.13); }
+
+.pitch-view .shot circle { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.3; }
+.pitch-view .shot.goal circle { fill: #41d18b; }
+.pitch-view .shot.saved circle { fill: #f0b03c; }
+.pitch-view .shot.blocked circle { fill: #9aa3b7; }
+.pitch-view .shot.off circle { fill: rgba(255, 255, 255, 0.45); }
+.pitch-view .shot.post circle { fill: #e8776a; }
+
+.pitch-view .shot .ring {
+  fill: none;
+  stroke: #ffe6a8;
+  stroke-width: 0.6;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: strike-ring 1.1s ease-out 2;
+}
+
+@keyframes strike-ring {
+  0% { opacity: 0.95; transform: scale(0.55); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pitch-view .shot .ring { animation: none; opacity: 0.9; }
+}
+
+.pitch-view figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.pitch-view .key { display: inline-flex; align-items: center; gap: 5px; }
+.pitch-view .key::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.pitch-view .key.goal::before { background: #41d18b; }
+.pitch-view .key.saved::before { background: #f0b03c; }
+.pitch-view .key.blocked::before { background: #9aa3b7; }
+.pitch-view .key.off::before { background: #b9bfcc; }
+.pitch-view .note { margin-left: auto; opacity: 0.8; }

@@ -1,0 +1,98 @@
+/* "Preview for": the post-approval code checks, made visible before the operator commits. */
+
+.preview-for {
+  margin: 7px 0;
+  padding: 7px 0 0;
+  border-top: 1px dashed rgba(127, 127, 127, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 7px;
+}
+
+.preview-title {
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 1px 4px 1px 7px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 10px;
+}
+.pick button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+.pick button:hover { opacity: 1; }
+
+.pick-add {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px dashed rgba(127, 127, 127, 0.55);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.picker select,
+.picker button {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 6px;
+  border: 1px solid rgba(127, 127, 127, 0.45);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+}
+.picker button { cursor: pointer; font-weight: 600; }
+.picker button:disabled { opacity: 0.4; cursor: not-allowed; }
+.picker small { opacity: 0.6; font-size: 11px; }
+
+.preview-empty { margin: 0; font-size: 11.5px; opacity: 0.55; }
+
+.preview-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.preview-lines li {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.pl-group { opacity: 0.7; font-size: 11px; white-space: nowrap; }
+.pl-text { min-width: 0; }
+.pl-source { font-size: 10.5px; white-space: nowrap; }
+.pl-source.variant { color: #15803d; }
+.pl-source.template, .pl-source.base { color: #b45309; }
+.pl-why { grid-column: 2 / -1; font-size: 10.5px; opacity: 0.6; }
+
+@media (max-width: 620px) {
+  .preview-lines li { grid-template-columns: minmax(0, 1fr); }
+  .pl-why { grid-column: 1; }
+}

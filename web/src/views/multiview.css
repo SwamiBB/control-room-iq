@@ -1,0 +1,53 @@
+/* Multiviewer: the gallery desktop beside three audiences, for one shot of the video.
+   Sized so a 1080p capture holds the console and all three frames without scrolling. */
+
+.multiview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-height: 100%;
+}
+
+@media (max-width: 1200px) {
+  .multiview { grid-template-columns: minmax(0, 1fr); }
+}
+
+.mv-console { min-width: 0; }
+
+/* The console's own splitter is noise inside a frame this narrow. */
+.mv-console .splitter { display: none; }
+.mv-console .gallery-body { grid-template-columns: minmax(0, 1fr) !important; }
+.mv-console .gallery { padding-block: 10px 16px; }
+
+.mv-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+  padding-block: 10px;
+}
+
+.mv-frame {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 6px;
+  padding: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Inside a frame the viewer is a panel, not a page. */
+.mv-frame .viewer { max-width: none; gap: 8px; }
+.mv-frame .viewer .pitch { max-height: 22vh; min-height: 120px; }
+.mv-frame .viewer .caption { font-size: 14px; }
+.mv-frame .viewer .history { display: none; }
+.mv-frame .viewer-note { display: none; }
+
+.frame-label {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
