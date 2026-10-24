@@ -216,7 +216,7 @@ sequenceDiagram
     API->>DB: decision, nothing published
   else untouched 20 s after air time
     SLA->>API: POST /proposals/{id}/hold (actor sla-timer)
-    API->>DB: status=held_by_sla, decided_by=sla, nothing published
+    API->>DB: status=held_by_sla, decided_by=sla. Nothing published
   end
   Note over CON,API: Undo reverts the last decision (status → pending). It never takes anything off air. Reject (Drop) does.
   Note over SLA,API: Warning 10 s before the hold. A held graphic that is no longer relevant expires. Neither ever fires.
