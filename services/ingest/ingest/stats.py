@@ -50,6 +50,7 @@ from .derive import (
     TREND_MS,
     WINDOW_MS,
     difficulty_label,
+    distance_to_goal,
     momentum_label,
     pressure_trend,
     stoppage_importance,
@@ -373,9 +374,19 @@ class StateFolder:
         shots = self.state.shots
         shots.append(ShotRecord(event_id=ev.event_id, play_ms=self.state.play_ms, period=ev.period, t_ms=ev.t_ms,
                                 team=ev.team or "", player=ev.player or "", xg=xg, outcome=ev.outcome,
-                                zone=zone(ev.x, ev.y), speed_kmh=ev.attrs.get("speed_kmh")))
+                                zone=zone(ev.x, ev.y), speed_kmh=ev.attrs.get("speed_kmh"), **self._shot_detail(ev)))
         for rank, rec in enumerate(sorted(shots, key=lambda r: (-r.xg, r.play_ms)), start=1):
             rec.chance_rank = rank
+
+    def _shot_detail(self, ev: MatchEvent) -> dict:
+        """What the shot event carries, plus distance to goal and how long the move took."""
+        a, ph = ev.attrs, self.state.current_phase
+        return {
+            "x": ev.x, "y": ev.y, "body": a.get("body"), "keeper": a.get("keeper"), "blocker": a.get("blocker"),
+            "assist_by": a.get("assist_by"), "assist_event_id": a.get("assist_event_id"),
+            "distance_to_goal_m": distance_to_goal(ev.x, ev.y),
+            "build_up_ms": self.state.play_ms - ph.start_play_ms if ph and ph.phase_id == ev.phase_id else None,
+        }
 
     def _update_windows(self) -> None:
         s = self.state

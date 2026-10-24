@@ -249,6 +249,18 @@ class ShotRecord(BaseModel):
     zone: str = Field(default="", description="Plain-language position, e.g. 'edge of the box, left'")
     chance_rank: int = Field(default=0, description="1 = best chance of the match so far")
     speed_kmh: float | None = Field(default=None, description="Shot speed")
+    # From the shot event, so the console can place markers and the analyst card can say who and how
+    x: float | None = Field(default=None, description="Shot position, 0-100, the shooting team attacking toward x=100")
+    y: float | None = None
+    body: str | None = Field(default=None, description="foot | header")
+    keeper: str | None = Field(default=None, description="The goalkeeper faced (who made the save on a saved shot)")
+    blocker: str | None = Field(default=None, description="Who blocked it, on a blocked shot")
+    assist_by: str | None = Field(default=None, description="Who played the pass that set the shot up")
+    assist_event_id: str | None = Field(default=None, description="That pass's event_id")
+    # Derived by the stats engine
+    distance_to_goal_m: float | None = Field(default=None, description="From (x, y) to the centre of the goal, metres")
+    build_up_ms: int | None = Field(default=None,
+                                    description="Play time from the start of the move (same phase_id) to the shot")
 
 
 class StoppageInfo(BaseModel):

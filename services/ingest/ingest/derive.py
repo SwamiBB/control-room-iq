@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 WINDOW_MS = 5 * 60 * 1000  # TeamStats.xg_last_5min / shots_last_5min
 TREND_MS = 3 * 60 * 1000  # MatchState.pressure_trend looks at the last 3 minutes of play
 BIG_CHANCE_XG = 0.25  # a shot at or above this is a big chance: a chance beat on the strike, a result beat after
@@ -40,6 +42,13 @@ def threshold_label(value: float, threshold: float, unit: str) -> str:
     if unit == "rating":
         return f"{value:.2f} (over {threshold:g})"
     return f"{_num(value)} {unit} (over {_num(threshold)})"
+
+
+def distance_to_goal(x: float | None, y: float | None) -> float | None:
+    """Metres from (x, y) to the centre of the goal at (100, 50), on a 105 x 68 m pitch."""
+    if x is None or y is None:
+        return None
+    return round(math.hypot((100 - x) * 1.05, (50 - y) * 0.68), 1)
 
 
 def zone(x: float | None, y: float | None) -> str:

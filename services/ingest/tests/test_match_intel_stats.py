@@ -112,3 +112,26 @@ def test_readers_live_with_the_stats_engine():
 
     for name in ("intel_for", "intel_numbers", "team_pass_accuracy"):
         assert getattr(agents_intel, name) is getattr(ingest_intel, name)
+
+
+def test_shot_records_carry_the_event_detail_and_derived_fields(ref):
+    """Who, how, where and how long the move took, for the analyst card and the pitch view's shot markers."""
+    from ingest.derive import distance_to_goal
+
+    folder, _ = ref
+    meta, events = generate(DATA_DIR / "storyline.json")
+    by_id = {e.event_id: e for e in events}
+    shots = folder.state.shots
+    assert all(r.x is not None and r.y is not None and r.body in ("foot", "header") and r.keeper for r in shots)
+    assert all(r.distance_to_goal_m == distance_to_goal(r.x, r.y) for r in shots)
+    assert all(r.build_up_ms is not None and r.build_up_ms >= 0 for r in shots)
+    assert all(r.blocker for r in shots if r.outcome == "blocked")
+    assisted = [r for r in shots if r.assist_event_id]
+    assert assisted, "the simulator links each shot to the pass that set it up"
+    for r in assisted:
+        key_pass = by_id[r.assist_event_id]
+        assert key_pass.type == "pass" and key_pass.player == r.assist_by
+        assert key_pass.attrs["receiver"] == r.player and key_pass.play_ms <= r.play_ms
+    hero = next(r for r in shots if r.xg == 0.38)
+    assert (hero.assist_by, hero.keeper, hero.outcome) == ("har-06", "nfu-01", "saved")
+    assert 0 < hero.distance_to_goal_m < 16.5 and hero.build_up_ms >= 5 * 2000, "seven-pass build-up"
