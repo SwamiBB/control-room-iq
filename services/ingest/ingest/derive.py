@@ -13,6 +13,35 @@ TREND_DELTA = 0.1
 TREND_MIN_SHOTS = 2
 
 
+# Match intelligence (organizers' expectation ii; docs/HANDOFF-2026-10-24-match-intelligence.md). A crossing raises
+# a ThresholdIndicator on MatchState.thresholds and on the moment it belongs to.
+TOP_SPEED_KMH = 32.0  # a run at or above this is a speed moment
+SPRINT_KMH = 25.0  # a carry at or above this counts as a sprint
+DISTANCE_KM = (5.0, 10.0)  # running-distance milestones (needs tracking: carry-only distance is far too low)
+PASS_DIFFICULTY = 0.8  # a completed pass at or above this is very hard
+PASS_DISTANCE_M = 30.0  # a completed pass at or above this is long (the simulator's longest are ~35 m)
+SHOT_SPEED_KMH = 100.0
+KEEP_THRESHOLDS = 20  # MatchState.thresholds keeps the most recent crossings
+HARD_PASS = 0.6  # hard_passes_completed counts completed passes from here (hard and very hard)
+# routine < 0.35 <= testing < 0.6 <= hard < 0.8 <= very_hard
+DIFFICULTY_BANDS = ((0.8, "very_hard"), (0.6, "hard"), (0.35, "testing"))
+
+
+def difficulty_label(difficulty: float) -> str:
+    return next((label for floor, label in DIFFICULTY_BANDS if difficulty >= floor), "routine")
+
+
+def _num(v: float) -> str:
+    return f"{v:.0f}" if float(v).is_integer() else f"{v:.1f}"
+
+
+def threshold_label(value: float, threshold: float, unit: str) -> str:
+    """Deterministic display text, e.g. '33.1 km/h (over 32)' or '0.86 (over 0.8)' for a rating."""
+    if unit == "rating":
+        return f"{value:.2f} (over {threshold:g})"
+    return f"{_num(value)} {unit} (over {_num(threshold)})"
+
+
 def zone(x: float | None, y: float | None) -> str:
     """Plain-language pitch zone in the acting team's attacking frame (y > 50 is that team's left)."""
     if x is None or y is None:

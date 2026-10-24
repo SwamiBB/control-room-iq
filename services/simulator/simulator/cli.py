@@ -75,7 +75,7 @@ def cmd_reference(args: argparse.Namespace) -> None:
         msg = f"{story.name}: {n} events, final {end.attrs['score']} -> {match_path.name}"
         if not args.no_tracking:
             frames, _ = tracking.build_tracking(meta, events)
-            tracking.write_tracking(tracking_path, frames)
+            tracking.write_tracking(tracking_path, frames, meta)
             msg += f", {len(frames)} frames -> {tracking_path.name}"
         print(msg, file=sys.stderr)
 

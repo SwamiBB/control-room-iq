@@ -7,7 +7,11 @@ evaluated against.
 v0.2 state (docs/CHANGES-2026-10-23.md): the shot ledger with chance ranks, 5-minute xG and shot windows,
 pressure trend, momentum label, last stoppage, current phase and recap points. A big chance is two moments:
 `beat="chance"` on the strike (shot_taken, so the fan cue can air at once) and `beat="result"` on the shot.
-The rules for zones, trend and stoppage importance are in derive.py.
+
+Match intelligence (docs/HANDOFF-2026-10-24-match-intelligence.md): pass quality (distance, the passer's accuracy,
+difficulty and its label, ball speed), shot speed, sprints, threshold crossings, `standout_pass` moments, and
+`Moment.metrics` with the numbers that belong to each moment. Running distance comes from the tracking stream when
+the match has one (carry-only distance is far too low to quote). The rules and thresholds are in derive.py.
 """
 
 from __future__ import annotations
@@ -22,17 +26,40 @@ from crq_schemas import (
     MatchState,
     Moment,
     MomentKind,
+    MomentMetrics,
+    PassQuality,
     PhaseSummary,
     PlayerStats,
     RecapPoint,
     ShotRecord,
     StoppageInfo,
     TeamStats,
+    ThresholdIndicator,
 )
 
-from .derive import BIG_CHANCE_XG, TREND_MS, WINDOW_MS, momentum_label, pressure_trend, stoppage_importance, zone
+from .derive import (
+    BIG_CHANCE_XG,
+    DISTANCE_KM,
+    HARD_PASS,
+    KEEP_THRESHOLDS,
+    PASS_DIFFICULTY,
+    PASS_DISTANCE_M,
+    SHOT_SPEED_KMH,
+    SPRINT_KMH,
+    TOP_SPEED_KMH,
+    TREND_MS,
+    WINDOW_MS,
+    difficulty_label,
+    momentum_label,
+    pressure_trend,
+    stoppage_importance,
+    threshold_label,
+    zone,
+)
+from .tracking_distance import TrackingDistances, find_tracking
 
-SPEED_THRESHOLD_KMH = 32.0
+SPEED_THRESHOLD_KMH = TOP_SPEED_KMH  # kept under this name: agents/match_intel.py reads it
+STANDOUT_GAP_MS = 5 * 60 * 1000  # at most one standout_pass moment per team in this much play
 MOMENTUM_SHIFT_DELTA = 0.6
 PRESSURE_SPIKE_PER_MIN = 9
 RECAP_MIN_IMPORTANCE = 0.6
@@ -52,6 +79,13 @@ class StateFolder:
     _moment_n: int = 0
     _p1_end: int = 0
     _high_press: list[tuple[int, str]] = field(default_factory=list)  # (play_ms, team) in the opponent's half
+    tracking: TrackingDistances | None = None  # found automatically for reference matches; see tracking_distance.py
+    use_tracking: bool = True
+    _crossed: list[ThresholdIndicator] = field(default_factory=list)  # crossed on the event being applied
+    _pass_sums: dict[str, list[float]] = field(default_factory=dict)  # player or team -> [passes, metres, difficulty]
+    _pass_to: dict[str, tuple[PassQuality, str | None]] = field(default_factory=dict)  # receiver -> (pass, phase_id)
+    _distance_marks: dict[str, set[float]] = field(default_factory=dict)
+    _standout_at: dict[str, int] = field(default_factory=dict)  # team -> play_ms of its last standout_pass
 
     def __post_init__(self) -> None:
         h, a = self.meta.home.team_id, self.meta.away.team_id
@@ -61,6 +95,8 @@ class StateFolder:
             for p in t.players:
                 self.state.players[p.player_id] = PlayerStats(player_id=p.player_id, team=t.team_id)
         self._poss_ms = {h: 0, a: 0}
+        if self.tracking is None and self.use_tracking:
+            self.tracking = find_tracking(self.meta.match_id, self.meta.seed)
 
     def _team(self, team_id: str) -> TeamStats:
         return self.state.home if team_id == self.state.home.team else self.state.away
@@ -83,6 +119,8 @@ class StateFolder:
             self._last_t = 0
         s.period, s.t_ms, s.seq, s.last_event_id = ev.period, ev.t_ms, ev.seq, ev.event_id
         s.play_ms = self._play_ms(ev)
+        self._crossed = []
+        self._update_distances()
         moments: list[Moment] = []
         # possession clock
         if self._last_poss_team:
@@ -109,12 +147,17 @@ class StateFolder:
             if ev.attrs.get("key_pass"):
                 ps.key_passes += 1
             self._recent.append((ev.t_ms, ev.team, 0.15 if ev.attrs.get("progressive") else 0.05))
+            moments += self._rate_pass(ev, ps, ts, ok)
         elif ev.type == EventType.CARRY and ps:
-            ps.distance_m += ev.attrs.get("distance_m", 0)
+            if self.tracking is None:  # without tracking only runs with the ball count (too low to quote)
+                ps.distance_m += ev.attrs.get("distance_m", 0)
             spd = ev.attrs.get("speed_kmh", 0)
+            if spd >= SPRINT_KMH:
+                ps.sprints += 1
             if spd > ps.top_speed_kmh:
                 ps.top_speed_kmh = spd
                 if spd >= SPEED_THRESHOLD_KMH:
+                    self._cross("top_speed", ev, ev.player, ev.team, spd, SPEED_THRESHOLD_KMH, "km/h")
                     moments.append(self._moment(ev, MomentKind.SPEED_THRESHOLD, 0.35,
                                                 f"{self._name(ev.player)} hits {spd:g} km/h"))
         elif ev.type == EventType.SHOT_TAKEN and ev.team:
@@ -131,6 +174,12 @@ class StateFolder:
             if ev.outcome in ("goal", "saved"):
                 ts.shots_on_target += 1
             self._recent.append((ev.t_ms, ev.team, 0.5 + xg))
+            speed = ev.attrs.get("speed_kmh")
+            if speed:
+                ps.max_shot_speed_kmh = max(ps.max_shot_speed_kmh, speed)
+                ts.max_shot_speed_kmh = max(ts.max_shot_speed_kmh, speed)
+                if speed >= SHOT_SPEED_KMH:
+                    self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH, "km/h")
             self._ledger_add(ev, xg)
             self._update_windows()
             if s.current_phase and s.current_phase.phase_id == ev.phase_id:
@@ -214,6 +263,97 @@ class StateFolder:
                                                  event_ids=list(m.event_ids)))
         return moments
 
+    # ---------- match intelligence ----------
+    def _cross(self, kind: str, ev: MatchEvent | None, player: str | None, team: str | None, value: float,
+               threshold: float, unit: str) -> ThresholdIndicator:
+        """Record a threshold crossing on the state (newest last) and on the event being applied."""
+        t = ThresholdIndicator(kind=kind, player=player, team=team, event_id=ev.event_id if ev else None,  # type: ignore[arg-type]
+                               play_ms=self.state.play_ms, value=round(value, 2), threshold=threshold, unit=unit,  # type: ignore[arg-type]
+                               label=threshold_label(round(value, 2), threshold, unit))
+        self.state.thresholds = [*self.state.thresholds, t][-KEEP_THRESHOLDS:]
+        if ev is not None:
+            self._crossed.append(t)
+        return t
+
+    def _update_distances(self) -> None:
+        """Running totals from tracking, and the 5 / 10 km marks. No tracking: carries only, no marks."""
+        if self.tracking is None:
+            return
+        for pid, metres in self.tracking.advance(self.state.play_ms).items():
+            ps = self.state.players.get(pid)
+            if ps is None:
+                continue
+            ps.distance_m = round(metres, 1)
+            marks = self._distance_marks.setdefault(pid, set())
+            for km in DISTANCE_KM:
+                if metres >= km * 1000 and km not in marks:
+                    marks.add(km)
+                    self._cross("distance", None, pid, ps.team, metres / 1000, km, "km")
+
+    def _rate_pass(self, ev: MatchEvent, ps: PlayerStats, ts: TeamStats, ok: bool) -> list[Moment]:
+        """Pass quality: averages for player and team, the passer's accuracy, last_pass, thresholds, standouts."""
+        a = ev.attrs
+        if a.get("distance_m") is None:
+            return []
+        dist, diff = float(a["distance_m"]), min(1.0, float(a.get("difficulty") or 0.0))
+        for key, stats in ((ev.player or "", ps), (ev.team or "", ts)):
+            n, metres, rating = self._pass_sums.setdefault(key, [0, 0.0, 0.0])
+            self._pass_sums[key] = [n + 1, metres + dist, rating + diff]
+            stats.avg_pass_difficulty = round((rating + diff) / (n + 1), 3)
+            if stats is ps:
+                ps.avg_pass_distance_m = round((metres + dist) / (n + 1), 1)
+        ts.pass_accuracy_pct = round(100 * ts.passes_completed / ts.passes, 1)
+        if ok and diff >= HARD_PASS:
+            ps.hard_passes_completed += 1
+        pq = PassQuality(event_id=ev.event_id, play_ms=self.state.play_ms, team=ev.team or "", player=ev.player or "",
+                         receiver=a.get("receiver"), distance_m=round(dist, 1), difficulty=round(diff, 2),
+                         difficulty_label=difficulty_label(diff),  # type: ignore[arg-type]
+                         accuracy_pct=round(100 * ps.passes_completed / ps.passes, 1),
+                         ball_speed_kmh=a.get("ball_speed_kmh"), completed=ok, progressive=bool(a.get("progressive")),
+                         key_pass=bool(a.get("key_pass")))
+        self.state.last_pass = pq
+        if not ok:
+            return []
+        if pq.receiver:
+            self._pass_to[pq.receiver] = (pq, ev.phase_id)
+        if diff >= PASS_DIFFICULTY:
+            self._cross("pass_difficulty", ev, ev.player, ev.team, diff, PASS_DIFFICULTY, "rating")
+        if dist >= PASS_DISTANCE_M:
+            self._cross("pass_distance", ev, ev.player, ev.team, dist, PASS_DISTANCE_M, "m")
+        # A standout pass is a very hard pass that sets up a shot: 2-5 a match on the reference matches. Very hard
+        # alone fires 15 times a match (the simulator rates most forward passes into the final third that high).
+        last = self._standout_at.get(pq.team)
+        if not (diff >= PASS_DIFFICULTY and pq.key_pass) or (
+                last is not None and self.state.play_ms - last < STANDOUT_GAP_MS):
+            return []
+        self._standout_at[pq.team] = self.state.play_ms
+        return [self._moment(ev, MomentKind.STANDOUT_PASS, 0.4,
+                             f"{self._name(ev.player)} picks out {self._name(pq.receiver)} with a very hard pass "
+                             f"({dist:g} m, difficulty {diff:.2f})")]
+
+    def _metrics(self, ev: MatchEvent, kind: MomentKind) -> MomentMetrics | None:
+        """The numbers that belong to this moment; None when there are none."""
+        ps = self.state.players.get(ev.player or "")
+        m = MomentMetrics(player=ev.player, thresholds=list(self._crossed))
+        if ps is not None and kind in (MomentKind.SPEED_THRESHOLD, MomentKind.BIG_CHANCE, MomentKind.GOAL,
+                                       MomentKind.STANDOUT_PASS):
+            if kind == MomentKind.SPEED_THRESHOLD:
+                m.player_speed_kmh = ev.attrs.get("speed_kmh")
+            m.player_top_speed_kmh = ps.top_speed_kmh or None
+            m.player_distance_km = round(ps.distance_m / 1000, 2) if self.tracking is not None else None
+            m.player_sprints = ps.sprints or None
+        if kind in (MomentKind.BIG_CHANCE, MomentKind.GOAL):
+            sent = self._pass_to.get(ev.player or "")
+            if sent and sent[1] == ev.phase_id:  # the pass that set this chance up, in the same move
+                m.key_pass = sent[0]
+            if ev.type == EventType.SHOT:
+                m.shot_speed_kmh = ev.attrs.get("speed_kmh")
+        if kind == MomentKind.STANDOUT_PASS and self.state.last_pass is not None:
+            m.key_pass = self.state.last_pass
+            m.ball_speed_kmh = self.state.last_pass.ball_speed_kmh
+        filled = any(v not in (None, []) for k, v in m.model_dump().items() if k != "player")
+        return m if filled else None
+
     # ---------- derived state ----------
     def _track_phase(self, ev: MatchEvent) -> None:
         if not ev.phase_id or ev.type not in PHASE_EVENTS:
@@ -233,7 +373,7 @@ class StateFolder:
         shots = self.state.shots
         shots.append(ShotRecord(event_id=ev.event_id, play_ms=self.state.play_ms, period=ev.period, t_ms=ev.t_ms,
                                 team=ev.team or "", player=ev.player or "", xg=xg, outcome=ev.outcome,
-                                zone=zone(ev.x, ev.y)))
+                                zone=zone(ev.x, ev.y), speed_kmh=ev.attrs.get("speed_kmh")))
         for rank, rec in enumerate(sorted(shots, key=lambda r: (-r.xg, r.play_ms)), start=1):
             rec.chance_rank = rank
 
@@ -278,7 +418,8 @@ class StateFolder:
         return Moment(moment_id=f"{self.meta.match_id}-mo{self._moment_n:04d}", match_id=self.meta.match_id,
                       play_ms=self.state.play_ms, t_ms=ev.t_ms, period=ev.period, kind=kind, beat=beat,  # type: ignore[arg-type]
                       importance=round(min(1.0, importance), 2), team=ev.team, player=ev.player,
-                      event_ids=[ev.event_id], summary=summary, state=self.state.model_copy(deep=True))
+                      event_ids=[ev.event_id], summary=summary, state=self.state.model_copy(deep=True),
+                      metrics=self._metrics(ev, kind))
 
     def _name(self, pid: str | None) -> str:
         for t in (self.meta.home, self.meta.away):
