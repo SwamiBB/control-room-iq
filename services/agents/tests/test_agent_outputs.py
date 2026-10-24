@@ -82,10 +82,40 @@ def test_a_declined_goal_still_gets_the_template_proposal():
     assert any("declined a goal" in f for f in res.failures)
 
 
-def test_a_declined_ordinary_moment_has_no_proposal_and_says_so():
+def test_a_declined_ordinary_moment_is_a_note_not_a_failure():
     res = _run(_pipeline(_decision(propose=False)), _moment())
-    assert res.proposal is None
-    assert any(f.startswith("producer: proposed no graphic") for f in res.failures)
+    assert res.proposal is None and res.failures == []
+    assert res.notes == ["producer: no graphic for big_chance (importance 0.7): A clear chance."]
+
+
+def test_a_low_importance_goal_still_asks_the_producer_and_keeps_its_graphic():
+    p = _pipeline(_decision(propose=False))
+    res = _run(p, _moment(kind=MomentKind.GOAL, importance=0.2))
+    assert p.producer.calls == 1 and res.proposal is not None and res.proposal.fallback is True
+
+
+def test_a_proposal_that_ends_before_it_starts_uses_the_template():
+    res = _run(_pipeline(_decision(t_end_ms=600_000)), _moment())
+    assert res.proposal is not None and res.proposal.fallback is True
+    assert any("t_end_ms is not after t_start_ms" in f for f in res.failures)
+
+
+def test_model_outputs_carry_their_run_details_and_templates_do_not():
+    res = _run(_pipeline(personalizer=_variants(("fan", "none"))), _moment())
+    assert res.proposal.meta.routing == "balanced" and res.proposal.meta.model_served == "test-model"
+    by_access = {v.access: v for v in res.variants}
+    assert by_access["none"].meta.model_served == "test-model"
+    assert by_access["deaf"].meta.routing == "template"  # filled from the template, not the model
+
+
+def test_a_short_localizer_reply_is_logged():
+    p = _pipeline()
+    p.localizer = _Agent(json.dumps({"variants": [{"persona": "fan", "access": "none", "lang": "es",
+                                                   "text": "Gran ocasión", "cites": []}]}), "localizer")
+    res = asyncio.run(p.process(_moment(), requests=FAN_EN + [(Persona.FAN, "none", "es", {}),
+                                                              (Persona.FAN, "deaf", "hi", {})]))
+    assert {(v.access, v.lang) for v in res.variants if v.lang != "en"} == {("none", "es")}
+    assert any(f == "localizer: 1 of 2 versions; the rest get the template line" for f in res.failures)
 
 
 def test_the_producer_may_only_use_its_five_layers():

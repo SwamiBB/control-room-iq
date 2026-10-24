@@ -469,7 +469,7 @@ def _result_record(res: MomentResult) -> dict:
     return {"explanation": res.explanation.model_dump(), "line": res.line,
             "variants": [v.model_dump(mode="json") for v in res.variants], "failures": res.failures,
             "fan_card": card.model_dump(mode="json") if card else None,
-            "intel": getattr(res, "intel", None)}
+            "intel": getattr(res, "intel", None), "notes": getattr(res, "notes", [])}
 
 
 async def _publish_fan_cue(m: Moment) -> None:

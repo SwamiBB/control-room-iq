@@ -7,7 +7,7 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 
 | # | Task | Status | Why it is next |
 | --- | --- | --- | --- |
-| 1 | ✅ **Fix #9:** the API crashes on startup in Azure (`clients.py`), plus a test that builds the pipeline in online mode | Done in #26 (open, waiting to merge) | About 30 minutes. Blocks deploying the API and checking the live models |
+| 1 | ✅ **Fix #9:** the API crashes on startup in Azure (`clients.py`), plus a test that builds the pipeline in online mode | Done in #26 | About 30 minutes. Blocks deploying the API and checking the live models |
 | 2 | **`scheduler.py`** with tests | Does not exist | A Friday must-have, now overdue. Until it lands, a fired graphic airs at once, unscheduled |
 | 3 | **Router clients per agent** with `model_served` | Settings exist, nothing wired | Needs the three router deployments in Bicep (Swami). Until then everything uses `model-router` |
 | 4 | ✅ **#10:** check the agents get real replies from the live `model-router` | Done Oct 25: all five agents answer live, 0 failures (fixed in #26) | First real test against Azure |
@@ -40,7 +40,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
   personalizer and localizer → `ROUTER_COST`. `agents/config.py` now has `AGENT_ROUTING` and `deployment_for(agent)`,
   which falls back to `MODEL_ROUTER_DEPLOYMENT`; `make_agent` should build each agent's client from it.
 - ✅ The model client itself works against `model-router`: it uses `OpenAIChatCompletionClient`, because the
-  router rejects the Responses API (#10, in #26). Per-deployment clients and `model_served` are still to do.
+  router rejects the Responses API (#10, in #26). Code also records `model_served`, `latency_ms` and routing `balanced` on every model-written
+  output (#26). Still to do: per-deployment clients and per-agent routing.
 - Read `response.model` into `meta.model_served` and `meta.routing` on each output; span attributes
   `crq.agent`, `crq.routing`, `crq.model_served`. The README promises "the model that served each call is
   recorded".
@@ -48,8 +49,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
   (and removes the Speech resource).
 
 **4. ✅ #10 live check**
-- ✅ Foundry User role assigned; live run on Oct 25 with every agent model-written (served by
-  `grok-4-1-fast-reasoning` through the router). Timing is in #39.
+- ✅ Foundry User role assigned; live run on Oct 25 with every agent model-written (the router
+  served large models such as `grok-4-1-fast-reasoning` and `gpt-5.6-terra`). Timing is in #39.
 - After 1 and the Foundry User role: run the reference match with `CRQ_OFFLINE=0`, confirm every agent
   returns a model reply (not a fallback), and note the served models for the README.
 
