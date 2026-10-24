@@ -17,7 +17,13 @@ from agents.match_intel import (  # noqa: E402
     intel_payload,
     intel_short,
 )
-from agents.workflow import MomentPipeline, fallback_proposal, fallback_variants, with_intel  # noqa: E402
+from agents.workflow import (  # noqa: E402
+    MomentPipeline,
+    ProducerDecision,
+    fallback_proposal,
+    fallback_variants,
+    with_intel,
+)
 from crq_schemas import (  # noqa: E402
     Explanation,
     MatchState,
@@ -192,9 +198,12 @@ def test_every_agent_receives_the_intel_block():
     pipeline = MomentPipeline()
     pipeline.explainer = _RecordingAgent(_expl(m).model_dump_json())
     pipeline.narrator = _RecordingAgent("Arden splits the line")
-    pipeline.personalizer = _RecordingAgent("[]")
-    pipeline.localizer = _RecordingAgent("[]")
-    pipeline.producer = _RecordingAgent(fallback_proposal(m, _expl(m), "x").model_dump_json())
+    pipeline.personalizer = _RecordingAgent('{"variants": []}')
+    pipeline.localizer = _RecordingAgent('{"variants": []}')
+    p = fallback_proposal(m, _expl(m), "x")
+    pipeline.producer = _RecordingAgent(ProducerDecision(
+        propose=True, layer=p.layer, t_start_ms=p.t_start_ms, t_end_ms=p.t_end_ms, line=p.line,
+        payload_json=json.dumps(p.payload), reasoning=p.reasoning, alternatives=[]).model_dump_json())
     asyncio.run(pipeline.process(m))
     for agent in (pipeline.explainer, pipeline.narrator, pipeline.personalizer, pipeline.localizer,
                   pipeline.producer):

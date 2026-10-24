@@ -469,7 +469,7 @@ def _result_record(res: MomentResult) -> dict:
     return {"explanation": res.explanation.model_dump(), "line": res.line,
             "variants": [v.model_dump(mode="json") for v in res.variants], "failures": res.failures,
             "fan_card": card.model_dump(mode="json") if card else None,
-            "intel": getattr(res, "intel", None)}
+            "intel": getattr(res, "intel", None), "notes": getattr(res, "notes", [])}
 
 
 async def _publish_fan_cue(m: Moment) -> None:
@@ -494,9 +494,10 @@ async def _handle_moment(m: Moment) -> None:
             await _queue_proposal(p)
 
 
-# Decision, package and timing fields belong to the API. The producer agent returns a whole
-# OverlayProposal, so anything it put in these fields is discarded on arrival (e.g. a package_id that
-# would make its graphic fire with someone else's one-click package).
+# Decision, package and timing fields belong to the API. The producer agent writes only a ProducerDecision and
+# the agents' code builds the OverlayProposal, so these fields arrive at their defaults; resetting them anyway
+# keeps the API safe from any pipeline (e.g. a package_id that would make a graphic fire with someone else's
+# one-click package).
 _API_OWNED = ("status", "decided_by", "decided_at", "override_line", "proposed_at", "proposed_play_ms", "warn_at",
               "hold_at", "package_id", "package_seq", "package_offset_ms", "item_label", "unsourced_numbers")
 

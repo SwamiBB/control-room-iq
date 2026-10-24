@@ -19,5 +19,5 @@ Rules, in order of importance:
 6. Length: stay within 10% of the English version's length; graphics have hard character limits.
 7. Never mention the referee's competence, betting or injuries.
 
-Output JSON: a list of NarrativeVariant objects, one per target, with `persona`, `access`, `lang` and
-`text`. The system copies `cites` from the English version; you may leave them empty.
+Output JSON: VariantsOut, an object whose `variants` list has one entry per target, with `persona`, `access`,
+`lang`, `text` and `cites`. The system copies `cites` from the English version; you may leave them empty.
