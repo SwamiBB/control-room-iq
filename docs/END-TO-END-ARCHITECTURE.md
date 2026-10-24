@@ -59,12 +59,12 @@ flowchart LR
   end
 
   SIM[[Synthetic match simulator<br/>seeded, ground truth]] --> SYS
-  SYS <--> OP
+  SYS <---> OP
   SYS --> DF
   SYS --> VW
   SYS --> GE
   SYS --> JD
-  SYS <--> FDY[(Microsoft Foundry<br/>model router · agents ·<br/>tracing · evaluations)]
+  SYS <---> FDY[(Microsoft Foundry<br/>model router · agents ·<br/>tracing · evaluations)]
 ```
 
 ---
@@ -190,7 +190,7 @@ sequenceDiagram
   WF->>SC: proposal (no timing)
   SC-->>WF: layer, t_in/t_out, hold_advice, preempted_by
   WF->>PB: proposal + variants
-  PB->>PB: validate English line; run variant checks per variant
+  PB->>PB: validate English line, then run variant checks per variant
   PB->>DB: proposal(status=pending, model_served), bundle, EvaluationRecord
   DB-->>CON: pending item + evidence + faithfulness + routed model + SLA countdown
 ```
@@ -213,12 +213,12 @@ sequenceDiagram
     API->>DB: delivery records (GET /deliveries)
   else hold / reject
     CON->>API: POST /proposals/{id}/hold | reject
-    API->>DB: decision; nothing published
+    API->>DB: decision, nothing published
   else untouched 20 s after air time
     SLA->>API: POST /proposals/{id}/hold (actor sla-timer)
-    API->>DB: status=held_by_sla, decided_by=sla; nothing published
+    API->>DB: status=held_by_sla, decided_by=sla, nothing published
   end
-  Note over CON,API: Undo reverts the last decision (status → pending). It never takes anything off air; reject (Drop) does.
+  Note over CON,API: Undo reverts the last decision (status → pending). It never takes anything off air. Reject (Drop) does.
   Note over SLA,API: Warning 10 s before the hold. A held graphic that is no longer relevant expires. Neither ever fires.
 ```
 
