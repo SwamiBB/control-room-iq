@@ -26,6 +26,11 @@
   gap: 10px 16px;
 }
 
+/* display: flex above beats the hidden attribute, so the multiviewer's frames showed their controls. */
+.viewer-controls[hidden] {
+  display: none;
+}
+
 .viewer-controls label {
   display: flex;
   flex-direction: column;
