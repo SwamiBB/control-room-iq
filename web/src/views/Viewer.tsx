@@ -106,6 +106,24 @@ export function liveAt(held: Map<string, Held>, now: number): Held[] {
   return [...held.values()].filter((h) => h.until > now).sort((a, b) => b.arrivedAt - a.arrivedAt);
 }
 
+/**
+ * What goes in the main slot, from `live` (newest first).
+ *
+ * The caption layer never queues: a new line always cuts the running one. Otherwise the newest graphic
+ * wins, except that a ticker never displaces anything else. A goal routine's three packets arrive in the
+ * same instant when fired, and a newest-wins ticker would take the slot from the lead graphic, which is the
+ * one carrying the deaf fan's caption card.
+ *
+ * Arrival order is all this can go on. The routine's timing (package_offset_ms, t_in_ms) is play time and
+ * this socket has no match clock; spending it as real time would put the scorer stats 25 real seconds after
+ * the goal while the match, at replay speed, has moved minutes on. So nothing here delays a packet.
+ */
+export function mainSlot(live: Held[]): Held | undefined {
+  return live.find((h) => h.packet.layer === "caption")
+    ?? live.find((h) => h.packet.layer !== "caption" && h.packet.layer !== "ticker")
+    ?? live.find((h) => h.packet.layer === "ticker");
+}
+
 /** Drops what has expired. Returns the same map when nothing has, so an idle tick does not re-render. */
 export function pruneExpired(held: Map<string, Held>, now: number): Map<string, Held> {
   if ([...held.values()].every((h) => h.until > now)) return held;
@@ -223,11 +241,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const live = liveAt(held, Date.now());
 
-  // The caption layer never queues: a new line always cuts the running one.
-  const caption = live.find((h) => h.packet.layer === "caption");
-  const graphic = live.find((h) => h.packet.layer !== "caption");
-  const current = caption ?? graphic;
-  const packet = current?.packet;
+  const packet = mainSlot(live)?.packet;
 
   const register: IntelRegister = persona;
   const names: Record<string, string> = packet?.payload?.names ?? {};
@@ -332,7 +346,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       )}
 
       <ul className="history">
-        {live.slice(1).map((h) => (
+        {/* Everything else still up; the main slot is not always the newest, so filter rather than slice. */}
+        {live.filter((h) => h.packet !== packet).map((h) => (
           <li key={h.packet.cue_id}>{h.packet.line}</li>
         ))}
       </ul>

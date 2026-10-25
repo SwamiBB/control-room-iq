@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { holdMs, isApproved, liveAt, pruneExpired, withPacket, type Held, type Packet } from "./Viewer";
+import { holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -121,5 +121,32 @@ describe("expiry on the viewer's tick", () => {
     const before = held;
     vi.advanceTimersByTime(2_000);
     expect(held).toBe(before);
+  });
+});
+
+describe("mainSlot (goal routine ordering)", () => {
+  const at = (packet: Packet, arrivedAt: number): Held => ({ packet, arrivedAt, until: arrivedAt + holdMs(packet) });
+
+  it("keeps the lead graphic when the ticker arrives after it", () => {
+    const live = liveAt(new Map([["c-lead", at(lead, 1000)], ["c-ticker", at(ticker, 1001)]]), 1002);
+    expect(mainSlot(live)?.packet.cue_id).toBe("c-lead");
+    expect(mainSlot(live)?.packet.fan_card?.card_id).toBe("fc-1");
+  });
+
+  it("shows the ticker once nothing else is up", () => {
+    const live = liveAt(new Map([["c-lead", at(lead, 1000)], ["c-ticker", at(ticker, 1001)]]), 9_500);
+    expect(mainSlot(live)?.packet.cue_id).toBe("c-ticker");
+  });
+
+  it("still lets a newer non-ticker graphic take the slot", () => {
+    const stats: Packet = { ...approved, cue_id: "c-stats", layer: "lower_third" };
+    const live = liveAt(new Map([["c-lead", at(lead, 1000)], ["c-stats", at(stats, 1001)]]), 1002);
+    expect(mainSlot(live)?.packet.cue_id).toBe("c-stats");
+  });
+
+  it("lets a caption cut anything, the ticker included", () => {
+    const caption: Packet = { ...approved, cue_id: "c-cap", layer: "caption" };
+    const live = liveAt(new Map([["c-cap", at(caption, 1000)], ["c-lead", at(lead, 1001)]]), 1002);
+    expect(mainSlot(live)?.packet.cue_id).toBe("c-cap");
   });
 });
