@@ -48,7 +48,7 @@ export default function Operator() {
   const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
   const [scope, setScope] = useState<ReplayScope>("window");
   const [pace, setPace] = useState<ReplaySpeed>(20);
-  const [logError, setLogError] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
 
   // Column split, as a percentage given to the decisions column. Remembered per console.
   const [split, setSplit] = useState<number>(() => {
@@ -99,8 +99,8 @@ export default function Operator() {
   // The log is the API's, not ours: holds by the timer and expiries never pass through this console.
   const refreshDecisions = useCallback(() => {
     fetchDecisions()
-      .then((d) => { setDecisions(d); setLogError(false); })
-      .catch(() => setLogError(true));
+      .then((d) => { setDecisions(d); setLogError(null); })
+      .catch((err) => setLogError(errorMessage(err, "load the decision log")));
   }, []);
 
   useEffect(() => {
@@ -276,7 +276,7 @@ export default function Operator() {
         </p>
       )}
       {logError && link === "live" && (
-        <p className="warnbar">The decision log is not answering (<code>GET /decisions</code>). Decisions are still being recorded.</p>
+        <p className="warnbar">{logError} Decisions are still being recorded; the log refreshes every 5 s.</p>
       )}
       {fallbackCount > 0 && (
         <p className="warnbar">

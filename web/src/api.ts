@@ -110,7 +110,10 @@ export type DecisionEntry = {
 
 export type DecideAction = "approve" | "hold" | "override" | "reject";
 
-/** A non-2xx answer from the API, with FastAPI's `detail` pulled out of the JSON body. */
+/**
+ * A failed call to the API: a non-2xx answer, with FastAPI's `detail` pulled out of the JSON body, or
+ * status 0 when there was no answer at all.
+ */
 export class ApiError extends Error {
   constructor(readonly status: number, readonly detail: string) {
     super(`${status} ${detail}`);
@@ -129,24 +132,41 @@ async function detailOf(r: Response): Promise<string> {
   return text || r.statusText;
 }
 
-async function post(path: string, body: Record<string, unknown>) {
-  const r = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function request(path: string, init?: RequestInit) {
+  let r: Response;
+  try {
+    r = await fetch(`${API}${path}`, init);
+  } catch {
+    throw new ApiError(0, "no answer"); // the browser says only "Failed to fetch"
+  }
   if (!r.ok) throw new ApiError(r.status, await detailOf(r));
   return r.json();
 }
 
+const get = (path: string) => request(path);
+
+const post = (path: string, body: Record<string, unknown>) =>
+  request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+/** Where the console is sending its calls, as someone checking the API would look for it. */
+const apiWhere = () => API || location.host;
+
 /**
- * What the operator reads when an action fails. `action` says what was being tried, as a verb phrase:
- * "fire the graphic". A 409 means the thing was already decided, by someone else or the timer.
+ * What the operator reads when a call fails: what was being tried, what went wrong, and what to check.
+ * `action` is a verb phrase: "fire the graphic", "load the decision log".
  */
 export function errorMessage(err: unknown, action: string): string {
-  if (err instanceof ApiError && err.status === 409) return `Couldn't ${action}: ${err.detail}. Nothing was changed.`;
-  if (err instanceof ApiError) return `Couldn't ${action}: ${err.detail} (${err.status}).`;
-  return `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`;
+  if (!(err instanceof ApiError)) return `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`;
+  if (err.status === 0) {
+    return `Couldn't ${action}: the API at ${apiWhere()} isn't answering. Check that it is running, then try again.`;
+  }
+  // Already decided, by someone else or the timer.
+  if (err.status === 409) return `Couldn't ${action}: ${err.detail}. Nothing was changed.`;
+  if (err.status >= 500) {
+    return `Couldn't ${action}: the API failed while handling it (${err.status}). Its terminal has the error; `
+      + "try again, and restart the API if it keeps happening.";
+  }
+  return `Couldn't ${action}: ${err.detail} (${err.status}).`;
 }
 
 /** Decide one graphic. `override_line` is accepted only on override; sending it elsewhere is a 422. */
@@ -188,9 +208,7 @@ export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 
   post("/matches/replay", { file, speed, ...(scope === "window" ? DEMO_WINDOW : {}) });
 
 export async function fetchDecisions(): Promise<DecisionEntry[]> {
-  const r = await fetch(`${API}/decisions`);
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-  const body = await r.json();
+  const body = await get("/decisions");
   return Array.isArray(body) ? body : body.decisions ?? [];
 }
 
@@ -223,9 +241,7 @@ export type PreviewLine = {
 };
 
 export async function fetchViewerGroups(): Promise<ViewerGroup[]> {
-  const r = await fetch(`${API}/viewer-groups`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  const body = await r.json();
+  const body = await get("/viewer-groups");
   return Array.isArray(body) ? body : body.groups ?? [];
 }
 
@@ -241,9 +257,7 @@ export async function fetchPreview(
   const qs = new URLSearchParams();
   for (const v of views.slice(0, 12)) qs.append("view", v);
   if (overrideLine) qs.set("override_line", overrideLine);
-  const r = await fetch(`${API}/proposals/${proposalId}/preview?${qs}`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  const body: { items?: PreviewLine[] } = await r.json();
+  const body: { items?: PreviewLine[] } = await get(`/proposals/${proposalId}/preview?${qs}`);
   return body.items ?? [];
 }
 
@@ -273,9 +287,7 @@ export type GalleryMetrics = {
 };
 
 export async function fetchMetrics(): Promise<GalleryMetrics> {
-  const r = await fetch(`${API}/metrics`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  return get("/metrics");
 }
 
 export const sourceWord = (s: string) =>

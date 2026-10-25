@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchPreview, layerName, modelLabel, startReplay, viewLabel,
+  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -110,6 +110,21 @@ describe("errorMessage", () => {
     answer(422, JSON.stringify({ detail: [{ loc: ["body", "override_line"], msg: "String should have at most 280 characters" }] }));
     expect(errorMessage(await failure(), "fire the override"))
       .toBe("Couldn't fire the override: String should have at most 280 characters (422).");
+  });
+
+  it("says a 500 is the API's own failure and where to look, not a bare status", async () => {
+    answer(500, "Internal Server Error");
+    const text = errorMessage(await failure(), "fire the graphic");
+    expect(text).toBe("Couldn't fire the graphic: the API failed while handling it (500). Its terminal has the error; "
+      + "try again, and restart the API if it keeps happening.");
+  });
+
+  it("says the API is not answering, and where, when the request never got an answer", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    const err = await fetchMetrics().catch((e) => e);
+    expect(errorMessage(err, "load the gallery metrics")).toBe(
+      "Couldn't load the gallery metrics: the API at http://localhost:8000 isn't answering. "
+      + "Check that it is running, then try again.");
   });
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchMetrics, type GalleryMetrics } from "../api";
+import { errorMessage, fetchMetrics, type GalleryMetrics } from "../api";
 import "./metrics.css";
 
 /**
@@ -36,20 +36,20 @@ function Tile({ label, value, note }: { label: string; value: string; note?: str
 
 export default function MetricsPanel() {
   const [m, setM] = useState<GalleryMetrics | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let stale = false;
     const load = () =>
       fetchMetrics()
-        .then((d) => { if (!stale) { setM(d); setError(false); } })
-        .catch(() => { if (!stale) setError(true); });
+        .then((d) => { if (!stale) { setM(d); setError(null); } })
+        .catch((err) => { if (!stale) setError(errorMessage(err, "load the gallery metrics")); });
     load();
     const t = window.setInterval(load, POLL_MS);
     return () => { stale = true; window.clearInterval(t); };
   }, []);
 
-  if (error && !m) return <p className="empty">Metrics unavailable (<code>GET /metrics</code>).</p>;
+  if (error && !m) return <p className="empty">{error}</p>;
   if (!m) return <p className="empty">Loading metrics…</p>;
 
   const mix = MIX_ORDER.map((k) => ({ key: k, n: m.errors.deliveries[k] ?? 0 }));

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchPreview, fetchViewerGroups, sourceWord, viewLabel,
+  errorMessage, fetchPreview, fetchViewerGroups, sourceWord, viewLabel,
   type PreviewLine, type ViewerGroup,
 } from "../api";
 import "./preview.css";
@@ -46,7 +46,7 @@ export default function PreviewFor({ proposalId, views, onChangeViews, overrideL
     let stale = false;
     fetchPreview(proposalId, views, debounced?.trim() || undefined)
       .then((l) => { if (!stale) { setLines(l); setError(null); } })
-      .catch(() => { if (!stale) setError("Preview unavailable"); });
+      .catch((err) => { if (!stale) setError(errorMessage(err, "load the preview")); });
     return () => { stale = true; };
   }, [proposalId, views, debounced]);
 
