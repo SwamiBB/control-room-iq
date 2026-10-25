@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -118,6 +119,26 @@ class Hub:
         self.feed = OverlayFeed()
         self.auto_hold_s = SLA_HOLD_S
         self.warn_s = SLA_WARN_S
+        self.replay_speed: float | None = None  # what the match is running at, once a replay is under way
+        self.replay_task: asyncio.Task | None = None
+        self.state_published_at = 0.0  # time.monotonic() of the last state message, so a new match publishes at once
+
+    def new_match(self, meta: MatchMeta) -> None:
+        """Clear the desk for a fresh match.
+
+        Running a second replay must not leave the first one's graphics in the log or its turnaround in
+        the metrics. Connected sockets survive; everything the match produced does not.
+        """
+        self.meta, self.clock = meta, PlayClock()
+        self.proposals.clear()
+        self.decisions.clear()
+        self.results.clear()
+        self.packets.clear()
+        self.moments.clear()
+        self.deliveries.clear()
+        self.state = None
+        self.replay_speed = None
+        self.state_published_at = 0.0
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -220,11 +241,12 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
 
 async def _expire_stale() -> list[OverlayProposal]:
     """Held graphics the match has moved past leave the running order, with a log row for each."""
-    expired = stale_proposals(hub.proposals.values(), hub.clock.play_ms)
+    expired = stale_proposals(hub.proposals.values(), hub.clock.play_ms, hub.now())
     for p in expired:
         seconds = shelf_life_ms(p) // 1000
         _record_decision(p, ProposalStatus.EXPIRED,
-                         Decision(actor=EXPIRY_ACTOR, reasoning=f"held and not fired within {seconds} s of play"))
+                         Decision(actor=EXPIRY_ACTOR,
+                                  reasoning=f"no decision in time; the match moved {seconds} s past the moment"))
         await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     return expired
 
@@ -390,7 +412,7 @@ async def recap(minutes: int = 10):
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True}
+    return {"ok": True, "speed": hub.replay_speed}
 
 
 async def _auto_hold(proposal_id: str) -> None:
@@ -406,15 +428,34 @@ async def _auto_hold(proposal_id: str) -> None:
     await asyncio.sleep(hub.auto_hold_s - warn_after)
     p = hub.proposals.get(proposal_id)
     if p and p.status == ProposalStatus.PROPOSED:
-        await _decide(proposal_id, ProposalStatus.HELD, Decision(actor=SLA_ACTOR, reasoning="no operator action"))
+        held_for = f"no decision within {hub.auto_hold_s:g} s"
+        await _decide(proposal_id, ProposalStatus.HELD, Decision(actor=SLA_ACTOR, reasoning=held_for))
 
 
 # ---------- local replay (full pipeline in-process) ----------
 
 class ReplayRequest(BaseModel):
+    """A window of a recorded match, played at the speed the operator will really work at.
+
+    `speed` defaults to 1.0 because that is the only speed a live feed has: compressing the match
+    compresses the decision the gate exists to measure. To reach an interesting passage quickly,
+    skip to it with `from_play_ms` rather than fast-forwarding through it. Events before the window
+    are folded into match state without pacing and without proposing anything, so the desk joins a
+    match already in progress with the right score, possession and form behind it — the same path a
+    console takes when it connects to a live feed at half past three.
+    """
+
     file: str = "data/match.jsonl"
-    speed: float = 20.0
+    speed: float = Field(default=1.0, gt=0, description="Play time per real second when nothing is pending.")
+    decision_speed: float | None = Field(
+        default=1.0, gt=0,
+        description="Speed to fall back to while the running order has something open, whatever `speed` is. "
+                    "Real time by default: a decision put to a person is taken at the speed that person will "
+                    "really have, and the match returns to `speed` once the running order is clear. Pass null "
+                    "to keep one speed throughout, which is worth doing only to reproduce the old behaviour.")
     min_importance: float = 0.3
+    from_play_ms: int = 0
+    to_play_ms: int | None = None
 
 
 @app.post("/matches/replay")
@@ -422,35 +463,118 @@ async def replay(req: ReplayRequest):
     path = Path(req.file)
     if not path.exists():
         raise HTTPException(404, f"{path} not found; run the simulator first")
-    asyncio.create_task(_replay(req))
+    if hub.replay_task and not hub.replay_task.done():
+        raise HTTPException(409, "a replay is already running")
+    hub.replay_speed = None
+    hub.replay_task = asyncio.create_task(_replay(req))
     return {"started": True}
 
 
 async def _replay(req: ReplayRequest) -> None:
+    """Drive the replay and, whatever happens, tell the console it is over.
+
+    A console that is told nothing cannot tell a finished match from a hung one, and this runs as a
+    detached task, so an exception here would otherwise stop the clock in silence.
+    """
+    try:
+        await _drive_replay(req)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("replay failed")
+        await _finish_replay(f"{type(exc).__name__}: {exc}")
+    else:
+        await _finish_replay(None)
+
+
+async def _finish_replay(error: str | None) -> None:
+    hub.replay_speed = None
+    await hub.broadcast_operators({"type": "replay", "finished": True, "speed": None, "error": error,
+                                   "clock": hub.clock.snapshot()})
+
+
+async def _drive_replay(req: ReplayRequest) -> None:
     with Path(req.file).open(encoding="utf-8") as f:
         folder = await _start_match(MatchMeta.model_validate_json(f.readline()))
+        warming = req.from_play_ms > 0
         for line in filter(str.strip, f):
-            await _replay_event(folder, MatchEvent.model_validate_json(line), req)
+            ev = MatchEvent.model_validate_json(line)
+            gap_ms = hub.clock.advance(ev)  # the clock tracks the whole match, in the window or not
+            if req.to_play_ms is not None and hub.clock.play_ms > req.to_play_ms:
+                break
+            if hub.clock.play_ms < req.from_play_ms:
+                folder.apply(ev)  # fold the state, propose nothing: this is history, not a decision
+                continue
+            if warming:  # joining the match: the desk sees where it stands, and waits out no gap
+                warming, gap_ms = False, 0
+                await _publish_state(folder)
+            await _replay_event(folder, ev, req, gap_ms)
 
 
 async def _start_match(meta: MatchMeta) -> StateFolder:
-    hub.meta, hub.clock = meta, PlayClock()
+    hub.new_match(meta)
     await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
     folder = StateFolder(meta)
     hub.match_state = folder.state
     return folder
 
 
-async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest) -> None:
+async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest,
+                        gap_ms: int | None = None) -> None:
     # Pace on play time: the period clock restarts at half time, play time never does.
-    await asyncio.sleep(hub.clock.advance(ev) / 1000 / req.speed)
+    await _pace(hub.clock.advance(ev) if gap_ms is None else gap_ms, req)
     await _expire_stale()
     moments = folder.apply(ev)
-    if ev.seq % 10 == 0:
+    if ev.seq % 10 == 0 or time.monotonic() - hub.state_published_at >= STATE_PUBLISH_S:
+        hub.state_published_at = time.monotonic()
         await _publish_state(folder)
     for m in moments:
         if m.importance >= req.min_importance:
             await _handle_moment(_stamp_play_time(m))
+
+
+PACING_SLICE_MS = 100  # the replay re-reads its speed this often, in real milliseconds
+# State goes out every tenth event or this often in real time, whichever comes first: ten events are a blink
+# at speed 20 but about four seconds at real time, long enough for the console's play clock to look frozen.
+STATE_PUBLISH_S = 0.25
+
+
+def _awaiting_decision() -> bool:
+    """Is a person's answer outstanding right now?
+
+    Only a proposal still on the desk counts. Once the timer has held one, the decision window has closed
+    and the match carries on at the speed it was asked for — a held graphic lives out its shelf life while
+    play runs normally. Counting held graphics here would pin an unattended desk at real time for ever.
+    """
+    return any(p.status == ProposalStatus.PROPOSED for p in hub.proposals.values())
+
+
+def _effective_speed(req: ReplayRequest) -> float:
+    """The speed the match is running at right now, which an open decision may have slowed."""
+    if req.decision_speed is None or not _awaiting_decision():
+        return req.speed
+    return req.decision_speed
+
+
+async def _pace(gap_ms: int, req: ReplayRequest) -> None:
+    """Wait out the gap to the next event, re-reading the speed as it goes.
+
+    Sliced rather than slept in one go, so a proposal that opens mid-gap slows the match down from that
+    moment instead of the next event, and a decision taken mid-gap speeds it back up. The slices are real
+    time, so a long gap at high speed costs no more wakeups than a short one.
+    """
+    left = float(max(0, gap_ms))
+    while left > 0:
+        speed = _effective_speed(req)
+        await _announce_speed(speed)
+        step = min(left, PACING_SLICE_MS * speed)
+        await asyncio.sleep(step / 1000 / speed)
+        left -= step
+
+
+async def _announce_speed(speed: float) -> None:
+    if speed == hub.replay_speed:
+        return
+    hub.replay_speed = speed
+    await hub.broadcast_operators({"type": "replay", "speed": speed})
 
 
 async def _publish_state(folder: StateFolder) -> None:

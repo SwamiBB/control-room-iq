@@ -1,0 +1,80 @@
+/* Gallery metrics. Stat tiles, not charts: no series, no time axis, read at a glance.
+   Values stay in normal ink; colour is reserved for the delivery mix, where it means
+   good / degraded / fallback and always ships with a written label. */
+
+.metrics { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.metric-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.metric-group h4 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  font-weight: 600;
+}
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.tile {
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 4px;
+  padding: 7px 8px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.tile b { display: block; font-size: 17px; line-height: 1.15; }
+.tile span { display: block; font-size: 10.5px; opacity: 0.7; margin-top: 1px; }
+.tile small { display: block; font-size: 10px; opacity: 0.55; margin-top: 1px; }
+
+/* Parts of a whole: one thin bar, 2px gaps between segments. */
+.mix { display: flex; gap: 2px; height: 10px; }
+.mix .seg { border-radius: 2px; min-width: 3px; }
+.seg.variant, .dot.variant { background: #15803d; }
+.seg.template, .dot.template { background: #b45309; }
+.seg.base, .dot.base { background: #6b7280; }
+.seg.override, .dot.override { background: #7c3aed; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .seg.variant, :root:not([data-theme="light"]) .dot.variant { background: #4cbc8a; }
+  :root:not([data-theme="light"]) .seg.template, :root:not([data-theme="light"]) .dot.template { background: #e0a449; }
+  :root:not([data-theme="light"]) .seg.base, :root:not([data-theme="light"]) .dot.base { background: #9aa3b7; }
+  :root:not([data-theme="light"]) .seg.override, :root:not([data-theme="light"]) .dot.override { background: #a78bfa; }
+}
+:root[data-theme="dark"] .seg.variant, :root[data-theme="dark"] .dot.variant { background: #4cbc8a; }
+:root[data-theme="dark"] .seg.template, :root[data-theme="dark"] .dot.template { background: #e0a449; }
+:root[data-theme="dark"] .seg.base, :root[data-theme="dark"] .dot.base { background: #9aa3b7; }
+:root[data-theme="dark"] .seg.override, :root[data-theme="dark"] .dot.override { background: #a78bfa; }
+
+.mix-key {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.mix-key li { display: inline-flex; align-items: center; gap: 5px; }
+.mix-key .dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.mix-key .share { opacity: 0.55; }
+
+.failures {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.failures li {
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.metric-note { margin: 0; font-size: 11.5px; opacity: 0.65; }

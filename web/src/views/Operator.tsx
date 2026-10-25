@@ -1,97 +1,623 @@
-import { useEffect, useRef, useState } from "react";
-import { API, WS, clock, decide, type MomentMsg, type Proposal } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel,
+  type ReplayScope,
+  fetchDecisions, decisionsCsvUrl,
+  type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
+} from "../api";
 import IntelChips from "../components/IntelChips";
 import MatchIntel from "../components/MatchIntel";
+import PitchView, { type PitchShot } from "../components/PitchView";
+import PreviewFor from "../components/PreviewFor";
+import MetricsPanel from "../components/MetricsPanel";
+import { useLiveSocket } from "../useLiveSocket";
 import type { MomentMetrics } from "../intel";
+import "./operator.css";
+
+const OPEN: Proposal["status"][] = ["proposed", "held"];
+const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
+
+type Group = { packageId: string | null; items: Proposal[] };
 
 export default function Operator() {
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [moments, setMoments] = useState<MomentMsg[]>([]);
   const [state, setState] = useState<any>(null);
+  const [clk, setClk] = useState<PlayClock | null>(null);
   const [meta, setMeta] = useState<any>(null);
   const [override, setOverride] = useState<Record<string, string>>({});
-  const ws = useRef<WebSocket>();
+  const [deliveries, setDeliveries] = useState<Record<string, DeliveryAudit[]>>({});
+  const [warnings, setWarnings] = useState<Record<string, SlaWarning>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
+  const [speed, setSpeed] = useState<number | null>(null);
+  const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
+  const [scope, setScope] = useState<ReplayScope>("window");
+  const [logError, setLogError] = useState(false);
 
-  useEffect(() => {
-    const s = new WebSocket(`${WS}/ws/operator`);
-    s.onmessage = (e) => {
-      const m = JSON.parse(e.data);
-      if (m.type === "proposal") setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
-      if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
-      if (m.type === "state") setState(m.state);
-      if (m.type === "match") setMeta(m.meta);
-    };
-    ws.current = s;
-    return () => s.close();
+  // Column split, as a percentage given to the decisions column. Remembered per console.
+  const [split, setSplit] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem("crq.split"));
+      return Number.isFinite(v) && v >= 30 && v <= 75 ? v : 52;
+    } catch {
+      return 52;
+    }
+  });
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  // Picked viewer groups are one set shared by every card, remembered per console.
+  const [views, setViews] = useState<string[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("crq.views") ?? "[]");
+      return Array.isArray(v) ? v.slice(0, 12) : [];
+    } catch {
+      return [];
+    }
+  });
+  const changeViews = useCallback((next: string[]) => {
+    setViews(next);
+    try { localStorage.setItem("crq.views", JSON.stringify(next)); } catch { /* private window */ }
   }, []);
 
-  const act = async (id: string, a: "approve" | "hold" | "override") => {
-    const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
-    setProposals((x) => ({ ...x, [id]: p }));
-  };
-  const start = () => fetch(`${API}/matches/replay`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file: "data/match.jsonl", speed: 20 }) });
+  const saveSplit = useCallback((pct: number) => {
+    const next = Math.min(75, Math.max(30, pct));
+    setSplit(next);
+    try { localStorage.setItem("crq.split", String(Math.round(next))); } catch { /* private window */ }
+  }, []);
 
-  const names: Record<string, string> = Object.fromEntries(
-    [meta?.home, meta?.away].flatMap((t: any) => (t?.players ?? []).map((p: any) => [p.player_id, p.name])));
+  const startDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    dragging.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+  const onDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging.current || !bodyRef.current) return;
+    const r = bodyRef.current.getBoundingClientRect();
+    saveSplit(((e.clientX - r.left) / r.width) * 100);
+  }, [saveSplit]);
+  const endDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    dragging.current = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+  }, []);
+
+  // The log is the API's, not ours: holds by the timer and expiries never pass through this console.
+  const refreshDecisions = useCallback(() => {
+    fetchDecisions()
+      .then((d) => { setDecisions(d); setLogError(false); })
+      .catch(() => setLogError(true));
+  }, []);
+
+  useEffect(() => {
+    refreshDecisions();
+    const t = window.setInterval(refreshDecisions, 5000);
+    return () => window.clearInterval(t);
+  }, [refreshDecisions]);
+
+  const link = useLiveSocket(`${WS}/ws/operator`, (m: any) => {
+    {
+      if (m.type === "proposal") setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
+      if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
+      if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
+      if (m.type === "match") {
+        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match.
+        setMeta(m.meta);
+        setProposals({});
+        setMoments([]);
+        setDeliveries({});
+        setWarnings({});
+        setDecisions([]);
+        setState(null);
+        setClk(null);
+        setEnded(null);
+      }
+      if (m.type === "deliveries") setDeliveries((d) => ({ ...d, [m.proposal_id]: m.deliveries }));
+      if (m.type === "sla_warning") setWarnings((w) => ({ ...w, [m.proposal_id]: m }));
+      if (m.type === "replay") {
+        setSpeed(typeof m.speed === "number" ? m.speed : null);
+        if (m.finished) setEnded({ error: m.error ?? null });
+      }
+    }
+  });
+
+  // Drives the countdowns; the server stays the source of truth for the hold itself.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => tick((n) => n + 1), 250);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const run = useCallback(async (key: string, fn: () => Promise<unknown>) => {
+    setBusy((b) => ({ ...b, [key]: true }));
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy((b) => ({ ...b, [key]: false }));
+    }
+  }, []);
+
+  const act = (id: string, a: "approve" | "hold" | "override" | "reject") =>
+    run(id, async () => {
+      const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
+      setProposals((x) => ({ ...x, [p.proposal_id]: p }));
+      if (a === "override") setOverride((o) => ({ ...o, [id]: "" }));
+      refreshDecisions();
+    });
+
+  const actPackage = (packageId: string, a: "approve" | "hold" | "reject") =>
+    run(packageId, async () => {
+      const items = await decidePackage(packageId, a);
+      setProposals((x) => {
+        const next = { ...x };
+        for (const p of items) next[p.proposal_id] = p;
+        return next;
+      });
+      refreshDecisions();
+    });
+
+  const names: Record<string, string> = useMemo(() => Object.fromEntries(
+    [meta?.home, meta?.away].flatMap((t: any) => (t?.players ?? []).map((p: any) => [p.player_id, p.name]))
+  ), [meta]);
   const name = (id?: string | null) => (id ? names[id] ?? id : "");
-  const team = (id?: string | null) => (id === meta?.home?.team_id ? meta.home.short_name : id === meta?.away?.team_id ? meta.away.short_name : id ?? "");
+  const team = (id?: string | null) =>
+    id === meta?.home?.team_id ? meta.home.short_name : id === meta?.away?.team_id ? meta.away.short_name : id ?? "";
 
-  const queue = Object.values(proposals).filter((p) => p.status === "proposed" || p.status === "held").sort((a, b) => b.priority - a.priority);
-  const aired = Object.values(proposals).filter((p) => p.status === "aired").slice(-6).reverse();
+  const all = Object.values(proposals);
+  const open = all.filter((p) => OPEN.includes(p.status));
+
+  // Goal routine: items sharing a package_id are one card, in running order.
+  const groups: Group[] = useMemo(() => {
+    const byPackage = new Map<string, Proposal[]>();
+    const singles: Group[] = [];
+    for (const p of open) {
+      if (p.package_id) {
+        const list = byPackage.get(p.package_id) ?? [];
+        list.push(p);
+        byPackage.set(p.package_id, list);
+      } else {
+        singles.push({ packageId: null, items: [p] });
+      }
+    }
+    const packs: Group[] = [...byPackage.entries()].map(([packageId, items]) => ({
+      packageId,
+      items: items.sort((a, b) => (a.package_seq ?? 0) - (b.package_seq ?? 0)),
+    }));
+    const weight = (g: Group) => Math.min(...g.items.map((i) => i.priority ?? 9));
+    return [...packs, ...singles].sort((a, b) => weight(a) - weight(b));
+  }, [open]);
+
+  const onAir = all
+    .filter((p) => p.status === "aired" || p.status === "approved" || p.status === "overridden")
+    .sort((a, b) => String(b.decided_at ?? "").localeCompare(String(a.decided_at ?? "")));
+  // Fired cards leave the running order, but their deliveries arrive after the decision,
+  // so the last few stay here to carry their chips.
+  const justFired = onAir.slice(0, 3);
+  const log = [...decisions].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 15);
+  const lineFor = (proposalId: string) => {
+    const p = proposals[proposalId];
+    return p ? p.override_line ?? p.line : proposalId;
+  };
+
+  const nowPlay = clk?.play_ms ?? 0;
+  // Degrading rather than stalling is by design, but the operator should be told it is happening.
+  const fallbackCount = open.filter((p) => p.fallback || p.meta?.routing === "template").length;
 
   return (
-    <div className="operator">
-      <header>
-        <h1>Operator console</h1>
-        {meta ? <span>{meta.home.name} v {meta.away.name} · {meta.venue}</span> : <button onClick={start}>Start replay</button>}
-        {state && <span className="score">{state.home.goals} – {state.away.goals} · {clock(state.t_ms, state.period)}</span>}
-      </header>
-      <section className="program">
-        <h2>Program feed</h2>
-        <div className="pitch">{aired[0] && <div className={`overlay ${aired[0].layer}`}>{aired[0].override_line ?? aired[0].line}</div>}</div>
+    <div className="gallery">
+      <header className="gallery-head">
+        <div>
+          <h1>Graphics operator</h1>
+          {meta && <p className="match">{meta.home.name} v {meta.away.name} · {meta.venue}</p>}
+          {(!meta || ended) && (
+            <p className="replay-start">
+              <select
+                aria-label="How much of the match to replay"
+                value={scope}
+                onChange={(e) => setScope(e.target.value as ReplayScope)}
+              >
+                <option value="window">Minutes 41–46</option>
+                <option value="full">Full match</option>
+              </select>
+              <button
+                className="primary"
+                disabled={busy.replay}
+                onClick={() => run("replay", async () => { setEnded(null); await startReplay(scope); })}
+              >
+                {ended ? "Run again" : "Start replay"}
+              </button>
+              {ended?.error
+                ? <span className="replay-ended error">Replay stopped: {ended.error}</span>
+                : ended && <span className="replay-ended">Replay complete</span>}
+            </p>
+          )}
+        </div>
         {state && (
-          <div className="stats">
-            <Stat label="Possession" h={`${state.home.possession_pct}%`} a={`${state.away.possession_pct}%`} />
-            <Stat label="xG" h={state.home.xg.toFixed(2)} a={state.away.xg.toFixed(2)} />
-            <Stat label="Shots" h={state.home.shots} a={state.away.shots} />
-            <Stat label="PPDA" h={state.home.ppda ?? "–"} a={state.away.ppda ?? "–"} />
+          <div className="scoreboard">
+            <b>{state.home.goals} – {state.away.goals}</b>
+            <span>{clk ? clock(clk.clock_ms, clk.period) : clock(state.t_ms, state.period)}</span>
+            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === 1 ? "real time" : `${speed}×`}` : ""}</small>
           </div>
         )}
-        <h2>Match intelligence</h2>
-        <MatchIntel state={state} name={name} team={team} />
-      </section>
-      <section className="queue">
-        <h2>Next on screen ({queue.length})</h2>
-        {queue.map((p) => (
-          <article key={p.proposal_id} className={`proposal ${p.status}`}>
-            <div className="meta"><b>{p.layer}</b> · priority {p.priority.toFixed(2)} · {clock(p.t_start_ms, 1)} → {clock(p.t_end_ms, 1)}
-              {p.faithfulness != null && <span className="eval"> · faithfulness {p.faithfulness.toFixed(2)}</span>}</div>
-            <p className="line">{p.line}</p>
-            <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={name} />
-            <p className="reasoning">{p.reasoning}</p>
-            <input placeholder="Override line…" value={override[p.proposal_id] ?? ""} onChange={(e) => setOverride({ ...override, [p.proposal_id]: e.target.value })} />
-            <div className="actions">
-              <button className="approve" onClick={() => act(p.proposal_id, "approve")}>Approve</button>
-              <button onClick={() => act(p.proposal_id, "hold")} disabled={p.status === "held"}>Hold</button>
-              <button onClick={() => act(p.proposal_id, "override")} disabled={!override[p.proposal_id]}>Override</button>
+      </header>
+
+      {link !== "live" && (
+        <p className="error" role="alert">
+          {link === "connecting"
+            ? "Connecting to the API…"
+            : "Can't reach the API. Start it with CRQ_OFFLINE=1 — retrying automatically."}
+        </p>
+      )}
+      {logError && link === "live" && (
+        <p className="warnbar">The decision log is not answering (<code>GET /decisions</code>). Decisions are still being recorded.</p>
+      )}
+      {fallbackCount > 0 && (
+        <p className="warnbar">
+          {fallbackCount} of the graphics waiting came from the template fallback, not a model — the agents may be unavailable.
+        </p>
+      )}
+      {error && <p className="error" role="alert">{error}</p>}
+
+      <div
+        className="gallery-body"
+        ref={bodyRef}
+        style={{ gridTemplateColumns: `minmax(0, ${split}%) 10px minmax(0, 1fr)` }}
+      >
+        {/* ---- left: the decisions ------------------------------------------------ */}
+        <section className="running-order">
+          <h2>Running order <span className="count">{open.length}</span></h2>
+
+          <Timeline proposals={all} nowPlay={nowPlay} />
+
+          {groups.length === 0 && (
+            <p className="empty">
+              {link !== "live"
+                ? "Not connected to the API, so nothing can arrive."
+                : !meta
+                  ? "Connected, but no match is loaded. Press Start replay."
+                  : "Match running. No graphics proposed yet — the agents raise these at moments, not continuously."}
+            </p>
+          )}
+
+          {groups.map((g) => (
+            <article key={g.packageId ?? g.items[0].proposal_id} className={`card ${g.packageId ? "routine" : ""}`}>
+              {g.packageId && (
+                <div className="routine-head">
+                  <h3>Goal routine</h3>
+                  <span className="muted">{g.items.length} graphics, one click</span>
+                  <PackageCountdown lead={g.items[0]} warned={Boolean(warnings[g.items[0].proposal_id])} />
+                  <div className="routine-actions">
+                    <button className="fire" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "approve")}>
+                      Fire all {g.items.length}
+                    </button>
+                    <button disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
+                    <button className="drop" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "reject")}>Drop</button>
+                  </div>
+                </div>
+              )}
+
+              {g.items.map((p) => (
+                <Card
+                  key={p.proposal_id}
+                  p={p}
+                  inPackage={Boolean(g.packageId)}
+                  showCountdown={!g.packageId}
+                  warning={warnings[p.proposal_id]}
+                  deliveries={deliveries[p.proposal_id]}
+                  override={override[p.proposal_id] ?? ""}
+                  busy={Boolean(busy[p.proposal_id])}
+                  name={name}
+                  views={views}
+                  onChangeViews={changeViews}
+                  onOverrideChange={(v) => setOverride((o) => ({ ...o, [p.proposal_id]: v }))}
+                  onAct={(a) => act(p.proposal_id, a)}
+                />
+              ))}
+            </article>
+          ))}
+
+          {justFired.length > 0 && (
+            <>
+              <h2>Just fired</h2>
+              {justFired.map((p) => (
+                <article key={`fired-${p.proposal_id}`} className="card fired">
+                  <div className="item-head">
+                    <b className="layer">{layerName(p.layer)}</b>
+                    <span className={`tag ${p.status}`}>{decisionLabel(p.status, p.decided_by)}</span>
+                    {p.decided_by && <span className="muted">{p.decided_by}</span>}
+                  </div>
+                  <p className="line">{p.override_line ?? p.line}</p>
+                  <DeliveryChips items={deliveries[p.proposal_id]} />
+                </article>
+              ))}
+            </>
+          )}
+
+          <div className="log-head">
+            <h2>Decision log</h2>
+            <a className="csv" href={decisionsCsvUrl} download>Download CSV</a>
+          </div>
+          <ul className="log">
+            {log.length === 0 && <li className="empty">No decisions yet.</li>}
+            {log.map((d) => (
+              <li key={d.entry_id}>
+                <span className={`tag ${d.action}`}>{decisionLabel(d.action, d.actor)}</span>
+                <span className="log-line">{lineFor(d.proposal_id)}</span>
+                <small>{d.actor}</small>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* ---- right: what the screens show ---------------------------------------- */}
+        {/* Drag to give the decisions or the match more room; the choice is remembered per console. */}
+        <div
+          className="splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the columns"
+          aria-valuenow={Math.round(split)}
+          aria-valuemin={30}
+          aria-valuemax={75}
+          tabIndex={0}
+          onPointerDown={startDrag}
+          onPointerMove={onDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onDoubleClick={() => saveSplit(52)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft") saveSplit(split - 2);
+            if (e.key === "ArrowRight") saveSplit(split + 2);
+          }}
+        />
+
+        <section className="program">
+          <h2>Program feed</h2>
+          <PitchView
+            shots={(state?.shots ?? []) as PitchShot[]}
+            homeTeamId={meta?.home?.team_id}
+            pressureTrend={state?.pressure_trend}
+            momentum={state?.momentum_label}
+            nameOf={name}
+          />
+          <div className="on-air">
+            {onAir[0] ? (
+              <>
+                <span className="on-air-tag">On air · {layerName(onAir[0].layer)}</span>
+                <p className="line">{onAir[0].override_line ?? onAir[0].line}</p>
+              </>
+            ) : (
+              <p className="empty">Nothing on air.</p>
+            )}
+          </div>
+
+          {state && (
+            <div className="stats">
+              <Stat label="Possession" h={`${state.home.possession_pct}%`} a={`${state.away.possession_pct}%`} />
+              <Stat label="xG" h={state.home.xg.toFixed(2)} a={state.away.xg.toFixed(2)} />
+              <Stat label="Shots" h={state.home.shots} a={state.away.shots} />
+              <Stat label="PPDA" h={state.home.ppda ?? "–"} a={state.away.ppda ?? "–"} />
             </div>
-          </article>
-        ))}
-      </section>
-      <section className="moments">
-        <h2>Moments and reasoning</h2>
-        {moments.map((m) => (
-          <article key={m.moment.moment_id}>
-            <div className="meta">{clock(m.moment.t_ms, m.moment.period)} · {m.moment.kind} · {m.moment.importance.toFixed(2)}</div>
-            <b>{m.explanation.headline}</b>
-            <p>{m.explanation.why_it_matters}</p>
-            <IntelChips metrics={m.intel ?? m.moment.metrics} name={name} />
-            <small>pattern: {m.explanation.pattern} · cites {m.explanation.cites.join(", ")}{m.failures.length > 0 && ` · fallback used (${m.failures.length})`}</small>
-          </article>
-        ))}
-      </section>
+          )}
+
+          <h2>Gallery metrics</h2>
+          <MetricsPanel />
+
+          <h2>Match intelligence</h2>
+          <MatchIntel state={state} name={name} team={team} />
+
+          <h2>Moments and reasoning</h2>
+          <div className="moments">
+            {moments.map((m) => (
+              <article key={m.moment.moment_id}>
+                <div className="meta">
+                  {clock(m.moment.t_ms, m.moment.period)} · {m.moment.kind}
+                  {m.moment.beat && m.moment.beat !== "none" && <> · {m.moment.beat}</>}
+                  {" · "}{m.moment.importance.toFixed(2)}
+                </div>
+                <b>{m.explanation.headline}</b>
+                <p>{m.explanation.why_it_matters}</p>
+                <IntelChips metrics={m.intel ?? m.moment.metrics} name={name} />
+                <small>
+                  pattern: {m.explanation.pattern} · cites {m.explanation.cites.join(", ")}
+                  {m.failures.length > 0 && ` · fallback used (${m.failures.length})`}
+                </small>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
 
-const Stat = ({ label, h, a }: { label: string; h: any; a: any }) => (<div className="stat"><span>{h}</span><label>{label}</label><span>{a}</span></div>);
+/* --------------------------------------------------------------------------- card */
+
+function Card({
+  p, inPackage, showCountdown = true, warning, deliveries, override, busy, name,
+  views, onChangeViews, onOverrideChange, onAct,
+}: {
+  p: Proposal;
+  inPackage: boolean;
+  showCountdown?: boolean;
+  views: string[];
+  onChangeViews: (v: string[]) => void;
+  warning?: SlaWarning;
+  deliveries?: DeliveryAudit[];
+  override: string;
+  busy: boolean;
+  name: (id?: string | null) => string;
+  onOverrideChange: (v: string) => void;
+  onAct: (a: "approve" | "hold" | "override" | "reject") => void;
+}) {
+  const holdAt = p.hold_at ? Date.parse(p.hold_at) : null;
+  const warnAt = p.warn_at ? Date.parse(p.warn_at) : null;
+  const now = Date.now();
+  const secondsLeft = holdAt ? Math.max(0, Math.ceil((holdAt - now) / 1000)) : null;
+  const warning_on = Boolean(warning) || (warnAt != null && now >= warnAt && p.status === "proposed");
+  const advice = p.hold_advice?.recommend_hold ? p.hold_advice : null;
+  // Shelf life in play time: when it reached the running order, plus its max delay (never under 60 s).
+  const expiresAt = p.proposed_play_ms != null
+    ? p.proposed_play_ms + Math.max(p.max_delay_ms ?? 0, 60_000)
+    : null;
+  const unsourced = p.unsourced_numbers ?? [];
+
+  return (
+    <div className={`item ${p.status} ${warning_on ? "warn" : ""}`}>
+      <div className="item-head">
+        <b className="layer">{layerName(p.layer)}</b>
+        {inPackage && p.item_label && <span className="seq">{p.item_label}</span>}
+        {inPackage && (p.package_offset_ms ?? 0) > 0 && (
+          <span className="muted">+{Math.round((p.package_offset_ms ?? 0) / 1000)} s</span>
+        )}
+        <span className="muted">{playClock(p.t_in_ms)} → {playClock(p.t_out_ms)}</span>
+        <span className="muted">priority {Math.round(p.priority)}</span>
+        {p.faithfulness != null && (
+          <span className={`eval ${p.faithfulness < 0.8 ? "low" : ""}`}>faithfulness {p.faithfulness.toFixed(2)}</span>
+        )}
+        {modelLabel(p) && <span className="model" title={`routing: ${p.meta?.routing}`}>{modelLabel(p)}</span>}
+      </div>
+
+      {showCountdown && secondsLeft != null && p.status === "proposed" && (
+        <div className={`sla ${warning_on ? "warn" : ""}`}>
+          {warning_on ? `Holds in ${secondsLeft} s` : `${secondsLeft} s to decide`}
+        </div>
+      )}
+
+      {p.status === "held" && expiresAt != null && (
+        <div className="sla">Expires at {playClock(expiresAt)}</div>
+      )}
+
+      <p className="line">{p.line}</p>
+      <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={name} />
+
+      {unsourced.length > 0 && (
+        <p className="unsourced">
+          Number not from the data: {unsourced.join(", ")}
+        </p>
+      )}
+
+      {advice && <p className="advice">Hold advised — {advice.reason}</p>}
+
+      {p.evidence?.length > 0 && (
+        <ul className="evidence">
+          {p.evidence.map((e) => <li key={e.event_id}>{e.text}</li>)}
+        </ul>
+      )}
+
+      <p className="reasoning">{p.reasoning}</p>
+
+      <DeliveryChips items={deliveries} />
+
+      {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once. */}
+      <PreviewFor
+        proposalId={p.proposal_id}
+        views={views}
+        onChangeViews={onChangeViews}
+        overrideLine={override}
+      />
+
+      <input
+        id={`override-${p.proposal_id}`}
+        placeholder="Replacement line…"
+        value={override}
+        onChange={(e) => onOverrideChange(e.target.value)}
+      />
+
+      <div className="actions">
+        <button className="fire" disabled={busy} onClick={() => onAct("approve")}>Fire</button>
+        <button disabled={busy || p.status === "held"} onClick={() => onAct("hold")}>Hold</button>
+        <button className="drop" disabled={busy} onClick={() => onAct("reject")}>Drop</button>
+        <button disabled={busy || !override.trim()} onClick={() => onAct("override")}>Fire override</button>
+      </div>
+    </div>
+  );
+}
+
+/** What each viewer group actually received, and why. Renders nothing until the API reports. */
+function DeliveryChips({ items }: { items?: DeliveryAudit[] }) {
+  if (!items || items.length === 0) return null;
+  const word = (s: string) =>
+    s === "variant" ? "✓ variant" : s === "template" ? "↩ template" : s === "override" ? "Override" : "↩ English";
+  return (
+    <ul className="deliveries" aria-label="What each viewer group received">
+      {items.map((d) => (
+        <li key={`${d.persona}.${d.access}.${d.lang}`} className={`chip ${d.source}`}>
+          <b>{d.lang}</b> {d.persona}{d.access === "deaf" ? " · deaf" : ""}
+          <span>{word(d.source)}</span>
+          {d.failures.length > 0 && <small>{d.failures.join(", ")}</small>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** One countdown for the whole routine, taken from the lead graphic. */
+function PackageCountdown({ lead, warned }: { lead: Proposal; warned: boolean }) {
+  if (!lead.hold_at || lead.status !== "proposed") return null;
+  const left = Math.max(0, Math.ceil((Date.parse(lead.hold_at) - Date.now()) / 1000));
+  const warnAt = lead.warn_at ? Date.parse(lead.warn_at) : null;
+  const amber = warned || (warnAt != null && Date.now() >= warnAt);
+  return <span className={`sla ${amber ? "warn" : ""}`}>{amber ? `Holds in ${left} s` : `${left} s to decide`}</span>;
+}
+
+/* ----------------------------------------------------------------------- timeline */
+
+/** Layers down, play time across: what is booked, what is queued, and where we are now. */
+function Timeline({ proposals, nowPlay }: { proposals: Proposal[]; nowPlay: number }) {
+  const from = Math.max(0, nowPlay - WINDOW_MS / 3);
+  const to = from + WINDOW_MS;
+  // Until scheduler.py lands the API gives an interim "air now" slot with t_in == t_out.
+  // Those are drawn at the now marker and labelled, not placed somewhere invented.
+  const unscheduled = (p: Proposal) => !(p.t_out_ms > p.t_in_ms);
+  const live = (p: Proposal) => p.status !== "rejected" && p.status !== "expired";
+  const shown = proposals.filter(
+    (p) => live(p) && (unscheduled(p) ? OPEN.includes(p.status) : p.t_out_ms > from && p.t_in_ms < to),
+  );
+  const layers = [...new Set(shown.map((p) => p.layer))].sort();
+  const pos = (ms: number) => ((Math.min(Math.max(ms, from), to) - from) / (to - from)) * 100;
+  const anyUnscheduled = shown.some(unscheduled);
+
+  if (layers.length === 0) return <p className="empty">The timeline fills as graphics are scheduled.</p>;
+
+  return (
+    <div className="timeline" aria-label="Layers against play time">
+      {layers.map((l) => (
+        <div className="track" key={l}>
+          <span className="track-name">{layerName(l)}</span>
+          <div className="lane">
+            {shown.filter((p) => p.layer === l).map((p) => (
+              unscheduled(p) ? (
+                <div
+                  key={p.proposal_id}
+                  className={`block ${p.status} unscheduled`}
+                  style={{ left: `${pos(nowPlay)}%`, width: "3%" }}
+                  title={`${p.line} — unscheduled, air now`}
+                />
+              ) : (
+                <div
+                  key={p.proposal_id}
+                  className={`block ${p.status}`}
+                  style={{ left: `${pos(p.t_in_ms)}%`, width: `${Math.max(1.5, pos(p.t_out_ms) - pos(p.t_in_ms))}%` }}
+                  title={`${p.line} (${playClock(p.t_in_ms)}–${playClock(p.t_out_ms)})`}
+                />
+              )
+            ))}
+            <div className="now" style={{ left: `${pos(nowPlay)}%` }} />
+          </div>
+        </div>
+      ))}
+      <div className="scale"><span>{playClock(from)}</span><span>{playClock(to)}</span></div>
+      {anyUnscheduled && (
+        <p className="timeline-note">Hatched blocks are unscheduled — the API is airing them now because the scheduler has not placed them yet.</p>
+      )}
+    </div>
+  );
+}
+
+const Stat = ({ label, h, a }: { label: string; h: any; a: any }) => (
+  <div className="stat"><span>{h}</span><label>{label}</label><span>{a}</span></div>
+);
