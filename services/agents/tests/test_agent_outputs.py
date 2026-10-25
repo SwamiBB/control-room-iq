@@ -11,13 +11,14 @@ from typing import get_args  # noqa: E402
 
 import pytest  # noqa: E402
 from agents.workflow import (  # noqa: E402
+    ExplanationOut,
     MomentPipeline,
     ProducerDecision,
     ProducerLayer,
     fallback_explanation,
     fallback_proposal,
 )
-from crq_schemas import MatchState, Moment, MomentKind, Persona, TeamStats  # noqa: E402
+from crq_schemas import Explanation, MatchState, Moment, MomentKind, Persona, TeamStats  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 FAN_EN = [(Persona.FAN, "none", "en", {}), (Persona.FAN, "deaf", "en", {})]
@@ -64,6 +65,12 @@ def _pipeline(producer: str = "", personalizer: str | None = None,
 
 def _run(p: MomentPipeline, m: Moment):
     return asyncio.run(p.process(m, requests=FAN_EN))
+
+
+def test_the_explainer_can_name_every_pattern_the_schema_allows():
+    # ExplanationOut repeats Explanation's pattern list; a pattern added to one and not the other must fail here.
+    ours, schema = (get_args(m.model_fields["pattern"].annotation) for m in (ExplanationOut, Explanation))
+    assert ours == schema
 
 
 def test_template_proposals_are_flagged_as_fallback():

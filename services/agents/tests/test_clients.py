@@ -60,8 +60,10 @@ def _open_objects(node, path=""):
     return found
 
 
-def test_structured_outputs_are_strict_schema_safe():
+def test_structured_outputs_have_no_free_form_objects():
     # model-router answered 400 "additionalProperties ... must be false" for OverlayProposal's payload (#33).
+    # This guards that one strict-mode rule; the other keywords these schemas use (enums, minimum/maximum) were
+    # accepted by the live router on Oct 25.
     for model in (ExplanationOut, ProducerDecision, VariantsOut):
         assert _open_objects(to_strict_json_schema(model)) == [], model.__name__
 
