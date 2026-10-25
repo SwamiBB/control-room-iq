@@ -19,6 +19,8 @@ export type MomentMetrics = {
   player?: string | null; player_speed_kmh?: number | null; player_top_speed_kmh?: number | null;
   player_distance_km?: number | null; player_sprints?: number | null; key_pass?: PassQuality | null;
   shot_speed_kmh?: number | null; ball_speed_kmh?: number | null; thresholds?: ThresholdIndicator[];
+  /** The moment's own shot, struck to finished, as ordered [x, y] points (0-100, shooter attacking right). */
+  shot_path?: [number, number][] | null;
   short?: string | null; // set by the agents' code on payload.intel
   names?: Record<string, string>; // player id -> display name for the ids in this block (match_intel.intel_payload)
 };

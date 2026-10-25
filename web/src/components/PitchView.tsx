@@ -1,4 +1,8 @@
+import BallPath from "./BallPath";
+import { H, W, asPath, place, type PathPoint } from "./pitchGeometry";
 import "./pitch.css";
+
+export { place };
 
 /**
  * Top-down pitch drawn from the event stream: no video, no 3D.
@@ -7,8 +11,9 @@ import "./pitch.css";
  * (see packages/schemas). So away-team shots are rotated 180 degrees here, which fixes the
  * home side attacking right for the whole match and lets an operator read one picture.
  *
- * Shot coordinates are not on ShotRecord yet. Until they are, the markings draw and the
- * component says so rather than inventing positions.
+ * Each shot is drawn from where it was struck to where it finished, both from the stats engine. The
+ * latest moment's path comes as an ordered list of points, so a fuller move trail can replace the two
+ * points later without changing the drawing. Nothing is drawn between points the data does not have.
  */
 
 export type PitchShot = {
@@ -21,7 +26,36 @@ export type PitchShot = {
   zone?: string;
   x?: number | null;
   y?: number | null;
+  end_x?: number | null;
+  end_y?: number | null;
 };
+
+/** The latest moment's own path, in the shooting team's frame (MomentMetrics.shot_path). */
+export type PitchPath = { id: string; team?: string | null; points: PathPoint[]; label: string };
+
+type PathMoment = {
+  moment: { team?: string | null; player?: string | null; event_ids?: string[]; metrics?: { shot_path?: unknown } | null };
+  intel?: { shot_path?: unknown } | null;
+};
+
+/**
+ * The newest moment that carries its own shot path, newest first as the console keeps them. Keyed by the
+ * shot's event id, so it takes the place of that shot's faint line rather than drawing over it.
+ */
+export function latestShotPath(moments: PathMoment[], nameOf: (id?: string | null) => string): PitchPath | null {
+  for (const m of moments) {
+    const points = asPath(m.intel?.shot_path ?? m.moment.metrics?.shot_path);
+    if (!points) continue;
+    const who = nameOf(m.moment.player);
+    return {
+      id: m.moment.event_ids?.[0] ?? points.join(";"),
+      team: m.moment.team,
+      points,
+      label: who ? `Shot by ${who}` : "Shot",
+    };
+  }
+  return null;
+}
 
 type Props = {
   shots: PitchShot[];
@@ -31,17 +65,8 @@ type Props = {
   pressureTrend?: "rising" | "steady" | "falling";
   momentum?: "home_pushing" | "balanced" | "away_pushing";
   nameOf?: (id?: string | null) => string;
+  latestPath?: PitchPath | null;
 };
-
-const W = 105;
-const H = 68;
-
-/** 0-100 in possession-relative space to pitch metres, rotated for the away side. */
-export function place(x: number, y: number, mirror: boolean) {
-  const px = mirror ? 100 - x : x;
-  const py = mirror ? 100 - y : y;
-  return { cx: (px / 100) * W, cy: (py / 100) * H };
-}
 
 export const radius = (xg: number) => 1.1 + Math.max(0, Math.min(1, xg)) * 3.4;
 
@@ -54,8 +79,9 @@ const OUTCOME_CLASS: Record<string, string> = {
 };
 
 export default function PitchView({
-  shots, homeTeamId, strikeEventId, pressureTrend = "steady", momentum = "balanced", nameOf,
+  shots, homeTeamId, strikeEventId, pressureTrend = "steady", momentum = "balanced", nameOf, latestPath,
 }: Props) {
+  const mirrored = (team?: string | null) => Boolean(homeTeamId) && team !== homeTeamId;
   const placed = shots.filter((s) => s.x != null && s.y != null);
   const latest = [...placed].sort((a, b) => b.play_ms - a.play_ms)[0];
   const strike = strikeEventId ?? latest?.event_id ?? null;
@@ -73,32 +99,20 @@ export default function PitchView({
         {tint === "home" && <rect className="tint" x={W * 0.667} y={0} width={W * 0.333} height={H} />}
         {tint === "away" && <rect className="tint" x={0} y={0} width={W * 0.333} height={H} />}
 
-        {/* markings */}
-        <g className="lines" fill="none">
-          <rect x={0} y={0} width={W} height={H} />
-          <line x1={W / 2} y1={0} x2={W / 2} y2={H} />
-          <circle cx={W / 2} cy={H / 2} r={9.15} />
-          <circle className="spot" cx={W / 2} cy={H / 2} r={0.5} />
+        <PitchLines />
 
-          {/* penalty and six-yard boxes, both ends */}
-          <rect x={0} y={H / 2 - 20.16} width={16.5} height={40.32} />
-          <rect x={W - 16.5} y={H / 2 - 20.16} width={16.5} height={40.32} />
-          <rect x={0} y={H / 2 - 9.16} width={5.5} height={18.32} />
-          <rect x={W - 5.5} y={H / 2 - 9.16} width={5.5} height={18.32} />
-          <circle className="spot" cx={11} cy={H / 2} r={0.5} />
-          <circle className="spot" cx={W - 11} cy={H / 2} r={0.5} />
-          <path d="M 16.5 26.69 A 9.15 9.15 0 0 1 16.5 41.31" />
-          <path d={`M ${W - 16.5} 26.69 A 9.15 9.15 0 0 0 ${W - 16.5} 41.31`} />
-
-          {/* goals */}
-          <rect className="goal" x={-1.5} y={H / 2 - 3.66} width={1.5} height={7.32} />
-          <rect className="goal" x={W} y={H / 2 - 3.66} width={1.5} height={7.32} />
+        {/* where each earlier shot finished, faint; the latest moment's path on top, drawn in once */}
+        <g className="paths">
+          {placed.filter((p) => p.end_x != null && p.end_y != null && p.event_id !== latestPath?.id).map((p) => (
+            <BallPath key={p.event_id} emphasis="past" mirror={mirrored(p.team)}
+                      points={[[p.x as number, p.y as number], [p.end_x as number, p.end_y as number]]} />
+          ))}
         </g>
 
         {/* shot markers: area by chance quality, colour by what happened */}
         <g className="shots">
           {placed.map((s) => {
-            const mirror = Boolean(homeTeamId) && s.team !== homeTeamId;
+            const mirror = mirrored(s.team);
             const { cx, cy } = place(s.x as number, s.y as number, mirror);
             const isStrike = s.event_id === strike;
             return (
@@ -113,21 +127,52 @@ export default function PitchView({
             );
           })}
         </g>
+
+        {latestPath && (
+          <BallPath key={latestPath.id} points={latestPath.points} mirror={mirrored(latestPath.team)}
+                    label={latestPath.label} animate />
+        )}
       </svg>
 
       <figcaption>
         {placed.length === 0
           ? shots.length === 0
             ? "No shots yet."
-            : `${shots.length} shots, no coordinates yet — ShotRecord has no x/y, so nothing can be placed.`
+            : `${shots.length} shots, none with a position to place.`
           : <>
               <span className="key goal">Goal</span>
               <span className="key saved">Saved</span>
               <span className="key blocked">Blocked</span>
               <span className="key off">Off target</span>
-              <span className="note">Marker size is expected goals. Home attacks right.</span>
+              <span className="note">Marker size is expected goals; lines run to where each shot finished. Home attacks right.</span>
             </>}
       </figcaption>
     </figure>
+  );
+}
+
+/** The markings alone, in metres: for any pitch drawn from the event stream. */
+export function PitchLines() {
+  return (
+    <g className="lines" fill="none">
+      <rect x={0} y={0} width={W} height={H} />
+      <line x1={W / 2} y1={0} x2={W / 2} y2={H} />
+      <circle cx={W / 2} cy={H / 2} r={9.15} />
+      <circle className="spot" cx={W / 2} cy={H / 2} r={0.5} />
+
+      {/* penalty and six-yard boxes, both ends */}
+      <rect x={0} y={H / 2 - 20.16} width={16.5} height={40.32} />
+      <rect x={W - 16.5} y={H / 2 - 20.16} width={16.5} height={40.32} />
+      <rect x={0} y={H / 2 - 9.16} width={5.5} height={18.32} />
+      <rect x={W - 5.5} y={H / 2 - 9.16} width={5.5} height={18.32} />
+      <circle className="spot" cx={11} cy={H / 2} r={0.5} />
+      <circle className="spot" cx={W - 11} cy={H / 2} r={0.5} />
+      <path d="M 16.5 26.69 A 9.15 9.15 0 0 1 16.5 41.31" />
+      <path d={`M ${W - 16.5} 26.69 A 9.15 9.15 0 0 0 ${W - 16.5} 41.31`} />
+
+      {/* goals */}
+      <rect className="goal" x={-1.5} y={H / 2 - 3.66} width={1.5} height={7.32} />
+      <rect className="goal" x={W} y={H / 2 - 3.66} width={1.5} height={7.32} />
+    </g>
   );
 }

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { WS } from "../api";
+import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
+import { PitchLines } from "../components/PitchView";
+import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
@@ -201,8 +204,21 @@ export function scoreText(packet: Packet): string | null {
  */
 const RERUN_MS = 60_000;
 
-/** The live strip, and the match it belongs to. */
-export type Strip = { matchId: string; latestMs: number; score?: string; color?: string };
+/** The latest shot's path, for the pitch behind the graphics: points as the stats engine sent them. */
+export type StripShot = { points: PathPoint[]; player?: string | null; name?: string };
+
+/** The live strip and the pitch's latest shot, and the match they belong to. */
+export type Strip = { matchId: string; latestMs: number; score?: string; color?: string; shot?: StripShot };
+
+/** The packet's own shot path, if the stats engine sent one: never built from anything else. */
+export function shotOf(packet: Packet): StripShot | null {
+  const intel = packet.payload?.intel;
+  const points = asPath(intel?.shot_path);
+  if (!points) return null;
+  const player = intel?.player ?? null;
+  const name = player ? intel?.names?.[player] ?? packet.payload?.names?.[player] : undefined;
+  return { points, player, ...(name ? { name } : {}) };
+}
 
 /**
  * The strip after a packet. It keeps the last score any packet of this match gave. A packet for another
@@ -217,6 +233,7 @@ export function nextStrip(prev: Strip | null, packet: Packet): Strip {
     matchId: packet.match_id,
     latestMs: Math.max(base?.latestMs ?? packet.t_in_ms, packet.t_in_ms),
     ...(score ? { score, color: packet.payload?.perspective?.color } : { score: base?.score, color: base?.color }),
+    shot: shotOf(packet) ?? base?.shot,
   };
 }
 
@@ -381,6 +398,15 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       </div>
 
       <div className="pitch">
+        {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
+        <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid meet"
+             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
+          <PitchLines />
+          {strip?.shot && (
+            <BallPath key={strip.shot.points.join(";")} points={strip.shot.points} animate
+                      label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
+          )}
+        </svg>
         {/* Beat one: code-built, no generated text, so it needs no approval and lands on the strike. */}
         {cue && (
           <div

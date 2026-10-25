@@ -8,7 +8,7 @@ import {
 import ErrorBoundary from "../components/ErrorBoundary";
 import IntelChips from "../components/IntelChips";
 import MatchIntel from "../components/MatchIntel";
-import PitchView, { type PitchShot } from "../components/PitchView";
+import PitchView, { latestShotPath, type PitchShot } from "../components/PitchView";
 import PreviewFor from "../components/PreviewFor";
 import SettingsMenu from "../components/SettingsMenu";
 import MetricsPanel from "../components/MetricsPanel";
@@ -520,6 +520,7 @@ export default function Operator() {
             pressureTrend={state?.pressure_trend}
             momentum={state?.momentum_label}
             nameOf={name}
+            latestPath={latestShotPath(moments, name)}
           />
           <div className="on-air">
             {onAir[0] ? (

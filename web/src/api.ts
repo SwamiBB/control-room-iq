@@ -68,6 +68,7 @@ export type MomentMsg = {
   moment: {
     moment_id: string; t_ms: number; play_ms?: number; period: number; kind: string;
     importance: number; summary: string; beat?: "chance" | "result" | "none";
+    team?: string | null; player?: string | null; event_ids?: string[];
     metrics?: MomentMetrics | null;
   };
   explanation: { headline: string; why_it_matters: string; pattern: string; cites: string[]; confidence: number };
