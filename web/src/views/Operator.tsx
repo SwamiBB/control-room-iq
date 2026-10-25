@@ -352,7 +352,11 @@ export default function Operator() {
                 <article key={`fired-${p.proposal_id}`} className="card fired">
                   <div className="item-head">
                     <b className="layer">{layerName(p.layer)}</b>
-                    <span className={`tag ${p.status}`}>{decisionLabel(p.status, p.decided_by)}</span>
+                    {/* "aired" means it went out, not that it is still up: the console is not told when a
+                        graphic leaves air, so these say Fired rather than On air. */}
+                    <span className={`tag ${p.status}`}>
+                      {decisionLabel(p.status === "aired" ? "approved" : p.status, p.decided_by)}
+                    </span>
                     {p.decided_by && <span className="muted">{p.decided_by}</span>}
                   </div>
                   <p className="line">{p.override_line ?? p.line}</p>
@@ -499,7 +503,8 @@ function Card({
         {inPackage && (p.package_offset_ms ?? 0) > 0 && (
           <span className="muted">+{Math.round((p.package_offset_ms ?? 0) / 1000)} s</span>
         )}
-        <span className="muted">{playClock(p.t_in_ms)} → {playClock(p.t_out_ms)}</span>
+        {/* Until the scheduler places it, the API's interim slot is t_in == t_out: "00:00 → 00:00". */}
+        {p.t_out_ms > p.t_in_ms && <span className="muted">{playClock(p.t_in_ms)} → {playClock(p.t_out_ms)}</span>}
         <span className="muted">priority {Math.round(p.priority)}</span>
         {p.faithfulness != null && (
           <span className={`eval ${p.faithfulness < 0.8 ? "low" : ""}`}>faithfulness {p.faithfulness.toFixed(2)}</span>
