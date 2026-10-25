@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -79,6 +79,10 @@ describe("decisionLabel", () => {
     expect(decisionLabel("held", "expiry-rule")).toBe("Expired");
   });
 
+  it("says Superseded, not Expired, when a goal took the card over", () => {
+    expect(decisionLabel("expired", "supersession")).toBe("Superseded");
+  });
+
   it("says Overridden for an override", () => {
     expect(decisionLabel("overridden", "operator")).toBe("Overridden");
   });
@@ -148,5 +152,59 @@ describe("startReplay", () => {
     const body = await sent();
     expect(body.speed).toBe(20);
     expect(body).not.toHaveProperty("decision_speed");
+  });
+});
+
+describe("code-built items are not template fallbacks", () => {
+  // As the API sends a goal routine's items: the follow-ups have no meta, so routing is the default "template".
+  const noMeta = { routing: "template", model_served: null, latency_ms: null };
+  const lead = { fallback: false, meta: { routing: "balanced", model_served: "gpt-5.6-terra" }, package_seq: 0, payload: {} };
+  const stats = { fallback: false, meta: noMeta, package_seq: 1, payload: { source: "code", player_id: "har-06" } };
+  const ticker = { fallback: false, meta: noMeta, package_seq: 2, payload: { source: "code", score: [1, 0] } };
+  const fallbackLead = { fallback: true, meta: noMeta, package_seq: 0, payload: {} };
+
+  it("counts none of a model-written routine as a fallback", () => {
+    expect([lead, stats, ticker].filter(isTemplateFallback)).toHaveLength(0);
+  });
+
+  it("still counts a lead the template wrote", () => {
+    expect([fallbackLead, stats, ticker].filter(isTemplateFallback)).toEqual([fallbackLead]);
+  });
+
+  it("labels the follow-ups Official stats, not Template", () => {
+    expect([lead, stats, ticker, fallbackLead].map(modelLabel)).toEqual(["gpt-5.6-terra", "Official stats", "Official stats", "Template"]);
+  });
+});
+
+describe("console state the socket does not re-send (#52)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })));
+
+  it("reads a running replay and its speed from /healthz", async () => {
+    answer({ ok: true, speed: 20 });
+    expect(await fetchReplayStatus()).toEqual({ running: true, speed: 20 });
+  });
+
+  it("reads speed null as no replay running", async () => {
+    answer({ ok: true, speed: null });
+    expect(await fetchReplayStatus()).toEqual({ running: false, speed: null });
+  });
+
+  it("groups /deliveries by proposal, so the chips come back after a refresh", async () => {
+    const audit = (proposal_id: string, lang: string) =>
+      ({ approval_id: `a-${proposal_id}`, proposal_id, persona: "fan", access: "none", lang, source: "variant", failures: [] });
+    answer([audit("p-1", "en"), audit("p-2", "es"), audit("p-1", "hi")]);
+    const by = await fetchDeliveries();
+    expect(Object.keys(by).sort()).toEqual(["p-1", "p-2"]);
+    expect(by["p-1"].map((d) => d.lang)).toEqual(["en", "hi"]);
+  });
+
+  it("offers Start before a match, after a finish, and to a console opened after the end", () => {
+    expect(canStartReplay(false, false, null)).toBe(true); // nothing loaded
+    expect(canStartReplay(true, true, false)).toBe(true); // saw the finish message
+    expect(canStartReplay(true, false, false)).toBe(true); // opened after the end: match, no finish seen
+    expect(canStartReplay(true, false, true)).toBe(false); // mid-replay
+    expect(canStartReplay(true, false, null)).toBe(false); // not known yet
   });
 });

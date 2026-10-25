@@ -7,7 +7,7 @@ import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
 
 type Persona = "newcomer" | "fan" | "analyst";
-type Access = "none" | "deaf";
+export type Access = "none" | "deaf";
 type Allegiance = "home" | "away" | "neutral";
 type Lang = "en" | "es" | "hi";
 
@@ -33,7 +33,7 @@ type FanDetail = {
   score?: string | null;
 };
 
-type FanCard = {
+export type FanCard = {
   card_id: string;
   beat: "chance" | "result" | "none";
   caption: string;
@@ -63,7 +63,13 @@ export type Packet = {
   approval_id?: string;
   approved_by?: string;
   approved_at?: string;
-  payload?: { intel?: MomentMetrics | null; perspective?: Perspective; names?: Record<string, string> };
+  payload?: {
+    intel?: MomentMetrics | null;
+    perspective?: Perspective;
+    names?: Record<string, string>;
+    /** [home, away] on the goal routine's ticker (goal_package.py). */
+    score?: [number, number];
+  };
   fan_card?: FanCard | null;
 };
 
@@ -159,6 +165,61 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
   );
 }
 
+/**
+ * The caption card for this viewer, if any. It rides on the lead graphic only, on a result beat, and it is
+ * for deaf-access viewers only: the API sends the same packet to every viewer, card included, so the
+ * renderer is where a hearing viewer's copy is left out.
+ */
+export function captionCardFor(packet: Packet | undefined, access: Access): FanCard | null {
+  return access === "deaf" ? packet?.fan_card ?? null : null;
+}
+
+/**
+ * Player id to display name, for the chips. The agents put the names beside the numbers they belong to, in
+ * `payload.intel.names`; `payload.names` is kept as a fallback. An id with no name is shown as the id.
+ */
+export function nameLookup(packet: Packet | undefined): (id?: string | null) => string {
+  const names = packet?.payload?.intel?.names ?? packet?.payload?.names ?? {};
+  return (id) => (id ? names[id] ?? id : "");
+}
+
+/**
+ * The score this packet tells the viewer, if any: a supporter's own framing first ("winning 1–0"), then the
+ * caption card's, then the ticker's [home, away]. A neutral viewer gets no framing from the API, so before the
+ * first card or ticker there is nothing to show.
+ */
+export function scoreText(packet: Packet): string | null {
+  const score = packet.payload?.score;
+  return packet.payload?.perspective?.score_text
+    ?? packet.fan_card?.detail?.score
+    ?? (Array.isArray(score) && score.length === 2 ? `${score[0]}–${score[1]}` : null);
+}
+
+/**
+ * Within one run a packet can start at most a package offset (25 s, goal_package.py) before one already seen,
+ * since every packet's slot is the play time it was fired at plus its offset. A rerun jumps back minutes.
+ */
+const RERUN_MS = 60_000;
+
+/** The live strip, and the match it belongs to. */
+export type Strip = { matchId: string; latestMs: number; score?: string; color?: string };
+
+/**
+ * The strip after a packet. It keeps the last score any packet of this match gave. A packet for another
+ * match_id, or from well back in play time (Run again reuses the match_id), starts over at "–". The viewer
+ * socket gets no match message, so the packets are all there is to tell.
+ */
+export function nextStrip(prev: Strip | null, packet: Packet): Strip {
+  const same = prev !== null && prev.matchId === packet.match_id && packet.t_in_ms > prev.latestMs - RERUN_MS;
+  const base = same ? prev : null;
+  const score = scoreText(packet);
+  return {
+    matchId: packet.match_id,
+    latestMs: Math.max(base?.latestMs ?? packet.t_in_ms, packet.t_in_ms),
+    ...(score ? { score, color: packet.payload?.perspective?.color } : { score: base?.score, color: base?.color }),
+  };
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -218,11 +279,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [cue, setCue] = useState<Cue | null>(null);
   const [refused, setRefused] = useState(0);
   const [cues] = useState(() => cueTimer(setCue));
+  const [strip, setStrip] = useState<Strip | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
     const now = Date.now();
     setHeld((prev) => withPacket(prev, packet, now));
+    // The strip outlives the graphics, but not the match: see nextStrip.
+    setStrip((prev) => nextStrip(prev, packet));
   }, []);
 
   const url = `${WS}/ws/viewer?${new URLSearchParams({ persona, access, lang, allegiance })}`;
@@ -242,9 +306,13 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     }
   });
 
-  // New settings mean a new feed: a cue from the old one must not outlive it.
+  // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
+  // another side or language.
   useEffect(() => {
-    return () => cues.clear();
+    return () => {
+      cues.clear();
+      setStrip(null);
+    };
   }, [persona, access, lang, allegiance, cues]);
 
   // Expire held packets on a light tick rather than per-packet timers. Dropping them is what re-renders,
@@ -259,12 +327,9 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const packet = mainSlot(live)?.packet;
 
   const register: IntelRegister = persona;
-  const names: Record<string, string> = packet?.payload?.names ?? {};
-  const nameOf = (id?: string | null) => (id ? names[id] ?? id : "");
-  const view = packet?.payload?.perspective;
-  const accent = allegiance !== "neutral" ? view?.color : undefined;
-  // The caption card rides on the lead graphic only, and only on a result beat.
-  const card = packet?.fan_card ?? null;
+  const nameOf = nameLookup(packet);
+  const accent = allegiance !== "neutral" ? strip?.color : undefined;
+  const card = captionCardFor(packet, access);
 
   return (
     <div
@@ -312,7 +377,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       <div className="live-strip">
         <span className="live-dot" aria-hidden="true" />
         <span className="live-word">{heading("live", lang)}</span>
-        <b className="live-score">{view?.score_text ?? card?.detail?.score ?? "–"}</b>
+        <b className="live-score">{strip?.score ?? "–"}</b>
       </div>
 
       <div className="pitch">

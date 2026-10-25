@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cueTimer, holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { intelChips } from "../intel";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, scoreText, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -175,5 +176,89 @@ describe("cueTimer (the strike cue)", () => {
 
     vi.advanceTimersByTime(5_000);
     expect(setCue.mock.calls).toEqual([[shot], [null]]);
+  });
+});
+
+describe("captionCardFor (who gets the caption card)", () => {
+  it("gives a deaf-access viewer the lead graphic's card", () => {
+    expect(captionCardFor(lead, "deaf")?.card_id).toBe("fc-1");
+  });
+
+  it("gives a hearing viewer no card, though the API sent it on their packet", () => {
+    expect(lead.fan_card).toBeTruthy();
+    expect(captionCardFor(lead, "none")).toBeNull();
+  });
+
+  it("gives nobody a card when the packet carries none", () => {
+    expect(captionCardFor(ticker, "deaf")).toBeNull();
+    expect(captionCardFor(undefined, "deaf")).toBeNull();
+  });
+});
+
+describe("nameLookup (names in the chips)", () => {
+  // payload.intel as match_intel.intel_payload builds it: the names sit beside the ids they belong to.
+  const withIntel: Packet = {
+    ...approved,
+    payload: {
+      intel: {
+        key_pass: { event_id: "e-9", team: "har", player: "har-06", distance_m: 31, difficulty: 0.7 },
+        names: { "har-06": "Oli Stone" },
+      },
+    },
+  };
+
+  it("reads payload.intel.names, so a chip says the player's name and not har-06", () => {
+    expect(nameLookup(withIntel)("har-06")).toBe("Oli Stone");
+    const chips = intelChips(withIntel.payload?.intel, nameLookup(withIntel), "fan");
+    expect(chips[0].label).toBe("Pass by Oli Stone");
+  });
+
+  it("falls back to payload.names, then to the id", () => {
+    expect(nameLookup({ ...approved, payload: { names: { "riv-09": "Ana Ruiz" } } })("riv-09")).toBe("Ana Ruiz");
+    expect(nameLookup(approved)("riv-09")).toBe("riv-09");
+    expect(nameLookup(undefined)(null)).toBe("");
+  });
+});
+
+describe("scoreText (the live strip)", () => {
+  it("prefers a supporter's own framing", () => {
+    const home: Packet = { ...approved, payload: { perspective: { side: "home", score_text: "winning 1–0" } } };
+    expect(scoreText(home)).toBe("winning 1–0");
+  });
+
+  it("gives a neutral viewer the caption card's score, or the ticker's as home–away", () => {
+    expect(scoreText({ ...lead, fan_card: { ...card, detail: { score: "1–0" } } })).toBe("1–0");
+    expect(scoreText({ ...ticker, payload: { score: [2, 1] } })).toBe("2–1");
+  });
+
+  it("has nothing to say for a packet without a score", () => {
+    expect(scoreText(approved)).toBeNull();
+  });
+});
+
+describe("nextStrip (the strip across matches)", () => {
+  const goal: Packet = { ...ticker, t_in_ms: 2_530_000, payload: { score: [1, 0] } };
+  const after = (p: Packet, ms: number): Packet => ({ ...p, cue_id: `c-${ms}`, t_in_ms: ms });
+
+  it("keeps the last score through packets that carry none", () => {
+    const s = nextStrip(nextStrip(null, goal), after(approved, 2_560_000));
+    expect(s.score).toBe("1–0");
+  });
+
+  it("keeps it for a late packet within the package offset", () => {
+    const s = nextStrip(nextStrip(null, goal), after(approved, goal.t_in_ms - 25_000));
+    expect(s.score).toBe("1–0");
+  });
+
+  it("starts over at nothing for another match", () => {
+    const s = nextStrip(nextStrip(null, goal), { ...approved, match_id: "m-2" });
+    expect(s.score).toBeUndefined();
+  });
+
+  it("starts over for Run again of the same match, which goes back in play time", () => {
+    const end = nextStrip(nextStrip(null, goal), after(approved, 2_750_000));
+    const rerun = nextStrip(end, after(approved, 2_465_000));
+    expect(rerun.score).toBeUndefined();
+    expect(nextStrip(rerun, after(goal, 2_530_000)).score).toBe("1–0");
   });
 });
