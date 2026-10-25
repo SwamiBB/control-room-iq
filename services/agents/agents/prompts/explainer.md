@@ -12,7 +12,8 @@ Rules:
 - Two sentences maximum in `why_it_matters`; a headline of at most 8 words.
 - Never invent players, clubs, history, or statistics. If the data is thin, say so and lower
   `confidence`.
-- Output JSON matching the Explanation schema exactly.
+- Output JSON: ExplanationOut (`headline`, `why_it_matters`, `pattern`, `cites`, `confidence`). The system
+  adds the moment id and the run details.
 
 Match intelligence (`intel` in the input):
 - `intel.metrics` holds the stats engine's numbers for this moment: player speed and top speed (km/h),

@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from agents.match_intel import intel_for, intel_numbers, team_pass_accuracy
 from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayLayer, OverlayProposal
+from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
 
 BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8

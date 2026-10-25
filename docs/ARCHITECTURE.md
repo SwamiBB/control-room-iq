@@ -54,7 +54,7 @@ flowchart TB
     API --> COS
     API --> EH3
     COS -. change feed .-> LA -. hold .-> API
-    API <--> WEB
+    API <---> WEB
     ING & AGR & API --> AI
     AGS --> TR --> AI
 ```
@@ -86,7 +86,7 @@ sequenceDiagram
     participant V as Viewer
     S->>EH: MatchEvent (shot, xG 0.38, saved)
     EH->>I: event
-    I->>I: fold state; detect big_chance (importance 0.73)
+    I->>I: fold state, detect big_chance (importance 0.73)
     I->>C: state snapshot, Moment
     I->>EH: Moment → crq-moments
     EH->>A: Moment

@@ -10,6 +10,7 @@ import json  # noqa: E402
 from agents.config import deployment_for, settings  # noqa: E402
 from agents.workflow import (  # noqa: E402
     MomentPipeline,
+    ProducerDecision,
     english_requests,
     fallback_explanation,
     fallback_proposal,
@@ -21,6 +22,13 @@ from crq_schemas import MomentKind, NarrativeVariant, Persona, TeamStats  # noqa
 from simulator.cli import build_meta  # noqa: E402
 
 META = build_meta(42)
+
+
+def _decision(p):
+    """The producer's reply shape (#33), built from a template proposal."""
+    return ProducerDecision(propose=True, layer=p.layer, t_start_ms=p.t_start_ms, t_end_ms=p.t_end_ms, line=p.line,
+                            payload_json=json.dumps(p.payload), reasoning=p.reasoning,
+                            alternatives=[]).model_dump_json()
 
 
 def _moment():
@@ -35,6 +43,12 @@ def _moment():
 def _v(persona: str, access: str, lang: str, text: str, cites=None) -> NarrativeVariant:
     return NarrativeVariant(moment_id="mo-1", persona=persona, access=access, lang=lang, text=text,
                             cites=cites if cites is not None else ["e-1"])
+
+
+def _reply(*variants: NarrativeVariant) -> str:
+    """A personalizer or localizer reply in its VariantsOut shape."""
+    return json.dumps({"variants": [v.model_dump(mode="json", include={"persona", "access", "lang", "text", "cites"})
+                                    for v in variants]})
 
 
 class _Agent:
@@ -78,15 +92,15 @@ def _pipeline(personalizer_reply: str, localizer_reply: str) -> MomentPipeline:
     p.narrator = _Agent("Big chance for Harbor City")
     p.personalizer = _Agent(personalizer_reply)
     p.localizer = _Agent(localizer_reply, name="localizer")
-    p.producer = _Agent(fallback_proposal(m, fallback_explanation(m), "x").model_dump_json())
+    p.producer = _Agent(_decision(fallback_proposal(m, fallback_explanation(m), "x")))
     return p
 
 
 def test_localizer_gets_the_english_versions_names_and_targets_and_its_output_is_kept():
-    english = json.dumps([_v("fan", "none", "en", "Big chance for Harbor City").model_dump(mode="json"),
-                          _v("fan", "deaf", "en", "Big chance for Harbor City. 1-0").model_dump(mode="json")])
-    localized = json.dumps([_v("fan", "none", "es", "Gran ocasión para Harbor City").model_dump(mode="json"),
-                            _v("fan", "deaf", "hi", "Harbor City का बड़ा मौका। 1-0").model_dump(mode="json")])
+    english = _reply(_v("fan", "none", "en", "Big chance for Harbor City"),
+                     _v("fan", "deaf", "en", "Big chance for Harbor City. 1-0"))
+    localized = _reply(_v("fan", "none", "es", "Gran ocasión para Harbor City"),
+                       _v("fan", "deaf", "hi", "Harbor City का बड़ा मौका। 1-0"))
     p = _pipeline(english, localized)
     res = asyncio.run(p.process(_moment(), requests=REQUESTS, meta=META))
     sent = p.localizer.inputs[0]
@@ -100,15 +114,15 @@ def test_localizer_gets_the_english_versions_names_and_targets_and_its_output_is
 
 
 def test_a_broken_localizer_reply_leaves_english_only_and_is_logged():
-    english = json.dumps([_v("fan", "none", "en", "Big chance").model_dump(mode="json")])
+    english = _reply(_v("fan", "none", "en", "Big chance"), _v("fan", "deaf", "en", "Big chance. 1-0"))
     res = asyncio.run(_pipeline(english, "not json").process(_moment(), requests=REQUESTS, meta=META))
     assert {v.lang for v in res.variants} == {"en"}
     assert any(f.startswith("localizer: bad JSON") for f in res.failures)
 
 
 def test_no_non_english_request_means_no_localizer_call():
-    english = json.dumps([_v("fan", "none", "en", "Big chance").model_dump(mode="json")])
-    p = _pipeline(english, "[]")
+    english = _reply(_v("fan", "none", "en", "Big chance"))
+    p = _pipeline(english, _reply())
     asyncio.run(p.process(_moment(), requests=[(Persona.FAN, "none", "en", {})], meta=META))
     assert p.localizer.inputs == []
 

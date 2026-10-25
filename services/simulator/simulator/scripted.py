@@ -116,6 +116,12 @@ class ScriptedEngine(MatchEngine):
         self._stop_n = 0
         self._subs_done: set[str] = set()
         self._pending_set_piece: str | None = None
+        self._assist_of: dict[int, MatchEvent] = {}  # id(shot) -> the pass that set it up (event ids come last)
+        self.block_rng = stream(meta.seed, "blockers")  # its own stream: naming a blocker moves nothing else
+
+    def _link_assist(self, shot: MatchEvent, key_pass: MatchEvent) -> None:
+        shot.attrs["assist_by"] = key_pass.player
+        self._assist_of[id(shot)] = key_pass
 
     # ---------- helpers ----------
     def _opp(self, team: Team) -> Team:
@@ -163,7 +169,8 @@ class ScriptedEngine(MatchEngine):
     def _split_shot(self, shot: MatchEvent) -> list[MatchEvent]:
         """Unscripted shot -> shot_taken (the strike, carrying xG) + shot (the result, after the ball's flight)."""
         taken = self._mk(EventType.SHOT_TAKEN, shot.t_ms, shot.team, shot.player, x=shot.x, y=shot.y,
-                         attrs={"xg": shot.attrs.get("xg"), "body": shot.attrs.get("body", "foot")})
+                         attrs={"xg": shot.attrs.get("xg"), "body": shot.attrs.get("body", "foot"),
+                                "speed_kmh": shot.attrs.get("speed_kmh")})
         shot.t_ms += self.flight_rng.randint(400, 900)
         return [taken, shot]
 
@@ -179,7 +186,7 @@ class ScriptedEngine(MatchEngine):
             if s.get(k) is not None:
                 attrs[k] = s[k]
         taken = self._mk(EventType.SHOT_TAKEN, t, team.team_id, s["player"], x=x, y=y,
-                         attrs={"xg": s["xg"], "body": body})
+                         attrs={"xg": s["xg"], "body": body, "speed_kmh": speed})
         shot = self._mk(EventType.SHOT, t + self.flight_rng.randint(400, 900), team.team_id, s["player"], x=x, y=y,
                         end_x=100.0, end_y=end_y, outcome=s["outcome"], attrs=attrs)
         return [taken, shot], shot
@@ -300,7 +307,10 @@ class ScriptedEngine(MatchEngine):
                 last_pass = next((p for p in reversed(out) if p.type == EventType.PASS and p.team == e.team), None)
                 if last_pass and last_pass.outcome == "success" and last_pass.attrs.get("receiver") == e.player:
                     last_pass.attrs["key_pass"] = True
-                    e.attrs["assist_by"] = last_pass.player
+                    self._link_assist(e, last_pass)
+                if e.outcome == "blocked" and not e.attrs.get("blocker"):  # the base engine never names one
+                    defenders = [p.player_id for p in self._active(opp) if p.position in ("DF", "MF")]
+                    e.attrs["blocker"] = self.block_rng.choice(defenders)
                 out.extend(self._split_shot(e))
                 if drop_kickoff:
                     out.append(self._mk(EventType.POSSESSION_CHANGE, e.t_ms + 2500, opp.team_id, self._keeper(opp),
@@ -371,6 +381,7 @@ class ScriptedEngine(MatchEngine):
             evs = self._build_up(team, b.get("build_up_passes", 3), b["x"], b["y"], b["player"], b.get("assist_by"),
                                  t, sp)
             shot_evs, shot = self._scripted_shot(team, s, t)
+            self._link_assist(shot, evs[-1])
             tail, nxt, nx, ny = self._after_shot(team, shot)
             evs += shot_evs + tail
             self._tag_phase(evs)
@@ -380,6 +391,7 @@ class ScriptedEngine(MatchEngine):
             self._new_phase(team.team_id)
             evs = self._build_up(team, b.get("build_up_passes", 5), c["x"], c["y"], c["player"], c.get("assist_by"), t)
             first, saved = self._scripted_shot(team, c, t)
+            self._link_assist(saved, evs[-1])
             second, goal = self._scripted_shot(team, r, saved.t_ms + r["after_ms"])
             tail, nxt, nx, ny = self._after_shot(team, goal)
             evs += first + second + tail
@@ -517,7 +529,11 @@ class ScriptedEngine(MatchEngine):
             e.seq, e.event_id = n, f"{self.meta.match_id}-{n:05d}"
             e.play_ms = play_ms(e.period, e.t_ms, p1_end)
             out.append(e)
-        for c in crowd:  # ids are final now
+        for e in events:  # ids are final now
+            key_pass = self._assist_of.get(id(e))
+            if key_pass is not None:
+                e.attrs["assist_event_id"] = key_pass.event_id
+        for c in crowd:
             trigger = self._crowd_trigger.get(id(c))
             if trigger is not None:
                 c.attrs["trigger_event_id"] = trigger.event_id
