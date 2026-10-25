@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WS } from "../api";
 import IntelChips from "../components/IntelChips";
 import type { IntelRegister, MomentMetrics } from "../intel";
@@ -53,6 +53,11 @@ export type Packet = {
   allegiance: Allegiance;
   verified: boolean;
   fallback: boolean;
+  /** The packet's slot in play time (packets.py packet_slot). Its length is how long the graphic stays up. */
+  t_in_ms: number;
+  t_out_ms: number;
+  priority: number;
+  /** A floor for collisions, not the duration: it defaults to 4000 for every layer. */
   min_hold_ms: number;
   replaces: string[];
   approval_id?: string;
@@ -72,7 +77,40 @@ type Cue = {
   hold_ms: number;
 };
 
-type Held = { packet: Packet; arrivedAt: number; until: number };
+export type Held = { packet: Packet; arrivedAt: number; until: number };
+
+const MIN_ON_SCREEN_MS = 2000;
+
+/**
+ * How long a packet stays on screen: its slot, or its caption card's hold if that is longer.
+ *
+ * The slot is play time and this socket has no match clock, so its length is spent in real time from
+ * arrival. Not min_hold_ms: that is 4000 on every packet, which would cut the 45 s goal ticker and the
+ * 8 s caption card short.
+ */
+export function holdMs(p: Packet): number {
+  const slot = p.t_out_ms - p.t_in_ms;
+  return Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+}
+
+/** Adds a packet. A re-send under the same cue_id replaces it; a packet supersedes the ids it names. */
+export function withPacket(held: Map<string, Held>, packet: Packet, now: number): Map<string, Held> {
+  const next = new Map(held);
+  for (const id of packet.replaces ?? []) next.delete(id);
+  next.set(packet.cue_id, { packet, arrivedAt: now, until: now + holdMs(packet) });
+  return next;
+}
+
+/** What is still up at `now`, newest first. */
+export function liveAt(held: Map<string, Held>, now: number): Held[] {
+  return [...held.values()].filter((h) => h.until > now).sort((a, b) => b.arrivedAt - a.arrivedAt);
+}
+
+/** Drops what has expired. Returns the same map when nothing has, so an idle tick does not re-render. */
+export function pruneExpired(held: Map<string, Held>, now: number): Map<string, Held> {
+  if ([...held.values()].every((h) => h.until > now)) return held;
+  return new Map([...held].filter(([, h]) => h.until > now));
+}
 
 /**
  * The facts under the caption. Every value is the stats engine's; only the labels are translated,
@@ -144,17 +182,10 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [refused, setRefused] = useState(0);
   const cueTimer = useRef<number | undefined>(undefined);
 
+  // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
     const now = Date.now();
-    setHeld((prev) => {
-      const next = new Map(prev);
-      // A new packet supersedes the ids it names, whatever order they arrived in.
-      for (const id of packet.replaces ?? []) next.delete(id);
-      // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
-      const hold = Math.max(packet.min_hold_ms ?? 4000, 2000);
-      next.set(packet.cue_id, { packet, arrivedAt: now, until: now + hold });
-      return next;
-    });
+    setHeld((prev) => withPacket(prev, packet, now));
   }, []);
 
   const url = `${WS}/ws/viewer?${new URLSearchParams({ persona, access, lang, allegiance })}`;
@@ -183,17 +214,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     return () => window.clearTimeout(cueTimer.current);
   }, [persona, access, lang, allegiance, upsert]);
 
-  // Expire held packets on a light tick rather than per-packet timers.
-  const [, forceTick] = useState(0);
+  // Expire held packets on a light tick rather than per-packet timers. Dropping them is what re-renders,
+  // and `live` is worked out on every render: a memo on `held` alone never saw the clock move.
   useEffect(() => {
-    const t = window.setInterval(() => forceTick((n) => n + 1), 500);
+    const t = window.setInterval(() => setHeld((prev) => pruneExpired(prev, Date.now())), 500);
     return () => window.clearInterval(t);
   }, []);
 
-  const live = useMemo(() => {
-    const now = Date.now();
-    return [...held.values()].filter((h) => h.until > now).sort((a, b) => b.arrivedAt - a.arrivedAt);
-  }, [held]);
+  const live = liveAt(held, Date.now());
 
   // The caption layer never queues: a new line always cuts the running one.
   const caption = live.find((h) => h.packet.layer === "caption");
