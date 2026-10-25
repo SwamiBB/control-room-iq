@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel, errorMessage,
-  type ReplayScope,
+  REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
@@ -47,6 +47,7 @@ export default function Operator() {
   const [speed, setSpeed] = useState<number | null>(null);
   const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
   const [scope, setScope] = useState<ReplayScope>("window");
+  const [pace, setPace] = useState<ReplaySpeed>(20);
   const [logError, setLogError] = useState(false);
 
   // Column split, as a percentage given to the decisions column. Remembered per console.
@@ -236,10 +237,19 @@ export default function Operator() {
                 <option value="window">Minutes 41–46</option>
                 <option value="full">Full match</option>
               </select>
+              {/* Only the dead air: the match still drops to real time whenever a graphic is waiting. */}
+              <select
+                aria-label="Replay speed between decisions"
+                title="Speed between decisions. The match drops to real time whenever a graphic is waiting."
+                value={pace}
+                onChange={(e) => setPace(Number(e.target.value) as ReplaySpeed)}
+              >
+                {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+              </select>
               <button
                 className="primary"
                 disabled={busy.replay}
-                onClick={() => run("replay", "start the replay", async () => { setEnded(null); await startReplay(scope); })}
+                onClick={() => run("replay", "start the replay", async () => { setEnded(null); await startReplay(scope, pace); })}
               >
                 {ended ? "Run again" : "Start replay"}
               </button>

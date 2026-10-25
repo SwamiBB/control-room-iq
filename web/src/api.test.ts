@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decide, decisionLabel, errorMessage, fetchPreview, layerName, modelLabel, viewLabel } from "./api";
+import {
+  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchPreview, layerName, modelLabel, startReplay, viewLabel,
+} from "./api";
 
 describe("fetchPreview", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -108,5 +110,28 @@ describe("errorMessage", () => {
     answer(422, JSON.stringify({ detail: [{ loc: ["body", "override_line"], msg: "String should have at most 280 characters" }] }));
     expect(errorMessage(await failure(), "fire the override"))
       .toBe("Couldn't fire the override: String should have at most 280 characters (422).");
+  });
+});
+
+describe("startReplay", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const sent = async (...args: Parameters<typeof startReplay>) => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await startReplay(...args);
+    return JSON.parse(String(fetch.mock.calls[0][1].body));
+  };
+
+  it("sends the picked speed for the dead air, over the demo window", async () => {
+    const body = await sent("window", 50);
+    expect(body.speed).toBe(50);
+    expect(body.from_play_ms).toBe(DEMO_WINDOW.from_play_ms);
+  });
+
+  it("defaults to 20x and leaves decision_speed to the API, so decisions stay at real time", async () => {
+    const body = await sent();
+    expect(body.speed).toBe(20);
+    expect(body).not.toHaveProperty("decision_speed");
   });
 });

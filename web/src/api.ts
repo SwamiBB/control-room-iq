@@ -170,16 +170,21 @@ export async function decidePackage(packageId: string, action: "approve" | "hold
 export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
 
 /**
- * 20x through the dead air, real time for as long as anyone owes an answer.
+ * 20x through the dead air by default, real time for as long as anyone owes an answer.
  *
- * Falling back to 1x on an open decision is the API's default at any speed, so `speed` here only sets how
- * fast the match moves when the running order is clear. The two mitigations compose: the window picks the
- * five minutes worth watching, the decompression skips the gaps inside them, and all four decisions are
- * still taken at the speed the operator would really have.
+ * Falling back to 1x on an open decision is the API's default at any speed (decision_speed, not sent
+ * here), so `speed` only sets how fast the match moves when the running order is clear. The two
+ * mitigations compose: the window picks the five minutes worth watching, the decompression skips the gaps
+ * inside them, and all four decisions are still taken at the speed the operator would really have.
  */
 export type ReplayScope = "window" | "full";
 
-export const startReplay = (scope: ReplayScope = "window", file = "data/reference/match-042.jsonl", speed = 20) =>
+/** What the console offers for the dead air between decisions. */
+export const REPLAY_SPEEDS = [10, 20, 30, 50] as const;
+export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
+
+export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 20,
+                            file = "data/reference/match-042.jsonl") =>
   post("/matches/replay", { file, speed, ...(scope === "window" ? DEMO_WINDOW : {}) });
 
 export async function fetchDecisions(): Promise<DecisionEntry[]> {
