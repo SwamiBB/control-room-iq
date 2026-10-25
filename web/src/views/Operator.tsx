@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  WS, clock, playClock, layerName, modelLabel, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
+  WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
   REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl, fetchDeliveries, fetchReplayStatus, canStartReplay,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
@@ -545,7 +545,11 @@ function Card({
         {p.faithfulness != null && (
           <span className={`eval ${p.faithfulness < 0.8 ? "low" : ""}`}>faithfulness {p.faithfulness.toFixed(2)}</span>
         )}
-        {modelLabel(p) && <span className="model" title={`routing: ${p.meta?.routing}`}>{modelLabel(p)}</span>}
+        {modelLabel(p) && (
+          <span className="model" title={isCodeBuilt(p) ? "Built from the match stats; no model wrote it" : `routing: ${p.meta?.routing}`}>
+            {modelLabel(p)}
+          </span>
+        )}
       </div>
 
       {showCountdown && secondsLeft != null && p.status === "proposed" && (
