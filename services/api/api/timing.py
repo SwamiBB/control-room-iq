@@ -26,7 +26,8 @@ MIN_SHELF_LIFE_WALL_S = 60.0  # wall time: and at least one real minute on the o
 # Automated actors in the decision log. They may hold or expire a graphic, never air one.
 SLA_ACTOR = "sla-timer"
 EXPIRY_ACTOR = "expiry-rule"
-SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR)
+SUPERSEDE_ACTOR = "supersession"  # a goal takes over every pending card from its move
+SYSTEM_ACTORS = (SLA_ACTOR, EXPIRY_ACTOR, SUPERSEDE_ACTOR)
 
 
 def sla_times(proposed_at: datetime, hold_s: float = SLA_HOLD_S,

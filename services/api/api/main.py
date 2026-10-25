@@ -33,6 +33,7 @@ from crq_schemas import (
     MatchMeta,
     MatchState,
     Moment,
+    MomentKind,
     NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
@@ -73,6 +74,7 @@ from .timing import (
     SLA_ACTOR,
     SLA_HOLD_S,
     SLA_WARN_S,
+    SUPERSEDE_ACTOR,
     SYSTEM_ACTORS,
     shelf_life_ms,
     sla_times,
@@ -93,7 +95,14 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    # Uvicorn configures only its own loggers; without this, app warnings (agent fallbacks, sink failures)
+    # reach stderr bare, with no time or source.
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+MAX_PARALLEL_MOMENTS = 3  # agent pipelines allowed to run at once beside the replay
 
 
 class Hub:
@@ -122,6 +131,9 @@ class Hub:
         self.replay_speed: float | None = None  # what the match is running at, once a replay is under way
         self.replay_task: asyncio.Task | None = None
         self.state_published_at = 0.0  # time.monotonic() of the last state message, so a new match publishes at once
+        self.moment_tasks: set[asyncio.Task] = set()  # agent pipelines running beside the replay (#51)
+        self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
+        self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
 
     def new_match(self, meta: MatchMeta) -> None:
         """Clear the desk for a fresh match.
@@ -139,6 +151,14 @@ class Hub:
         self.state = None
         self.replay_speed = None
         self.state_published_at = 0.0
+        self.cancel_moments()  # the old match's agents must not post into the new one
+        self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
+        self.goal_phases.clear()
+
+    def cancel_moments(self) -> None:
+        for task in self.moment_tasks:
+            task.cancel()
+        self.moment_tasks.clear()
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -480,6 +500,7 @@ async def _replay(req: ReplayRequest) -> None:
         await _drive_replay(req)
     except Exception as exc:  # noqa: BLE001
         logger.exception("replay failed")
+        hub.cancel_moments()  # a failed replay must not keep adding cards behind a "finished" console
         await _finish_replay(f"{type(exc).__name__}: {exc}")
     else:
         await _finish_replay(None)
@@ -507,12 +528,15 @@ async def _drive_replay(req: ReplayRequest) -> None:
                 warming, gap_ms = False, 0
                 await _publish_state(folder)
             await _replay_event(folder, ev, req, gap_ms)
+    # The last moments' agents may still be writing: the replay is finished once their cards are on the desk.
+    await _drain_moments()
 
 
 async def _start_match(meta: MatchMeta) -> StateFolder:
     hub.new_match(meta)
     await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
-    folder = StateFolder(meta)
+    # Building the folder loads the match's tracking file (about 1 s); off the event loop, sockets keep flowing (#42).
+    folder = await asyncio.to_thread(StateFolder, meta)
     hub.match_state = folder.state
     return folder
 
@@ -528,7 +552,7 @@ async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest,
         await _publish_state(folder)
     for m in moments:
         if m.importance >= req.min_importance:
-            await _handle_moment(_stamp_play_time(m))
+            await _start_moment(_stamp_play_time(m))
 
 
 PACING_SLICE_MS = 100  # the replay re-reads its speed this often, in real milliseconds
@@ -538,13 +562,14 @@ STATE_PUBLISH_S = 0.25
 
 
 def _awaiting_decision() -> bool:
-    """Is a person's answer outstanding right now?
+    """Is a person's answer outstanding right now, or about to be?
 
-    Only a proposal still on the desk counts. Once the timer has held one, the decision window has closed
-    and the match carries on at the speed it was asked for — a held graphic lives out its shelf life while
-    play runs normally. Counting held graphics here would pin an unattended desk at real time for ever.
+    A proposal still on the desk counts, and so do agents still writing one: at full speed the ~15 s they
+    take would let minutes of match go by, and the card would reach the desk long after its moment (#51).
+    Once the timer has held a graphic, the decision window has closed and the match carries on at the speed
+    it was asked for — counting held graphics here would pin an unattended desk at real time for ever.
     """
-    return any(p.status == ProposalStatus.PROPOSED for p in hub.proposals.values())
+    return bool(hub.moment_tasks) or any(p.status == ProposalStatus.PROPOSED for p in hub.proposals.values())
 
 
 def _effective_speed(req: ReplayRequest) -> float:
@@ -602,15 +627,79 @@ async def _publish_fan_cue(m: Moment) -> None:
     await hub.feed.publish("fan_cue", cue)
 
 
-async def _handle_moment(m: Moment) -> None:
+def _phase_of(m: Moment) -> str | None:
+    return m.state.current_phase.phase_id if m.state.current_phase else None
+
+
+async def _start_moment(m: Moment) -> None:
+    """Hand a moment to the agents without stopping the match (#51).
+
+    The strike beat is code only: the deaf fan's cue goes out at once and no agent runs, because the result
+    beat a moment later writes the card (#50, design §5.1). A goal takes over the pending cards of its move
+    as soon as it happens, not when its own agents finish.
+    """
     if m.beat == "chance":
-        # The cue is code and must air within 1 s, so it goes out before any agent call (up to ~8 s each).
         await _publish_fan_cue(m)
+        return
+    if m.kind == MomentKind.GOAL and (phase := _phase_of(m)):
+        hub.goal_phases.add(phase)
+        await _supersede(phase, m)
+    task = asyncio.create_task(_run_moment(m))
+    hub.moment_tasks.add(task)
+    task.add_done_callback(hub.moment_tasks.discard)
+
+
+async def _run_moment(m: Moment) -> None:
+    async with hub.moment_slots:
+        try:
+            await _handle_moment(m)
+        except Exception:  # noqa: BLE001 - one moment's failure must not stop the match
+            logger.exception("moment %s failed", m.moment_id)
+
+
+async def _drain_moments() -> None:
+    while hub.moment_tasks:
+        await asyncio.gather(*list(hub.moment_tasks), return_exceptions=True)
+
+
+async def _supersede(phase: str, goal: Moment) -> None:
+    """Pending cards from the move that just ended in a goal leave the desk, with a log row for each."""
+    for p in list(hub.proposals.values()):
+        pm = hub.moments.get(p.moment_id)
+        if p.status == ProposalStatus.PROPOSED and pm and pm.kind != MomentKind.GOAL and _phase_of(pm) == phase:
+            _record_decision(p, ProposalStatus.EXPIRED,
+                             Decision(actor=SUPERSEDE_ACTOR, reasoning=f"superseded by the goal at {_clock(goal)}"))
+            await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+
+
+def _clock(m: Moment) -> str:
+    """The match minute as viewers know it: the period clock restarts at half time, the match minute does not."""
+    minute = m.t_ms // 60000 + (45 if m.period == 2 else 0)
+    return f"{minute:02d}:{m.t_ms // 1000 % 60:02d}"
+
+
+GOAL_TOOK_OVER = "No graphic proposed: the goal on the same move took over"
+
+
+def _taken_by_goal(m: Moment) -> bool:
+    return m.kind != MomentKind.GOAL and _phase_of(m) in hub.goal_phases
+
+
+async def _handle_moment(m: Moment) -> None:
     res = await pipeline.process(m, meta=hub.meta)
+    if _taken_by_goal(m) and res.proposal:  # the goal on this move arrived while these agents were still writing
+        res.notes.append(GOAL_TOOK_OVER)
+        res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
+    # Checked again: the goal can arrive during the broadcast above, after the first check. The moment has
+    # already gone out, so the reason is kept on the stored result and logged rather than broadcast twice.
+    if res.proposal and _taken_by_goal(m):
+        hub.results[m.moment_id]["notes"] = [*hub.results[m.moment_id]["notes"], GOAL_TOOK_OVER]
+        logger.info("moment %s: card dropped, the goal on the same move arrived first", m.moment_id)
+        return
     if res.proposal:
         flagged = unsourced_numbers(res.proposal.line, m)
         lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})

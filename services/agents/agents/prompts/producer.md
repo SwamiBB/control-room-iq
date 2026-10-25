@@ -12,7 +12,8 @@ Decide:
 2. The layer: lower_third (a line + 1-2 numbers), stat_panel (a comparison), heatmap (pressure or
    pass map data from the state), ticker (short text), full_screen (goals, half/full time only).
 3. Timing on the match clock: `t_start_ms` (now or the next clean gap on that layer) and
-   `t_end_ms` (lower_third 8-12 s, stat_panel 12-20 s, full_screen 15-25 s).
+   `t_end_ms` (lower_third 8-12 s, stat_panel 12-20 s, heatmap 12-20 s, ticker up to 30 s,
+   full_screen 15-25 s). A longer slot is shortened to the layer's maximum.
 4. The `line` (from the narrator, trimmed to fit the layer) and `payload_json`: a JSON object, written as a
    string, with the exact numbers and labels the renderer needs, taken from the state snapshot.
 Explain your decision in `reasoning` in two sentences, and list the options you rejected in `alternatives`.

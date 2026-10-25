@@ -1,4 +1,4 @@
-"""FanCue is code: built without any model call and published before the agent pipeline runs."""
+"""FanCue is code: built without any model call, and the strike beat that sends it runs no agents."""
 
 import asyncio
 from types import SimpleNamespace
@@ -7,7 +7,7 @@ import api.main as main
 import pytest
 from agents.workflow import fallback_explanation
 from api.fan_cue import build_fan_cue
-from api.main import ViewerPrefs, _handle_moment, hub
+from api.main import ViewerPrefs, _handle_moment, _start_moment, hub
 from api_factories import RecordingSocket, moment
 from crq_schemas import FanCard, FanCue, Persona
 
@@ -50,22 +50,23 @@ def test_build_fan_cue_pulse_scales_with_importance():
     assert pulses == ["tap", "pulse", "wave", "surge"]
 
 
-def test_chance_beat_cue_reaches_deaf_viewers_and_feed_before_the_pipeline_runs(monkeypatch):
+def test_chance_beat_sends_the_cue_and_runs_no_agents(monkeypatch):
+    # The strike beat is code only (#50): the result beat a moment later writes the card.
     deaf, renderer = _viewer(access="deaf"), RecordingSocket()
     hub.feed.renderers.add(renderer)
     fake = OrderCheckingPipeline(deaf)
     monkeypatch.setattr(main, "pipeline", fake)
-    with pytest.raises(RuntimeError, match="ordering check"):
-        asyncio.run(_handle_moment(moment(beat="chance", play_ms=600_000)))
-    assert fake.cues_before_call == 1
+    asyncio.run(_start_moment(moment(beat="chance", play_ms=600_000)))
+    assert fake.cues_before_call is None  # never called
+    assert len(deaf.of_type("fan_cue")) == 1
     assert renderer.of_type("fan_cue")[0]["item"]["cue_id"] == "fc-mo-1"
+    assert hub.moment_tasks == set()
 
 
 def test_cue_goes_to_deaf_access_viewers_of_any_persona_only(monkeypatch):
     deaf, deaf_analyst, fan = _viewer(access="deaf"), _viewer(Persona.ANALYST, "deaf"), _viewer(Persona.FAN)
     monkeypatch.setattr(main, "pipeline", OrderCheckingPipeline(deaf))
-    with pytest.raises(RuntimeError, match="ordering check"):
-        asyncio.run(_handle_moment(moment(beat="chance")))
+    asyncio.run(_start_moment(moment(beat="chance")))
     assert len(deaf.of_type("fan_cue")) == len(deaf_analyst.of_type("fan_cue")) == 1 and fan.sent == []
 
 

@@ -43,13 +43,14 @@ Three things set it apart:
 
 ## Judge walkthrough (about three minutes, no login)
 
-1. Open the live demo. The reference match (seed 42, Harbor City v Northfield United) replays from 36:00.
+1. Open the live demo. The reference match (seed 42, Harbor City v Northfield United) replays from 41:00.
 2. Watch the **running order** fill. Each card shows the proposed line, its evidence from the event feed,
    the faithfulness score, the model that wrote it, and a **Holds in 10 s** countdown.
 3. Use **Preview for** on a card to see exactly what a Spanish deaf fan or a Hindi newcomer would get, and
    why, before firing.
-4. At 41:12 the strike cue pulses on the deaf fan's screen before any decision. The save is proposed with
-   hold advice; 1.5 seconds later the rebound goes in and the **goal routine** replaces it.
+4. At 41:12 the strike cue pulses on the deaf fan's screen before any decision. The keeper saves; 1.5 seconds
+   later the rebound goes in and the **goal routine** takes the move over: the save never becomes a card of its
+   own, and anything else still waiting from that move is logged as superseded by the goal.
 5. Press **Fire all 3**: the goal graphic, the scorer's stats after the replay, and the ticker.
 6. Leave a card alone for 20 seconds: the timer holds it. Nothing airs.
 7. Open **Gallery metrics** (turnaround, error rate, workload) and download `decisions.csv`.
