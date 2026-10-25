@@ -1,0 +1,10 @@
+.boundary {
+  margin: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border-left: 4px solid var(--alert, #e11d48);
+  background: var(--panel, #171b22);
+  font-size: 14px;
+}
+.boundary p { margin: 6px 0 10px; color: var(--muted, #8b93a1); }
+.boundary code { color: var(--ink, #e6e9ef); word-break: break-word; }

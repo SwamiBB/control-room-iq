@@ -1,3 +1,4 @@
+import ErrorBoundary from "../components/ErrorBoundary";
 import Operator from "./Operator";
 import Viewer, { type ViewerPreset } from "./Viewer";
 import "./multiview.css";
@@ -21,14 +22,19 @@ const FRAMES: Array<{ id: string; preset: ViewerPreset }> = [
 export default function Multiview() {
   return (
     <div className="multiview">
+      {/* One boundary per pane: a console error leaves the three viewers running, and the reverse. */}
       <section className="mv-console">
-        <Operator />
+        <ErrorBoundary name="Operator console">
+          <Operator />
+        </ErrorBoundary>
       </section>
 
       <aside className="mv-frames" aria-label="Three viewers watching the same match">
         {FRAMES.map((f) => (
           <div className="mv-frame" key={f.id}>
-            <Viewer preset={f.preset} chrome={false} />
+            <ErrorBoundary name="Viewer">
+              <Viewer preset={f.preset} chrome={false} />
+            </ErrorBoundary>
           </div>
         ))}
       </aside>
