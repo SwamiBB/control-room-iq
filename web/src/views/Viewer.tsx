@@ -63,7 +63,13 @@ export type Packet = {
   approval_id?: string;
   approved_by?: string;
   approved_at?: string;
-  payload?: { intel?: MomentMetrics | null; perspective?: Perspective; names?: Record<string, string> };
+  payload?: {
+    intel?: MomentMetrics | null;
+    perspective?: Perspective;
+    names?: Record<string, string>;
+    /** [home, away] on the goal routine's ticker (goal_package.py). */
+    score?: [number, number];
+  };
   fan_card?: FanCard | null;
 };
 
@@ -177,6 +183,18 @@ export function nameLookup(packet: Packet | undefined): (id?: string | null) => 
   return (id) => (id ? names[id] ?? id : "");
 }
 
+/**
+ * The score this packet tells the viewer, if any: a supporter's own framing first ("winning 1–0"), then the
+ * caption card's, then the ticker's [home, away]. A neutral viewer gets no framing from the API, so before the
+ * first card or ticker there is nothing to show.
+ */
+export function scoreText(packet: Packet): string | null {
+  const score = packet.payload?.score;
+  return packet.payload?.perspective?.score_text
+    ?? packet.fan_card?.detail?.score
+    ?? (Array.isArray(score) && score.length === 2 ? `${score[0]}–${score[1]}` : null);
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -236,11 +254,15 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [cue, setCue] = useState<Cue | null>(null);
   const [refused, setRefused] = useState(0);
   const [cues] = useState(() => cueTimer(setCue));
+  const [strip, setStrip] = useState<{ score: string; color?: string } | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
     const now = Date.now();
     setHeld((prev) => withPacket(prev, packet, now));
+    // The strip outlives the graphics: it keeps the last score and side colour any packet gave.
+    const score = scoreText(packet);
+    if (score) setStrip({ score, color: packet.payload?.perspective?.color });
   }, []);
 
   const url = `${WS}/ws/viewer?${new URLSearchParams({ persona, access, lang, allegiance })}`;
@@ -260,9 +282,13 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     }
   });
 
-  // New settings mean a new feed: a cue from the old one must not outlive it.
+  // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
+  // another side or language.
   useEffect(() => {
-    return () => cues.clear();
+    return () => {
+      cues.clear();
+      setStrip(null);
+    };
   }, [persona, access, lang, allegiance, cues]);
 
   // Expire held packets on a light tick rather than per-packet timers. Dropping them is what re-renders,
@@ -278,8 +304,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const register: IntelRegister = persona;
   const nameOf = nameLookup(packet);
-  const view = packet?.payload?.perspective;
-  const accent = allegiance !== "neutral" ? view?.color : undefined;
+  const accent = allegiance !== "neutral" ? strip?.color : undefined;
   const card = captionCardFor(packet, access);
 
   return (
@@ -328,7 +353,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       <div className="live-strip">
         <span className="live-dot" aria-hidden="true" />
         <span className="live-word">{heading("live", lang)}</span>
-        <b className="live-score">{view?.score_text ?? packet?.fan_card?.detail?.score ?? "–"}</b>
+        <b className="live-score">{strip?.score ?? "–"}</b>
       </div>
 
       <div className="pitch">

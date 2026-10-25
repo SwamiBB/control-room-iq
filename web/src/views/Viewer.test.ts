@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, scoreText, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -217,5 +217,21 @@ describe("nameLookup (names in the chips)", () => {
     expect(nameLookup({ ...approved, payload: { names: { "riv-09": "Ana Ruiz" } } })("riv-09")).toBe("Ana Ruiz");
     expect(nameLookup(approved)("riv-09")).toBe("riv-09");
     expect(nameLookup(undefined)(null)).toBe("");
+  });
+});
+
+describe("scoreText (the live strip)", () => {
+  it("prefers a supporter's own framing", () => {
+    const home: Packet = { ...approved, payload: { perspective: { side: "home", score_text: "winning 1–0" } } };
+    expect(scoreText(home)).toBe("winning 1–0");
+  });
+
+  it("gives a neutral viewer the caption card's score, or the ticker's as home–away", () => {
+    expect(scoreText({ ...lead, fan_card: { ...card, detail: { score: "1–0" } } })).toBe("1–0");
+    expect(scoreText({ ...ticker, payload: { score: [2, 1] } })).toBe("2–1");
+  });
+
+  it("has nothing to say for a packet without a score", () => {
+    expect(scoreText(approved)).toBeNull();
   });
 });
