@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cueTimer, holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -175,5 +175,21 @@ describe("cueTimer (the strike cue)", () => {
 
     vi.advanceTimersByTime(5_000);
     expect(setCue.mock.calls).toEqual([[shot], [null]]);
+  });
+});
+
+describe("captionCardFor (who gets the caption card)", () => {
+  it("gives a deaf-access viewer the lead graphic's card", () => {
+    expect(captionCardFor(lead, "deaf")?.card_id).toBe("fc-1");
+  });
+
+  it("gives a hearing viewer no card, though the API sent it on their packet", () => {
+    expect(lead.fan_card).toBeTruthy();
+    expect(captionCardFor(lead, "none")).toBeNull();
+  });
+
+  it("gives nobody a card when the packet carries none", () => {
+    expect(captionCardFor(ticker, "deaf")).toBeNull();
+    expect(captionCardFor(undefined, "deaf")).toBeNull();
   });
 });

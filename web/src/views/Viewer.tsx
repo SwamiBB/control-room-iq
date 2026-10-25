@@ -7,7 +7,7 @@ import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
 
 type Persona = "newcomer" | "fan" | "analyst";
-type Access = "none" | "deaf";
+export type Access = "none" | "deaf";
 type Allegiance = "home" | "away" | "neutral";
 type Lang = "en" | "es" | "hi";
 
@@ -33,7 +33,7 @@ type FanDetail = {
   score?: string | null;
 };
 
-type FanCard = {
+export type FanCard = {
   card_id: string;
   beat: "chance" | "result" | "none";
   caption: string;
@@ -159,6 +159,15 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
   );
 }
 
+/**
+ * The caption card for this viewer, if any. It rides on the lead graphic only, on a result beat, and it is
+ * for deaf-access viewers only: the API sends the same packet to every viewer, card included, so the
+ * renderer is where a hearing viewer's copy is left out.
+ */
+export function captionCardFor(packet: Packet | undefined, access: Access): FanCard | null {
+  return access === "deaf" ? packet?.fan_card ?? null : null;
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -263,8 +272,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const nameOf = (id?: string | null) => (id ? names[id] ?? id : "");
   const view = packet?.payload?.perspective;
   const accent = allegiance !== "neutral" ? view?.color : undefined;
-  // The caption card rides on the lead graphic only, and only on a result beat.
-  const card = packet?.fan_card ?? null;
+  const card = captionCardFor(packet, access);
 
   return (
     <div
@@ -312,7 +320,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       <div className="live-strip">
         <span className="live-dot" aria-hidden="true" />
         <span className="live-word">{heading("live", lang)}</span>
-        <b className="live-score">{view?.score_text ?? card?.detail?.score ?? "–"}</b>
+        <b className="live-score">{view?.score_text ?? packet?.fan_card?.detail?.score ?? "–"}</b>
       </div>
 
       <div className="pitch">
