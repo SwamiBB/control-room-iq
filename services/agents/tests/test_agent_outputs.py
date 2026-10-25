@@ -11,13 +11,14 @@ from typing import get_args  # noqa: E402
 
 import pytest  # noqa: E402
 from agents.workflow import (  # noqa: E402
+    ExplanationOut,
     MomentPipeline,
     ProducerDecision,
     ProducerLayer,
     fallback_explanation,
     fallback_proposal,
 )
-from crq_schemas import MatchState, Moment, MomentKind, Persona, TeamStats  # noqa: E402
+from crq_schemas import Explanation, MatchState, Moment, MomentKind, Persona, TeamStats  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 FAN_EN = [(Persona.FAN, "none", "en", {}), (Persona.FAN, "deaf", "en", {})]
@@ -66,6 +67,12 @@ def _run(p: MomentPipeline, m: Moment):
     return asyncio.run(p.process(m, requests=FAN_EN))
 
 
+def test_the_explainer_can_name_every_pattern_the_schema_allows():
+    # ExplanationOut repeats Explanation's pattern list; a pattern added to one and not the other must fail here.
+    ours, schema = (get_args(m.model_fields["pattern"].annotation) for m in (ExplanationOut, Explanation))
+    assert ours == schema
+
+
 def test_template_proposals_are_flagged_as_fallback():
     assert fallback_proposal(_moment(), fallback_explanation(_moment()), "x").fallback is True
 
@@ -85,7 +92,7 @@ def test_a_declined_goal_still_gets_the_template_proposal():
 def test_a_declined_ordinary_moment_is_a_note_not_a_failure():
     res = _run(_pipeline(_decision(propose=False)), _moment())
     assert res.proposal is None and res.failures == []
-    assert res.notes == ["producer: no graphic for big_chance (importance 0.7): A clear chance."]
+    assert res.notes == ["No graphic proposed: A clear chance."]
 
 
 def test_a_low_importance_goal_still_asks_the_producer_and_keeps_its_graphic():
@@ -173,3 +180,22 @@ def test_a_bare_list_reply_is_not_accepted():
     res = _run(_pipeline(personalizer=json.dumps([{"persona": "fan", "access": "none", "lang": "en",
                                                     "text": "x", "cites": []}])), _moment())
     assert any(f.startswith("personalizer: bad JSON") for f in res.failures)
+
+
+class _SlowAgent:
+    name = "localizer"
+
+    async def run(self, text: str):
+        await asyncio.sleep(1)
+
+
+def test_a_timeout_is_readable_and_logged(monkeypatch, caplog):
+    import dataclasses
+    import logging
+
+    from agents import workflow
+    monkeypatch.setattr(workflow, "settings", dataclasses.replace(workflow.settings, agent_timeout_s=0.01))
+    with caplog.at_level(logging.WARNING, logger="agents.workflow"):
+        value, err = asyncio.run(workflow._run(_SlowAgent(), {}, None, lambda: "template"))
+    assert value == "template" and err == "localizer: timed out after 0.01 s"
+    assert "Agent localizer fell back to its template: timed out after 0.01 s" in caplog.text

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 import uuid
@@ -48,6 +49,8 @@ from pydantic import BaseModel, Field
 from .clients import make_agent
 from .config import settings
 from .match_intel import NameOf, intel_context, intel_for, intel_payload, intel_short
+
+logger = logging.getLogger(__name__)
 
 PROMPTS = Path(__file__).parent / "prompts"
 
@@ -280,7 +283,12 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
         text = getattr(res, "text", None) or str(res)
         return (model.model_validate_json(text) if model else text.strip()), None
     except Exception as ex:  # noqa: BLE001 - any failure falls back; recorded for the decision log
-        return fallback(), f"{getattr(agent, 'name', 'agent')}: {type(ex).__name__}: {ex}"
+        name = getattr(agent, "name", "agent")
+        # A timeout has an empty message, which left only "TimeoutError: " in the decision log (#39).
+        reason = (f"timed out after {settings.agent_timeout_s:g} s" if isinstance(ex, TimeoutError)
+                  else f"{type(ex).__name__}: {ex}")
+        logger.warning("Agent %s fell back to its template: %s", name, reason)
+        return fallback(), f"{name}: {reason}"
 
 
 class MomentPipeline:
@@ -362,8 +370,8 @@ class MomentPipeline:
                 if m.kind in ALWAYS_PROPOSE:
                     return fallback_proposal(m, expl, line), f"producer: declined a {m.kind.value}; template used"
                 # A deliberate "no graphic" is the producer's call, not a failure.
-                notes.append(f"producer: no graphic for {m.kind.value} (importance {m.importance}): "
-                             f"{decision.reasoning}")
+                # Operator-readable: the console shows notes as written (#41).
+                notes.append(f"No graphic proposed: {decision.reasoning}")
                 return None, None
             if decision.t_end_ms <= decision.t_start_ms:
                 return fallback_proposal(m, expl, line), "producer: t_end_ms is not after t_start_ms; template used"
