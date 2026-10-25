@@ -1,15 +1,16 @@
 ## Agents work: Siranjeevi's consolidated list
 
-Last updated: Friday, October 23, 2026, late night (Central). Checked against `main` at `7c99cd1` (#24). Merges
-Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOFF-2026-10-23-agents-web.md` and
-`HANDOFF-2026-10-24-match-intelligence.md`. #19 added `agents/match_intel.py` and touched the prompts and
-`workflow.py`. Item 5 is done on `feat/localizer-agent`; the rest are not started.
+Last updated: Monday, October 26, 2026. Checked against `main` at `bcc3f37` (#58), plus #60 (open). First
+written on Friday, October 23 by merging Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`,
+`HANDOFF-2026-10-23-agents-web.md` and `HANDOFF-2026-10-24-match-intelligence.md`. Items 1, 4 and 5 are done;
+3 is partly done; 2 and 6 are not started. Since Oct 25 Siranjeevi also owns the Azure and API hosting work
+(see the last section).
 
 | # | Task | Status | Why it is next |
 | --- | --- | --- | --- |
 | 1 | ✅ **Fix #9:** the API crashes on startup in Azure (`clients.py`), plus a test that builds the pipeline in online mode | Done in #26 | About 30 minutes. Blocks deploying the API and checking the live models |
 | 2 | **`scheduler.py`** with tests | Does not exist | A Friday must-have, now overdue. Until it lands, a fired graphic airs at once, unscheduled |
-| 3 | **Router clients per agent** with `model_served` | Settings exist, nothing wired | Needs the three router deployments in Bicep (Swami). Until then everything uses `model-router` |
+| 3 | **Router clients per agent** with `model_served` | Partly done: the client works on `model-router` and records `model_served` (#26); per-agent clients not wired | Needs the three router deployments (#47). Until then everything uses `model-router`, which is behind the timeouts in #39 |
 | 4 | ✅ **#10:** check the agents get real replies from the live `model-router` | Done Oct 25: all five agents answer live, 0 failures (fixed in #26) | First real test against Azure |
 | 5 | ✅ **Localizer agent**, **personalizer prompt** and the **fallback bug** (#17) | Merged in #27; the `CRQ_LANGS` part of #17 is in #26 | Decided Oct 24: five agents, with Spanish and Hindi from a dedicated Localizer |
 | 6 | **`register_agents.py`** for the **five** agents (Saturday), **evaluations** and the README table (Monday) | Do not exist | Saturday and Monday deliverables |
@@ -34,6 +35,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
   graphics (`api/timing.py`), and the goal routine's three items (`api/goal_package.py`). The scheduler should
   place the goal routine's follow-ups after the lead, using their `package_offset_ms`.
 - Layers to expect: speed moments now use the **lower third** (not the player tag); standout passes the stat panel.
+- ✅ Done elsewhere, do not rebuild: **supersession** (a goal takes over the pending cards of its move) is in the
+  API (#60), and the producer's slot length is capped per layer (#60).
 
 **3. Router clients (`clients.py`, `config.py`)**
 - One client per router deployment: explainer and producer → `ROUTER_QUALITY`, narrator → `ROUTER_BALANCED`,
@@ -45,8 +48,8 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 - Read `response.model` into `meta.model_served` and `meta.routing` on each output; span attributes
   `crq.agent`, `crq.routing`, `crq.model_served`. The README promises "the model that served each call is
   recorded".
-- Swami adds the three deployments to `infra/modules/ai.bicep` and the `ROUTER_*` settings to `apps.bicep`
-  (and removes the Speech resource).
+- The three deployments in `infra/modules/ai.bicep` and the `ROUTER_*` settings in `apps.bicep` are #47; removing
+  the Speech resource is #48. Both moved from Swami to Siranjeevi on Oct 25.
 
 **4. ✅ #10 live check**
 - ✅ Foundry User role assigned; live run on Oct 25 with every agent model-written (the router
@@ -79,9 +82,21 @@ Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`, `HANDOF
 
 - Bring the Azure resources up and deploy from CI with Swami (first `azd up`).
   - ✅ Resources provisioned in the sandbox (Oct 24). Deploy still waits on #13, #14 and #22.
+  - ✅ Data roles for local runs (Oct 25): Foundry User and Azure Event Hubs Data Sender for all four of us.
+    Event Hubs receive, Cosmos DB data access and the managed identity's Storage Blob role are still to do; the
+    last two need the RBAC condition extended (#16, #37).
 - Review the match-intelligence agent changes from #19.
 - After the first deploy: `docs/evidence/` (resource table, App Insights traces showing the served model,
   managed-identity role assignments, security recommendations snapshot).
+
+### Taken over from Swami (Oct 25): Azure and API hosting
+
+| Area | Issues |
+| --- | --- |
+| Deploy blockers | #13 (match and tracking files in the images), #14 (web app can't reach the API), #22 (operator token, replay file allowlist), #42 (✅ in #60) |
+| Bicep | #47 (three router deployments), #48 (remove Speech, cap Event Hubs auto-inflate), #36 (shared keys off), #16 (roles for whoever runs `azd up`), #37 (checkpoint store role), #38 (doc and infra names) |
+| API, from the end-to-end test | #50 and #51 (✅ in #60), #53 (held-graphic expiry), #55 (xG number check), #56 (Undo and faithfulness: build or drop), #57 (metrics on windowed replays) |
+| Agents | #34 (agent status in `/healthz`), #35 (fallback model), #39 (latency and timeouts), #40 (team codes in lines) |
 
 ### If time runs short
 
