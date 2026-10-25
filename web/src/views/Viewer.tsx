@@ -195,6 +195,31 @@ export function scoreText(packet: Packet): string | null {
     ?? (Array.isArray(score) && score.length === 2 ? `${score[0]}–${score[1]}` : null);
 }
 
+/**
+ * Within one run a packet can start at most a package offset (25 s, goal_package.py) before one already seen,
+ * since every packet's slot is the play time it was fired at plus its offset. A rerun jumps back minutes.
+ */
+const RERUN_MS = 60_000;
+
+/** The live strip, and the match it belongs to. */
+export type Strip = { matchId: string; latestMs: number; score?: string; color?: string };
+
+/**
+ * The strip after a packet. It keeps the last score any packet of this match gave. A packet for another
+ * match_id, or from well back in play time (Run again reuses the match_id), starts over at "–". The viewer
+ * socket gets no match message, so the packets are all there is to tell.
+ */
+export function nextStrip(prev: Strip | null, packet: Packet): Strip {
+  const same = prev !== null && prev.matchId === packet.match_id && packet.t_in_ms > prev.latestMs - RERUN_MS;
+  const base = same ? prev : null;
+  const score = scoreText(packet);
+  return {
+    matchId: packet.match_id,
+    latestMs: Math.max(base?.latestMs ?? packet.t_in_ms, packet.t_in_ms),
+    ...(score ? { score, color: packet.payload?.perspective?.color } : { score: base?.score, color: base?.color }),
+  };
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -254,15 +279,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [cue, setCue] = useState<Cue | null>(null);
   const [refused, setRefused] = useState(0);
   const [cues] = useState(() => cueTimer(setCue));
-  const [strip, setStrip] = useState<{ score: string; color?: string } | null>(null);
+  const [strip, setStrip] = useState<Strip | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
     const now = Date.now();
     setHeld((prev) => withPacket(prev, packet, now));
-    // The strip outlives the graphics: it keeps the last score and side colour any packet gave.
-    const score = scoreText(packet);
-    if (score) setStrip({ score, color: packet.payload?.perspective?.color });
+    // The strip outlives the graphics, but not the match: see nextStrip.
+    setStrip((prev) => nextStrip(prev, packet));
   }, []);
 
   const url = `${WS}/ws/viewer?${new URLSearchParams({ persona, access, lang, allegiance })}`;

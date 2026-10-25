@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, scoreText, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, scoreText, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -233,5 +233,32 @@ describe("scoreText (the live strip)", () => {
 
   it("has nothing to say for a packet without a score", () => {
     expect(scoreText(approved)).toBeNull();
+  });
+});
+
+describe("nextStrip (the strip across matches)", () => {
+  const goal: Packet = { ...ticker, t_in_ms: 2_530_000, payload: { score: [1, 0] } };
+  const after = (p: Packet, ms: number): Packet => ({ ...p, cue_id: `c-${ms}`, t_in_ms: ms });
+
+  it("keeps the last score through packets that carry none", () => {
+    const s = nextStrip(nextStrip(null, goal), after(approved, 2_560_000));
+    expect(s.score).toBe("1–0");
+  });
+
+  it("keeps it for a late packet within the package offset", () => {
+    const s = nextStrip(nextStrip(null, goal), after(approved, goal.t_in_ms - 25_000));
+    expect(s.score).toBe("1–0");
+  });
+
+  it("starts over at nothing for another match", () => {
+    const s = nextStrip(nextStrip(null, goal), { ...approved, match_id: "m-2" });
+    expect(s.score).toBeUndefined();
+  });
+
+  it("starts over for Run again of the same match, which goes back in play time", () => {
+    const end = nextStrip(nextStrip(null, goal), after(approved, 2_750_000));
+    const rerun = nextStrip(end, after(approved, 2_465_000));
+    expect(rerun.score).toBeUndefined();
+    expect(nextStrip(rerun, after(goal, 2_530_000)).score).toBe("1–0");
   });
 });
