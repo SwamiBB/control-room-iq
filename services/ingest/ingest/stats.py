@@ -95,6 +95,7 @@ class StateFolder:
     tracking: TrackingDistances | None = None  # found automatically for reference matches; see tracking_distance.py
     use_tracking: bool = True
     _crossed: list[ThresholdIndicator] = field(default_factory=list)  # crossed on the event being applied
+    _strike_speed: ThresholdIndicator | None = None  # shot speed crossed at the strike, not crossed again on its result
     _player_passes: dict[str, list[float]] = field(default_factory=dict)  # player -> [passes, metres, difficulty]
     _team_passes: dict[str, list[float]] = field(default_factory=dict)  # team -> [passes, metres, difficulty]
     _pass_to: dict[str, tuple[PassQuality, str | None]] = field(default_factory=dict)  # receiver -> (pass, phase_id)
@@ -176,7 +177,12 @@ class StateFolder:
                                                 f"{self._name(ev.player)} hits {spd:g} km/h"))
         elif ev.type == EventType.SHOT_TAKEN and ev.team:
             xg = float(ev.attrs.get("xg") or 0)
+            speed = ev.attrs.get("speed_kmh")
+            self._strike_speed = None
             if xg >= BIG_CHANCE_XG:  # the chance beat: the strike, before anyone knows the outcome
+                if speed and speed >= SHOT_SPEED_KMH:  # the badge goes out with the strike, not a second later (#43)
+                    self._strike_speed = self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH,
+                                                     "km/h")
                 moments.append(self._moment(ev, MomentKind.BIG_CHANCE, 0.6 + xg / 3,
                                             f"{self._name(ev.player)} shoots, a big chance (xG {xg})", beat="chance"))
         elif ev.type == EventType.SHOT and ts and ps:
@@ -192,7 +198,8 @@ class StateFolder:
             if speed:
                 ps.max_shot_speed_kmh = max(ps.max_shot_speed_kmh, speed)
                 ts.max_shot_speed_kmh = max(ts.max_shot_speed_kmh, speed)
-                if speed >= SHOT_SPEED_KMH:
+                strike, self._strike_speed = self._strike_speed, None
+                if speed >= SHOT_SPEED_KMH and (strike is None or strike.player != ev.player):  # once per shot
                     self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH, "km/h")
             self._ledger_add(ev, xg)
             self._update_windows()
