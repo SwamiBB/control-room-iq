@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchPreview, fetchViewerGroups, sourceWord,
+  fetchPreview, fetchViewerGroups, sourceWord, viewLabel,
   type PreviewLine, type ViewerGroup,
 } from "../api";
 import "./preview.css";
@@ -58,18 +58,13 @@ export default function PreviewFor({ proposalId, views, onChangeViews, overrideL
   const known = useMemo(() => new Set(groups.map((g) => g.key)), [groups]);
   const canAdd = views.length < MAX_VIEWS && !views.includes(draftKey) && (known.size === 0 || known.has(draftKey));
 
-  const label = (key: string) => {
-    const [persona, access, lang] = key.split(".");
-    return `${lang} ${persona}${access === "deaf" ? " · deaf" : ""}`;
-  };
-
   return (
     <div className="preview-for">
       <div className="preview-head">
         <span className="preview-title">Preview for</span>
         {views.map((v) => (
           <span key={v} className="pick">
-            {label(v)}
+            {viewLabel(v)}
             <button type="button" aria-label={`Remove ${v}`} onClick={() => onChangeViews(views.filter((x) => x !== v))}>×</button>
           </span>
         ))}
@@ -102,9 +97,9 @@ export default function PreviewFor({ proposalId, views, onChangeViews, overrideL
 
       {lines && lines.length > 0 && (
         <ul className="preview-lines">
-          {lines.map((l, i) => (
-            <li key={l.key ?? l.view ?? i}>
-              <span className="pl-group">{label(l.key ?? l.view ?? views[i] ?? "")}</span>
+          {lines.map((l) => (
+            <li key={l.view.key}>
+              <span className="pl-group">{viewLabel(l.view.key)}</span>
               <span className="pl-text">{l.text}</span>
               <span className={`pl-source ${l.source}`}>{sourceWord(l.source)}</span>
               {l.failures?.length > 0 && <small className="pl-why">{l.failures.join(", ")}</small>}

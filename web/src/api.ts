@@ -171,10 +171,16 @@ export type ViewerGroup = {
   allegiance: Allegiance;
 };
 
+/** "newcomer.deaf.hi.away" as the picker shows it: "hi newcomer · deaf". */
+export const viewLabel = (key: string) => {
+  const [persona, access, lang] = key.split(".");
+  return `${lang} ${persona}${access === "deaf" ? " · deaf" : ""}`;
+};
+
 /** What one viewer group would get if this proposal were fired now. Read-only: nothing airs. */
 export type PreviewLine = {
-  key?: string;
-  view?: string;
+  /** The whole group, not its key: `view.key` is what to label and key the row by. */
+  view: ViewerGroup;
   text: string;
   source: "variant" | "template" | "base" | "override" | string;
   lang_shown: Lang;
@@ -189,7 +195,10 @@ export async function fetchViewerGroups(): Promise<ViewerGroup[]> {
   return Array.isArray(body) ? body : body.groups ?? [];
 }
 
-/** At most 12 views per the API. `overrideLine` previews typed text before it is fired. */
+/**
+ * At most 12 views per the API. `overrideLine` previews typed text before it is fired.
+ * The API answers `{proposal_id, override_line, items}` (preview.py `Preview`).
+ */
 export async function fetchPreview(
   proposalId: string,
   views: string[],
@@ -200,8 +209,8 @@ export async function fetchPreview(
   if (overrideLine) qs.set("override_line", overrideLine);
   const r = await fetch(`${API}/proposals/${proposalId}/preview?${qs}`);
   if (!r.ok) throw new Error(`${r.status}`);
-  const body = await r.json();
-  return Array.isArray(body) ? body : body.previews ?? [];
+  const body: { items?: PreviewLine[] } = await r.json();
+  return body.items ?? [];
 }
 
 /** GET /metrics — the three numbers a broadcaster asks for before trusting a tool in the gallery. */

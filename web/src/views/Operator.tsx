@@ -5,6 +5,7 @@ import {
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
+import ErrorBoundary from "../components/ErrorBoundary";
 import IntelChips from "../components/IntelChips";
 import MatchIntel from "../components/MatchIntel";
 import PitchView, { type PitchShot } from "../components/PitchView";
@@ -512,13 +513,16 @@ function Card({
 
       <DeliveryChips items={deliveries} />
 
-      {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once. */}
-      <PreviewFor
-        proposalId={p.proposal_id}
-        views={views}
-        onChangeViews={onChangeViews}
-        overrideLine={override}
-      />
+      {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once.
+          Its own boundary too: a bad preview row must never take the Fire button with it. */}
+      <ErrorBoundary name="Preview for">
+        <PreviewFor
+          proposalId={p.proposal_id}
+          views={views}
+          onChangeViews={onChangeViews}
+          overrideLine={override}
+        />
+      </ErrorBoundary>
 
       <input
         id={`override-${p.proposal_id}`}
