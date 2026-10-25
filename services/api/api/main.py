@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -120,6 +121,7 @@ class Hub:
         self.warn_s = SLA_WARN_S
         self.replay_speed: float | None = None  # what the match is running at, once a replay is under way
         self.replay_task: asyncio.Task | None = None
+        self.state_published_at = 0.0  # time.monotonic() of the last state message, so a new match publishes at once
 
     def new_match(self, meta: MatchMeta) -> None:
         """Clear the desk for a fresh match.
@@ -136,6 +138,7 @@ class Hub:
         self.deliveries.clear()
         self.state = None
         self.replay_speed = None
+        self.state_published_at = 0.0
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -520,7 +523,8 @@ async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest,
     await _pace(hub.clock.advance(ev) if gap_ms is None else gap_ms, req)
     await _expire_stale()
     moments = folder.apply(ev)
-    if ev.seq % 10 == 0:
+    if ev.seq % 10 == 0 or time.monotonic() - hub.state_published_at >= STATE_PUBLISH_S:
+        hub.state_published_at = time.monotonic()
         await _publish_state(folder)
     for m in moments:
         if m.importance >= req.min_importance:
@@ -528,6 +532,9 @@ async def _replay_event(folder: StateFolder, ev: MatchEvent, req: ReplayRequest,
 
 
 PACING_SLICE_MS = 100  # the replay re-reads its speed this often, in real milliseconds
+# State goes out every tenth event or this often in real time, whichever comes first: ten events are a blink
+# at speed 20 but about four seconds at real time, long enough for the console's play clock to look frozen.
+STATE_PUBLISH_S = 0.25
 
 
 def _awaiting_decision() -> bool:

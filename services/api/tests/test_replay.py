@@ -1,4 +1,5 @@
 import asyncio
+import time
 from pathlib import Path
 
 from api.main import (
@@ -156,6 +157,34 @@ def test_a_replay_that_fails_says_so_instead_of_stopping_in_silence():
     asyncio.run(_replay(ReplayRequest(file="no/such/match.jsonl")))
     end = console.of_type("replay")[-1]
     assert end["finished"] is True and "FileNotFoundError" in end["error"]
+
+
+class TimedSocket(RecordingSocket):
+    def __init__(self) -> None:
+        super().__init__()
+        self.at: list[float] = []
+
+    async def send_json(self, msg: dict) -> None:
+        await super().send_json(msg)
+        self.at.append(time.monotonic())
+
+
+def test_at_real_time_state_goes_out_on_the_clock_not_the_event_count(tmp_path):
+    """At speed 1 ten events can take seconds; the console's play clock must not freeze waiting for them."""
+    meta, *events = _pick(12)
+    # 100 ms of play apart, and no seq a multiple of ten, so only a real-time throttle publishes anything.
+    events = [e.model_copy(update={"seq": 10 * i + 1, "period": 1, "t_ms": 100 * (i + 1), "play_ms": 100 * (i + 1)})
+              for i, e in enumerate(events[:12])]
+    path = tmp_path / "m.jsonl"
+    path.write_text("\n".join([meta.model_dump_json(), *(e.model_dump_json() for e in events)]), encoding="utf-8")
+    console = TimedSocket()
+    hub.operators.add(console)
+
+    asyncio.run(_drive_replay(ReplayRequest(file=str(path), speed=1, min_importance=2.0)))
+    at = [t for t, m in zip(console.at, console.sent, strict=True) if m["type"] == "state"]
+    assert len(at) >= 3
+    gaps = [b - a for a, b in zip(at, at[1:], strict=False)]
+    assert max(gaps) < 0.6, f"state gaps {gaps}: bounded by 250 ms plus one event, not by ten events"
 
 
 def test_stamp_play_time_fills_missing_play_ms_from_the_replay_clock():
