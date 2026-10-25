@@ -1,6 +1,6 @@
 ## Agents work: Siranjeevi's consolidated list
 
-Last updated: Monday, October 26, 2026. Checked against `main` at `bcc3f37` (#58), plus #60 (open). First
+Last updated: Monday, October 26, 2026. Checked against `main` at `be0b75f` (#60). First
 written on Friday, October 23 by merging Siranjeevi's own list with the agent items from `CHANGES-2026-10-23.md`,
 `HANDOFF-2026-10-23-agents-web.md` and `HANDOFF-2026-10-24-match-intelligence.md`. Items 1, 4 and 5 are done;
 3 is partly done; 2 and 6 are not started. Since Oct 25 Siranjeevi also owns the Azure and API hosting work
@@ -83,8 +83,9 @@ written on Friday, October 23 by merging Siranjeevi's own list with the agent it
 - Bring the Azure resources up and deploy from CI with Swami (first `azd up`).
   - ✅ Resources provisioned in the sandbox (Oct 24). Deploy still waits on #13, #14 and #22.
   - ✅ Data roles for local runs (Oct 25): Foundry User and Azure Event Hubs Data Sender for all four of us.
-    Event Hubs receive, Cosmos DB data access and the managed identity's Storage Blob role are still to do; the
-    last two need the RBAC condition extended (#16, #37).
+  - ✅ Oct 26: the RBAC condition was extended. Azure Event Hubs Data Receiver for Pranav and Siranjeevi (who run
+    ingest), and Storage Blob Data Contributor for the app's managed identity (#37). Still to do: Cosmos DB data
+    access for local ingest runs, and putting all of these in Bicep (#16).
 - Review the match-intelligence agent changes from #19.
 - After the first deploy: `docs/evidence/` (resource table, App Insights traces showing the served model,
   managed-identity role assignments, security recommendations snapshot).
@@ -93,9 +94,10 @@ written on Friday, October 23 by merging Siranjeevi's own list with the agent it
 
 | Area | Issues |
 | --- | --- |
-| Deploy blockers | #13 (match and tracking files in the images), #14 (web app can't reach the API), #22 (operator token, replay file allowlist), #42 (✅ in #60) |
+| Deploy blockers | #13 (match and tracking files in the images), #14 (web app can't reach the API), #22 (operator token, replay file allowlist), #42 (✅ #60) |
 | Bicep | #47 (three router deployments), #48 (remove Speech, cap Event Hubs auto-inflate), #36 (shared keys off), #16 (roles for whoever runs `azd up`), #37 (checkpoint store role), #38 (doc and infra names) |
-| API, from the end-to-end test | #50 and #51 (✅ in #60), #53 (held-graphic expiry), #55 (xG number check), #56 (Undo and faithfulness: build or drop), #57 (metrics on windowed replays) |
+| API, from the end-to-end test | #50 and #51 (✅ #60), #53 (held-graphic expiry), #55 (xG number check), #56 (Undo and faithfulness: build or drop), #57 (metrics on windowed replays) |
+| Ingest (with Pranav) | #63 (consumer fails silently: no error logging, and bad records stall it), #37 code side |
 | Agents | #34 (agent status in `/healthz`), #35 (fallback model), #39 (latency and timeouts), #40 (team codes in lines) |
 
 ### If time runs short
