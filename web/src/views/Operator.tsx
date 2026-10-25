@@ -11,6 +11,7 @@ import MatchIntel from "../components/MatchIntel";
 import PitchView, { type PitchShot } from "../components/PitchView";
 import PreviewFor from "../components/PreviewFor";
 import MetricsPanel from "../components/MetricsPanel";
+import { Resync } from "../resync";
 import { useLiveSocket } from "../useLiveSocket";
 import type { MomentMetrics } from "../intel";
 import "./operator.css";
@@ -111,7 +112,7 @@ export default function Operator() {
     return () => window.clearInterval(t);
   }, [refreshDecisions]);
 
-  // Everything that belongs to one match. The API re-sends the match and its proposals on every connect.
+  // Everything that belongs to one match. The API re-sends only the match and its proposals on connect.
   const clearDesk = useCallback(() => {
     setMeta(null);
     setProposals({});
@@ -123,6 +124,9 @@ export default function Operator() {
     setClk(null);
     setEnded(null);
   }, []);
+
+  const [resync] = useState(() => new Resync({ proposals: () => setProposals({}), desk: clearDesk }));
+  useEffect(() => () => resync.dispose(), [resync]);
 
   // What the socket does not re-send: the chips each fired graphic got, and whether a replay is running.
   const loadDeliveries = useCallback(() => {
@@ -138,9 +142,9 @@ export default function Operator() {
       if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
       if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
       if (m.type === "match") {
-        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match. The same
-        // message re-sent on connect does too, so the chips the match already has are fetched back after it.
-        clearDesk();
+        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match. The desk's
+        // own match re-sent on connect keeps it, and the chips the match already has are fetched back.
+        resync.match(m.meta?.match_id, meta?.match_id);
         setMeta(m.meta);
         loadDeliveries();
       }
@@ -153,10 +157,9 @@ export default function Operator() {
       }
     }
   }, () => {
-    // On every connect, and above all a reconnect after the API restarted: drop the desk and let the API
-    // re-send what it has. A restarted API sends no match, so the stale one does not linger with cards
-    // that would only answer 404.
-    clearDesk();
+    // On every connect: the proposals come again. A blip keeps the rest; a restarted API sends no match, or
+    // another one, and then the stale desk goes rather than linger with cards that would only answer 404.
+    resync.opened();
     fetchReplayStatus()
       .then(({ running: r, speed: s }) => { setRunning(r); setSpeed(s); })
       .catch(() => setRunning(null));
