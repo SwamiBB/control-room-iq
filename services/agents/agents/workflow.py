@@ -229,9 +229,18 @@ def model_meta(info: dict) -> AgentMeta:
     return AgentMeta(routing="balanced", model_served=info.get("model_served"), latency_ms=info.get("latency_ms"))
 
 
+# The longest slot the producer may give each layer (the prompt's ranges; ticker and heatmap by analogy). Viewers
+# hold a graphic for its slot in real time, so an over-long slot would sit on screen for minutes.
+MAX_SLOT_MS = {"lower_third": 12_000, "stat_panel": 20_000, "heatmap": 20_000, "ticker": 30_000,
+               "full_screen": 25_000}
+
+
 def proposal_from(d: ProducerDecision, m: Moment, meta: AgentMeta) -> tuple[OverlayProposal, str | None]:
-    """The proposal, and an error when the payload had to be dropped (it is never silently emptied)."""
+    """The proposal, and an error when the payload had to be dropped (it is never silently emptied).
+
+    A slot longer than its layer allows is shortened to the maximum, not rejected: the graphic is still good."""
     err = None
+    t_end_ms = min(d.t_end_ms, d.t_start_ms + MAX_SLOT_MS[d.layer])
     try:
         payload = json.loads(d.payload_json)
     except ValueError:
@@ -241,7 +250,7 @@ def proposal_from(d: ProducerDecision, m: Moment, meta: AgentMeta) -> tuple[Over
     alternatives = [Alternative(layer=OverlayLayer(a.layer), line=a.line, rejected_because=a.rejected_because)
                     for a in d.alternatives]
     return OverlayProposal(proposal_id="p-" + uuid.uuid4().hex[:8], match_id=m.match_id, moment_id=m.moment_id,
-                           layer=OverlayLayer(d.layer), t_start_ms=d.t_start_ms, t_end_ms=d.t_end_ms, line=d.line,
+                           layer=OverlayLayer(d.layer), t_start_ms=d.t_start_ms, t_end_ms=t_end_ms, line=d.line,
                            payload=payload, reasoning=d.reasoning, alternatives=alternatives, meta=meta,
                            priority=priority_from_importance(m.importance)), err
 

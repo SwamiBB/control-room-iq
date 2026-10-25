@@ -199,3 +199,17 @@ def test_a_timeout_is_readable_and_logged(monkeypatch, caplog):
         value, err = asyncio.run(workflow._run(_SlowAgent(), {}, None, lambda: "template"))
     assert value == "template" and err == "localizer: timed out after 0.01 s"
     assert "Agent localizer fell back to its template: timed out after 0.01 s" in caplog.text
+
+
+@pytest.mark.parametrize(("layer", "cap_s"), [("lower_third", 12), ("stat_panel", 20), ("full_screen", 25)])
+def test_an_over_long_slot_is_shortened_to_the_layers_maximum(layer, cap_s):
+    # Viewers hold a graphic for its slot in real time; a two-minute lower third would sit on screen for minutes.
+    res = _run(_pipeline(_decision(layer=layer, t_start_ms=602_000, t_end_ms=722_000)), _moment())
+    p = res.proposal
+    assert p is not None and p.fallback is False
+    assert (p.t_start_ms, p.t_end_ms) == (602_000, 602_000 + cap_s * 1000)
+
+
+def test_a_slot_within_the_maximum_is_kept():
+    res = _run(_pipeline(_decision(t_start_ms=602_000, t_end_ms=610_000)), _moment())
+    assert (res.proposal.t_start_ms, res.proposal.t_end_ms) == (602_000, 610_000)
