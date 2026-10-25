@@ -79,6 +79,10 @@ describe("decisionLabel", () => {
     expect(decisionLabel("held", "expiry-rule")).toBe("Expired");
   });
 
+  it("says Superseded, not Expired, when a goal took the card over", () => {
+    expect(decisionLabel("expired", "supersession")).toBe("Superseded");
+  });
+
   it("says Overridden for an override", () => {
     expect(decisionLabel("overridden", "operator")).toBe("Overridden");
   });

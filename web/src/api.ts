@@ -376,5 +376,6 @@ export const STATUS_WORDS: Record<string, string> = {
 export function decisionLabel(status: string, actor?: string | null): string {
   if (actor === "sla-timer" || status === "sla_held") return "Held by the timer";
   if (actor === "expiry-rule") return "Expired";
+  if (actor === "supersession") return "Superseded"; // a goal took over the pending cards of its move (#60)
   return STATUS_WORDS[status] ?? status;
 }
