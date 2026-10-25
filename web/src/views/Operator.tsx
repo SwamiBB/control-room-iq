@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import {
   WS, clock, playClock, layerName, modelLabel, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
   REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
-  fetchDecisions, decisionsCsvUrl,
+  fetchDecisions, decisionsCsvUrl, fetchDeliveries, fetchReplayStatus, canStartReplay,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
 import ErrorBoundary from "../components/ErrorBoundary";
@@ -46,6 +46,8 @@ export default function Operator() {
   const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
   const [speed, setSpeed] = useState<number | null>(null);
   const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
+  // From GET /healthz on connect, then from replay messages. null until known.
+  const [running, setRunning] = useState<boolean | null>(null);
   const [scope, setScope] = useState<ReplayScope>("window");
   const [pace, setPace] = useState<ReplaySpeed>(20);
   const [logError, setLogError] = useState<string | null>(null);
@@ -109,30 +111,55 @@ export default function Operator() {
     return () => window.clearInterval(t);
   }, [refreshDecisions]);
 
+  // Everything that belongs to one match. The API re-sends the match and its proposals on every connect.
+  const clearDesk = useCallback(() => {
+    setMeta(null);
+    setProposals({});
+    setMoments([]);
+    setDeliveries({});
+    setWarnings({});
+    setDecisions([]);
+    setState(null);
+    setClk(null);
+    setEnded(null);
+  }, []);
+
+  // What the socket does not re-send: the chips each fired graphic got, and whether a replay is running.
+  const loadDeliveries = useCallback(() => {
+    fetchDeliveries()
+      // Anything the socket delivered meanwhile is newer, so it wins.
+      .then((fetched) => setDeliveries((d) => ({ ...fetched, ...d })))
+      .catch(() => undefined); // chips are a nicety; the banner is for actions
+  }, []);
+
   const link = useLiveSocket(`${WS}/ws/operator`, (m: any) => {
     {
       if (m.type === "proposal") setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
       if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
       if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
       if (m.type === "match") {
-        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match.
+        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match. The same
+        // message re-sent on connect does too, so the chips the match already has are fetched back after it.
+        clearDesk();
         setMeta(m.meta);
-        setProposals({});
-        setMoments([]);
-        setDeliveries({});
-        setWarnings({});
-        setDecisions([]);
-        setState(null);
-        setClk(null);
-        setEnded(null);
+        loadDeliveries();
       }
       if (m.type === "deliveries") setDeliveries((d) => ({ ...d, [m.proposal_id]: m.deliveries }));
       if (m.type === "sla_warning") setWarnings((w) => ({ ...w, [m.proposal_id]: m }));
       if (m.type === "replay") {
         setSpeed(typeof m.speed === "number" ? m.speed : null);
+        setRunning(!m.finished);
         if (m.finished) setEnded({ error: m.error ?? null });
       }
     }
+  }, () => {
+    // On every connect, and above all a reconnect after the API restarted: drop the desk and let the API
+    // re-send what it has. A restarted API sends no match, so the stale one does not linger with cards
+    // that would only answer 404.
+    clearDesk();
+    fetchReplayStatus()
+      .then(({ running: r, speed: s }) => { setRunning(r); setSpeed(s); })
+      .catch(() => setRunning(null));
   });
 
   // Drives the countdowns; the server stays the source of truth for the hold itself.
@@ -228,7 +255,7 @@ export default function Operator() {
         <div>
           <h1>Graphics operator</h1>
           {meta && <p className="match">{meta.home.name} v {meta.away.name} · {meta.venue}</p>}
-          {(!meta || ended) && (
+          {canStartReplay(Boolean(meta), Boolean(ended), running) && (
             <p className="replay-start">
               <select
                 aria-label="How much of the match to replay"
@@ -250,13 +277,17 @@ export default function Operator() {
               <button
                 className="primary"
                 disabled={busy.replay}
-                onClick={() => run("replay", "start the replay", async () => { setEnded(null); await startReplay(scope, pace); })}
+                onClick={() => run("replay", "start the replay", async () => {
+                  setEnded(null);
+                  await startReplay(scope, pace);
+                  setRunning(true);
+                })}
               >
-                {ended ? "Run again" : "Start replay"}
+                {meta ? "Run again" : "Start replay"}
               </button>
               {ended?.error
                 ? <span className="replay-ended error">Replay stopped: {ended.error}</span>
-                : ended && <span className="replay-ended">Replay complete</span>}
+                : meta && <span className="replay-ended">Replay complete</span>}
             </p>
           )}
         </div>

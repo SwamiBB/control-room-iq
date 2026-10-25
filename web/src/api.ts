@@ -214,6 +214,36 @@ export async function fetchDecisions(): Promise<DecisionEntry[]> {
 
 export const decisionsCsvUrl = `${API}/decisions.csv`;
 
+/**
+ * Whether a replay is running, and at what speed, from GET /healthz. The API sets the speed to null when a
+ * replay finishes and before one starts, so null means no replay is running, give or take the moment a new
+ * one spends folding the minutes before its window.
+ */
+export async function fetchReplayStatus(): Promise<{ running: boolean; speed: number | null }> {
+  const body: { speed?: number | null } = await get("/healthz");
+  const speed = typeof body.speed === "number" ? body.speed : null;
+  return { running: speed != null, speed };
+}
+
+/** GET /deliveries is one flat audit list for the match; the console keeps it per proposal. */
+export function groupDeliveries(list: DeliveryAudit[]): Record<string, DeliveryAudit[]> {
+  const out: Record<string, DeliveryAudit[]> = {};
+  for (const d of list) (out[d.proposal_id] ??= []).push(d);
+  return out;
+}
+
+export async function fetchDeliveries(): Promise<Record<string, DeliveryAudit[]>> {
+  const body = await get("/deliveries");
+  return groupDeliveries(Array.isArray(body) ? body : []);
+}
+
+/**
+ * Whether the console offers Start (or Run again). Not only before a match and after a live finish
+ * message: a console opened after a replay ended has a match but never saw the finish, so it asks.
+ */
+export const canStartReplay = (hasMatch: boolean, ended: boolean, running: boolean | null) =>
+  !hasMatch || ended || running === false;
+
 /** One of the 54 persona x access x language x side combinations, as the picker lists them. */
 export type ViewerGroup = {
   key: string;

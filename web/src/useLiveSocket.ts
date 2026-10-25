@@ -14,11 +14,17 @@ export type LinkState = "connecting" | "live" | "down";
 const FIRST_RETRY_MS = 1000;
 const MAX_RETRY_MS = 10000;
 
-export function useLiveSocket(url: string, onMessage: (msg: any) => void): LinkState {
+/**
+ * `onOpen` runs on every successful connect, the first and each reconnect, before any of that connection's
+ * messages: the place to drop what the server will send again, or what it may no longer have.
+ */
+export function useLiveSocket(url: string, onMessage: (msg: any) => void, onOpen?: () => void): LinkState {
   const [state, setState] = useState<LinkState>("connecting");
-  // Held in a ref so a new handler identity never tears down a healthy socket.
+  // Held in refs so a new handler identity never tears down a healthy socket.
   const handler = useRef(onMessage);
   handler.current = onMessage;
+  const opened = useRef(onOpen);
+  opened.current = onOpen;
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -41,6 +47,11 @@ export function useLiveSocket(url: string, onMessage: (msg: any) => void): LinkS
       s.onopen = () => {
         retry = FIRST_RETRY_MS;
         setState("live");
+        try {
+          opened.current?.();
+        } catch (err) {
+          console.error("Open handler failed", err);
+        }
       };
       s.onmessage = (e) => {
         let msg: unknown;

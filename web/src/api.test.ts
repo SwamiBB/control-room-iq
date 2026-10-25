@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -169,5 +169,38 @@ describe("code-built items are not template fallbacks", () => {
 
   it("labels the follow-ups Official stats, not Template", () => {
     expect([lead, stats, ticker, fallbackLead].map(modelLabel)).toEqual(["gpt-5.6-terra", "Official stats", "Official stats", "Template"]);
+  });
+});
+
+describe("console state the socket does not re-send (#52)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })));
+
+  it("reads a running replay and its speed from /healthz", async () => {
+    answer({ ok: true, speed: 20 });
+    expect(await fetchReplayStatus()).toEqual({ running: true, speed: 20 });
+  });
+
+  it("reads speed null as no replay running", async () => {
+    answer({ ok: true, speed: null });
+    expect(await fetchReplayStatus()).toEqual({ running: false, speed: null });
+  });
+
+  it("groups /deliveries by proposal, so the chips come back after a refresh", async () => {
+    const audit = (proposal_id: string, lang: string) =>
+      ({ approval_id: `a-${proposal_id}`, proposal_id, persona: "fan", access: "none", lang, source: "variant", failures: [] });
+    answer([audit("p-1", "en"), audit("p-2", "es"), audit("p-1", "hi")]);
+    const by = await fetchDeliveries();
+    expect(Object.keys(by).sort()).toEqual(["p-1", "p-2"]);
+    expect(by["p-1"].map((d) => d.lang)).toEqual(["en", "hi"]);
+  });
+
+  it("offers Start before a match, after a finish, and to a console opened after the end", () => {
+    expect(canStartReplay(false, false, null)).toBe(true); // nothing loaded
+    expect(canStartReplay(true, true, false)).toBe(true); // saw the finish message
+    expect(canStartReplay(true, false, false)).toBe(true); // opened after the end: match, no finish seen
+    expect(canStartReplay(true, false, true)).toBe(false); // mid-replay
+    expect(canStartReplay(true, false, null)).toBe(false); // not known yet
   });
 });
