@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decisionLabel, fetchPreview, layerName, modelLabel, viewLabel } from "./api";
+import { decide, decisionLabel, errorMessage, fetchPreview, layerName, modelLabel, viewLabel } from "./api";
 
 describe("fetchPreview", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -79,5 +79,34 @@ describe("decisionLabel", () => {
 
   it("says Overridden for an override", () => {
     expect(decisionLabel("overridden", "operator")).toBe("Overridden");
+  });
+});
+
+describe("errorMessage", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const answer = (status: number, body: string) =>
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status })));
+
+  const failure = async () => {
+    try {
+      await decide("p-7", "approve");
+    } catch (err) {
+      return err;
+    }
+    throw new Error("decide did not fail");
+  };
+
+  it("turns a 409 into a sentence instead of raw JSON", async () => {
+    answer(409, JSON.stringify({ detail: "proposal already approved" }));
+    const text = errorMessage(await failure(), "fire the graphic");
+    expect(text).toBe("Couldn't fire the graphic: proposal already approved. Nothing was changed.");
+    expect(text).not.toContain("{");
+  });
+
+  it("joins a validation error's messages", async () => {
+    answer(422, JSON.stringify({ detail: [{ loc: ["body", "override_line"], msg: "String should have at most 280 characters" }] }));
+    expect(errorMessage(await failure(), "fire the override"))
+      .toBe("Couldn't fire the override: String should have at most 280 characters (422).");
   });
 });

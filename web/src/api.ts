@@ -110,14 +110,43 @@ export type DecisionEntry = {
 
 export type DecideAction = "approve" | "hold" | "override" | "reject";
 
+/** A non-2xx answer from the API, with FastAPI's `detail` pulled out of the JSON body. */
+export class ApiError extends Error {
+  constructor(readonly status: number, readonly detail: string) {
+    super(`${status} ${detail}`);
+    this.name = "ApiError";
+  }
+}
+
+/** `{"detail": "..."}`, or a validation error's list of `{msg}`, as one plain sentence. */
+async function detailOf(r: Response): Promise<string> {
+  const text = await r.text();
+  try {
+    const d = JSON.parse(text).detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((e) => e?.msg ?? String(e)).join("; ");
+  } catch { /* not JSON: use the text as it came */ }
+  return text || r.statusText;
+}
+
 async function post(path: string, body: Record<string, unknown>) {
   const r = await fetch(`${API}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  if (!r.ok) throw new ApiError(r.status, await detailOf(r));
   return r.json();
+}
+
+/**
+ * What the operator reads when an action fails. `action` says what was being tried, as a verb phrase:
+ * "fire the graphic". A 409 means the thing was already decided, by someone else or the timer.
+ */
+export function errorMessage(err: unknown, action: string): string {
+  if (err instanceof ApiError && err.status === 409) return `Couldn't ${action}: ${err.detail}. Nothing was changed.`;
+  if (err instanceof ApiError) return `Couldn't ${action}: ${err.detail} (${err.status}).`;
+  return `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`;
 }
 
 /** Decide one graphic. `override_line` is accepted only on override; sending it elsewhere is a 422. */

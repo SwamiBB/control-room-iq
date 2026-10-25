@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel,
+  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel, errorMessage,
   type ReplayScope,
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
@@ -16,6 +16,18 @@ import type { MomentMetrics } from "../intel";
 import "./operator.css";
 
 const OPEN: Proposal["status"][] = ["proposed", "held"];
+const OVERRIDE_MAX = 280; // the API's limit on override_line, for firing and for the preview alike
+const ACT_WORDS = {
+  approve: "fire the graphic",
+  hold: "hold the graphic",
+  reject: "drop the graphic",
+  override: "fire the override",
+} as const;
+const PACKAGE_WORDS = {
+  approve: "fire the goal routine",
+  hold: "hold the goal routine",
+  reject: "drop the goal routine",
+} as const;
 const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
@@ -129,20 +141,21 @@ export default function Operator() {
     return () => window.clearInterval(t);
   }, []);
 
-  const run = useCallback(async (key: string, fn: () => Promise<unknown>) => {
+  /** `action` is what the banner says was being tried if it fails: "fire the graphic". */
+  const run = useCallback(async (key: string, action: string, fn: () => Promise<unknown>) => {
     setBusy((b) => ({ ...b, [key]: true }));
     setError(null);
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, action));
     } finally {
       setBusy((b) => ({ ...b, [key]: false }));
     }
   }, []);
 
   const act = (id: string, a: "approve" | "hold" | "override" | "reject") =>
-    run(id, async () => {
+    run(id, ACT_WORDS[a], async () => {
       const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
       setProposals((x) => ({ ...x, [p.proposal_id]: p }));
       if (a === "override") setOverride((o) => ({ ...o, [id]: "" }));
@@ -150,7 +163,7 @@ export default function Operator() {
     });
 
   const actPackage = (packageId: string, a: "approve" | "hold" | "reject") =>
-    run(packageId, async () => {
+    run(packageId, PACKAGE_WORDS[a], async () => {
       const items = await decidePackage(packageId, a);
       setProposals((x) => {
         const next = { ...x };
@@ -226,7 +239,7 @@ export default function Operator() {
               <button
                 className="primary"
                 disabled={busy.replay}
-                onClick={() => run("replay", async () => { setEnded(null); await startReplay(scope); })}
+                onClick={() => run("replay", "start the replay", async () => { setEnded(null); await startReplay(scope); })}
               >
                 {ended ? "Run again" : "Start replay"}
               </button>
@@ -309,7 +322,8 @@ export default function Operator() {
                   warning={warnings[p.proposal_id]}
                   deliveries={deliveries[p.proposal_id]}
                   override={override[p.proposal_id] ?? ""}
-                  busy={Boolean(busy[p.proposal_id])}
+                  // A routine's own buttons wait while Fire all 3 is in flight, or a second click is a 409.
+                  busy={Boolean(busy[p.proposal_id] || (g.packageId && busy[g.packageId]))}
                   name={name}
                   views={views}
                   onChangeViews={changeViews}
@@ -527,6 +541,7 @@ function Card({
       <input
         id={`override-${p.proposal_id}`}
         placeholder="Replacement line…"
+        maxLength={OVERRIDE_MAX}
         value={override}
         onChange={(e) => onOverrideChange(e.target.value)}
       />
