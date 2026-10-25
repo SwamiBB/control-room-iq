@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel, errorMessage,
+  WS, clock, playClock, layerName, modelLabel, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
   REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
@@ -219,7 +219,8 @@ export default function Operator() {
 
   const nowPlay = clk?.play_ms ?? 0;
   // Degrading rather than stalling is by design, but the operator should be told it is happening.
-  const fallbackCount = open.filter((p) => p.fallback || p.meta?.routing === "template").length;
+  // A goal routine's stats and ticker are built in code, not a fallback, so they do not count.
+  const fallbackCount = open.filter(isTemplateFallback).length;
 
   return (
     <div className="gallery">

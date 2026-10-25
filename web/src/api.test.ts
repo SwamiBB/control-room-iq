@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, layerName, modelLabel, startReplay, viewLabel,
+  DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -148,5 +148,26 @@ describe("startReplay", () => {
     const body = await sent();
     expect(body.speed).toBe(20);
     expect(body).not.toHaveProperty("decision_speed");
+  });
+});
+
+describe("code-built items are not template fallbacks", () => {
+  // As the API sends a goal routine's items: the follow-ups have no meta, so routing is the default "template".
+  const noMeta = { routing: "template", model_served: null, latency_ms: null };
+  const lead = { fallback: false, meta: { routing: "balanced", model_served: "gpt-5.6-terra" }, package_seq: 0, payload: {} };
+  const stats = { fallback: false, meta: noMeta, package_seq: 1, payload: { source: "code", player_id: "har-06" } };
+  const ticker = { fallback: false, meta: noMeta, package_seq: 2, payload: { source: "code", score: [1, 0] } };
+  const fallbackLead = { fallback: true, meta: noMeta, package_seq: 0, payload: {} };
+
+  it("counts none of a model-written routine as a fallback", () => {
+    expect([lead, stats, ticker].filter(isTemplateFallback)).toHaveLength(0);
+  });
+
+  it("still counts a lead the template wrote", () => {
+    expect([fallbackLead, stats, ticker].filter(isTemplateFallback)).toEqual([fallbackLead]);
+  });
+
+  it("labels the follow-ups Official stats, not Template", () => {
+    expect([lead, stats, ticker, fallbackLead].map(modelLabel)).toEqual(["gpt-5.6-terra", "Official stats", "Official stats", "Template"]);
   });
 });

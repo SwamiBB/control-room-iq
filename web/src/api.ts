@@ -310,9 +310,23 @@ export const layerName = (l: string) => {
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
 
-/** What produced this line: the routed model, or Template when the fallback wrote it. */
-export const modelLabel = (p: Pick<Proposal, "fallback" | "meta">) =>
-  p.fallback || p.meta?.routing === "template" ? "Template" : p.meta?.model_served ?? null;
+type Source = Pick<Proposal, "fallback" | "meta"> & Partial<Pick<Proposal, "package_seq" | "payload">>;
+
+/**
+ * A goal routine's follow-up (scorer stats, ticker): built in code from the official stats, with no AI text.
+ * The same test as the API's goal_package.is_code_built. These carry no `meta`, so they get the schema's
+ * default routing "template", which is why routing alone cannot tell them from a fallback.
+ */
+export const isCodeBuilt = (p: Partial<Pick<Proposal, "package_seq" | "payload">>) =>
+  (p.package_seq ?? 0) > 0 && p.payload?.source === "code";
+
+/** The template fallback wrote this line because a model did not: a timeout, a bad reply, a decline. */
+export const isTemplateFallback = (p: Source) =>
+  !isCodeBuilt(p) && (p.fallback || p.meta?.routing === "template");
+
+/** What produced this line: the routed model, Template when the fallback wrote it, or the official stats. */
+export const modelLabel = (p: Source) =>
+  isCodeBuilt(p) ? "Official stats" : isTemplateFallback(p) ? "Template" : p.meta?.model_served ?? null;
 
 export const STATUS_WORDS: Record<string, string> = {
   proposed: "Awaiting decision",
