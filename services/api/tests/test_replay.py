@@ -8,12 +8,10 @@ from api.main import (
     _pace,
     _replay,
     _stamp_play_time,
-    app,
     hub,
 )
 from api_factories import RecordingSocket, moment, proposal
 from crq_schemas import ProposalStatus
-from fastapi.testclient import TestClient
 from simulator.cli import build_meta
 from simulator.engine import MatchEngine
 
