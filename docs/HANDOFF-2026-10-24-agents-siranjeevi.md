@@ -100,5 +100,6 @@ written on Friday, October 23 by merging Siranjeevi's own list with the agent it
 
 ### If time runs short
 
-Items 1, 2, 3 and 5 change what the demo does; do those first. Anything from 3 or 6 that does not ship by
-Monday comes out of the README's "Built on Microsoft Foundry and Azure" table.
+Items 1 and 5 are done. Of the rest, 2 and 3 change what the demo does, so do those first, with 3 after the
+router deployments in #47. Anything from 3 or 6 that does not ship by Monday comes out of the README's "Built on
+Microsoft Foundry and Azure" table.

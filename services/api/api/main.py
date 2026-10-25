@@ -150,6 +150,7 @@ class Hub:
         self.deliveries.clear()
         self.state = None
         self.replay_speed = None
+        self.state_published_at = 0.0
         self.cancel_moments()  # the old match's agents must not post into the new one
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
         self.goal_phases.clear()
@@ -158,7 +159,6 @@ class Hub:
         for task in self.moment_tasks:
             task.cancel()
         self.moment_tasks.clear()
-        self.state_published_at = 0.0
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -562,13 +562,14 @@ STATE_PUBLISH_S = 0.25
 
 
 def _awaiting_decision() -> bool:
-    """Is a person's answer outstanding right now?
+    """Is a person's answer outstanding right now, or about to be?
 
-    Only a proposal still on the desk counts. Once the timer has held one, the decision window has closed
-    and the match carries on at the speed it was asked for — a held graphic lives out its shelf life while
-    play runs normally. Counting held graphics here would pin an unattended desk at real time for ever.
+    A proposal still on the desk counts, and so do agents still writing one: at full speed the ~15 s they
+    take would let minutes of match go by, and the card would reach the desk long after its moment (#51).
+    Once the timer has held a graphic, the decision window has closed and the match carries on at the speed
+    it was asked for — counting held graphics here would pin an unattended desk at real time for ever.
     """
-    return any(p.status == ProposalStatus.PROPOSED for p in hub.proposals.values())
+    return bool(hub.moment_tasks) or any(p.status == ProposalStatus.PROPOSED for p in hub.proposals.values())
 
 
 def _effective_speed(req: ReplayRequest) -> float:
@@ -677,6 +678,9 @@ def _clock(m: Moment) -> str:
     return f"{minute:02d}:{m.t_ms // 1000 % 60:02d}"
 
 
+GOAL_TOOK_OVER = "No graphic proposed: the goal on the same move took over"
+
+
 def _taken_by_goal(m: Moment) -> bool:
     return m.kind != MomentKind.GOAL and _phase_of(m) in hub.goal_phases
 
@@ -684,14 +688,19 @@ def _taken_by_goal(m: Moment) -> bool:
 async def _handle_moment(m: Moment) -> None:
     res = await pipeline.process(m, meta=hub.meta)
     if _taken_by_goal(m) and res.proposal:  # the goal on this move arrived while these agents were still writing
-        res.notes.append("No graphic proposed: the goal on the same move took over")
+        res.notes.append(GOAL_TOOK_OVER)
         res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
-    # Checked again: the goal can arrive during the broadcast above, after the first check.
-    if res.proposal and not _taken_by_goal(m):
+    # Checked again: the goal can arrive during the broadcast above, after the first check. The moment has
+    # already gone out, so the reason is kept on the stored result and logged rather than broadcast twice.
+    if res.proposal and _taken_by_goal(m):
+        hub.results[m.moment_id]["notes"] = [*hub.results[m.moment_id]["notes"], GOAL_TOOK_OVER]
+        logger.info("moment %s: card dropped, the goal on the same move arrived first", m.moment_id)
+        return
+    if res.proposal:
         flagged = unsourced_numbers(res.proposal.line, m)
         lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
         for p in build_goal_package(lead, m, hub.meta):

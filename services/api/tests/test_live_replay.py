@@ -130,6 +130,7 @@ def test_a_goal_that_arrives_during_the_broadcast_still_takes_the_card(monkeypat
 
     asyncio.run(scenario())
     assert "p-save" not in hub.proposals
+    assert hub.results["save"]["notes"] == [main.GOAL_TOOK_OVER]  # the reason is kept, not lost
 
 
 def test_a_goal_without_a_move_supersedes_nothing(monkeypatch):
@@ -199,3 +200,54 @@ def test_the_match_folder_is_built_off_the_event_loop(monkeypatch):
     monkeypatch.setattr(main, "StateFolder", RecordingFolder)
     asyncio.run(_start_match(build_meta(7)))
     assert seen["thread"] is not threading.main_thread()
+
+
+def test_the_match_slows_to_real_time_while_agents_write(monkeypatch):
+    # At 20x, the ~15 s the agents take would be minutes of match: the card must not arrive long after its moment.
+    monkeypatch.setattr(main, "pipeline", SlowPipeline(delay=0.2))
+    req = main.ReplayRequest(speed=20.0)
+
+    async def scenario():
+        before = main._effective_speed(req)
+        await _start_moment(_on_move())
+        writing = main._effective_speed(req)
+        await _drain_moments()
+        hub.proposals["p-mo-1"].status = ProposalStatus.HELD  # decided: the match may run fast again
+        return before, writing, main._effective_speed(req)
+
+    assert asyncio.run(scenario()) == (20.0, 1.0, 20.0)
+
+
+def test_a_fourth_moment_waits_for_a_free_slot(monkeypatch):
+    fake = SlowPipeline(delay=0.2)
+    monkeypatch.setattr(main, "pipeline", fake)
+
+    async def scenario():
+        for i in range(main.MAX_PARALLEL_MOMENTS + 1):
+            await _start_moment(_on_move(f"ph-{i}", moment_id=f"mo-{i}"))
+        await asyncio.sleep(0.05)
+        started = list(fake.calls)
+        await _drain_moments()
+        return started
+
+    started = asyncio.run(scenario())
+    assert len(started) == main.MAX_PARALLEL_MOMENTS and len(fake.calls) == main.MAX_PARALLEL_MOMENTS + 1
+
+
+def test_a_moment_that_crashes_is_logged_and_the_others_carry_on(monkeypatch, caplog):
+    class Breaks(SlowPipeline):
+        async def process(self, m, **kwargs):
+            if m.moment_id == "bad":
+                raise RuntimeError("agents broke")
+            return await super().process(m, **kwargs)
+
+    monkeypatch.setattr(main, "pipeline", Breaks())
+
+    async def scenario():
+        await _start_moment(_on_move("ph-1", moment_id="bad"))
+        await _start_moment(_on_move("ph-2", moment_id="good"))
+        await _drain_moments()
+
+    asyncio.run(scenario())
+    assert "moment bad failed" in caplog.text and "agents broke" in caplog.text
+    assert "p-good" in hub.proposals and hub.moment_tasks == set()
