@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { WS } from "../api";
 import IntelChips from "../components/IntelChips";
 import type { IntelRegister, MomentMetrics } from "../intel";
@@ -67,7 +67,7 @@ export type Packet = {
   fan_card?: FanCard | null;
 };
 
-type Cue = {
+export type Cue = {
   cue_id: string;
   kind: "chance" | "goal" | "whistle" | "crowd_rising" | "crowd_roar" | "crowd_groan" | "card";
   team?: string | null;
@@ -164,6 +164,25 @@ export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
 }
 
+/**
+ * The strike cue's lifetime. show() puts a cue up for its hold_ms, cutting any running one; clear() takes
+ * it down at once, which is what a change of settings needs: clearing only the timer left the cue up for good.
+ */
+export function cueTimer(setCue: (c: Cue | null) => void) {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return {
+    show(c: Cue) {
+      clearTimeout(t);
+      setCue(c);
+      t = setTimeout(() => setCue(null), c.hold_ms ?? 1500);
+    },
+    clear() {
+      clearTimeout(t);
+      setCue(null);
+    },
+  };
+}
+
 const CUE_WORDS: Record<Cue["kind"], string> = {
   chance: "Shot",
   goal: "Goal",
@@ -198,7 +217,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [held, setHeld] = useState<Map<string, Held>>(new Map());
   const [cue, setCue] = useState<Cue | null>(null);
   const [refused, setRefused] = useState(0);
-  const cueTimer = useRef<number | undefined>(undefined);
+  const [cues] = useState(() => cueTimer(setCue));
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
@@ -219,18 +238,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         }
         upsert(packet);
       }
-      if (m.type === "fan_cue") {
-        const c = m.cue as Cue;
-        setCue(c);
-        window.clearTimeout(cueTimer.current);
-        cueTimer.current = window.setTimeout(() => setCue(null), c.hold_ms ?? 1500);
-      }
+      if (m.type === "fan_cue") cues.show(m.cue as Cue);
     }
   });
 
+  // New settings mean a new feed: a cue from the old one must not outlive it.
   useEffect(() => {
-    return () => window.clearTimeout(cueTimer.current);
-  }, [persona, access, lang, allegiance, upsert]);
+    return () => cues.clear();
+  }, [persona, access, lang, allegiance, cues]);
 
   // Expire held packets on a light tick rather than per-packet timers. Dropping them is what re-renders,
   // and `live` is worked out on every render: a memo on `held` alone never saw the clock move.

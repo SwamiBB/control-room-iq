@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Held, type Packet } from "./Viewer";
+import { cueTimer, holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -148,5 +148,32 @@ describe("mainSlot (goal routine ordering)", () => {
     const caption: Packet = { ...approved, cue_id: "c-cap", layer: "caption" };
     const live = liveAt(new Map([["c-cap", at(caption, 1000)], ["c-lead", at(lead, 1001)]]), 1002);
     expect(mainSlot(live)?.packet.cue_id).toBe("c-cap");
+  });
+});
+
+describe("cueTimer (the strike cue)", () => {
+  const shot: Cue = { cue_id: "fc-1", kind: "chance", crowd_level: 0.6, pulse: "pulse", hold_ms: 1500 };
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("takes the cue down after its hold", () => {
+    const setCue = vi.fn();
+    cueTimer(setCue).show(shot);
+    vi.advanceTimersByTime(1_500);
+    expect(setCue.mock.calls).toEqual([[shot], [null]]);
+  });
+
+  it("takes the cue down at once on clear, mid-pulse, and does not bring it back", () => {
+    const setCue = vi.fn();
+    const cues = cueTimer(setCue);
+    cues.show(shot);
+    vi.advanceTimersByTime(500);
+
+    cues.clear(); // what the settings change runs
+    expect(setCue).toHaveBeenLastCalledWith(null);
+
+    vi.advanceTimersByTime(5_000);
+    expect(setCue.mock.calls).toEqual([[shot], [null]]);
   });
 });
