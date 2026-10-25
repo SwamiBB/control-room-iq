@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import Operator from "./views/Operator";
 import Viewer from "./views/Viewer";
 import Multiview from "./views/Multiview";
+import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles.css";
 
 function Home() {
@@ -24,9 +25,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/operator" element={<Operator />} />
-        <Route path="/viewer" element={<Viewer />} />
-        <Route path="/multiview" element={<Multiview />} />
+        <Route path="/operator" element={<ErrorBoundary name="Operator console"><Operator /></ErrorBoundary>} />
+        <Route path="/viewer" element={<ErrorBoundary name="Viewer"><Viewer /></ErrorBoundary>} />
+        <Route path="/multiview" element={<ErrorBoundary name="Multiviewer"><Multiview /></ErrorBoundary>} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

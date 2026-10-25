@@ -110,14 +110,63 @@ export type DecisionEntry = {
 
 export type DecideAction = "approve" | "hold" | "override" | "reject";
 
-async function post(path: string, body: Record<string, unknown>) {
-  const r = await fetch(`${API}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+/**
+ * A failed call to the API: a non-2xx answer, with FastAPI's `detail` pulled out of the JSON body, or
+ * status 0 when there was no answer at all.
+ */
+export class ApiError extends Error {
+  constructor(readonly status: number, readonly detail: string) {
+    super(`${status} ${detail}`);
+    this.name = "ApiError";
+  }
+}
+
+/** `{"detail": "..."}`, or a validation error's list of `{msg}`, as one plain sentence. */
+async function detailOf(r: Response): Promise<string> {
+  const text = await r.text();
+  try {
+    const d = JSON.parse(text).detail;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((e) => e?.msg ?? String(e)).join("; ");
+  } catch { /* not JSON: use the text as it came */ }
+  return text || r.statusText;
+}
+
+async function request(path: string, init?: RequestInit) {
+  let r: Response;
+  try {
+    r = await fetch(`${API}${path}`, init);
+  } catch {
+    throw new ApiError(0, "no answer"); // the browser says only "Failed to fetch"
+  }
+  if (!r.ok) throw new ApiError(r.status, await detailOf(r));
   return r.json();
+}
+
+const get = (path: string) => request(path);
+
+const post = (path: string, body: Record<string, unknown>) =>
+  request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+/** Where the console is sending its calls, as someone checking the API would look for it. */
+const apiWhere = () => API || location.host;
+
+/**
+ * What the operator reads when a call fails: what was being tried, what went wrong, and what to check.
+ * `action` is a verb phrase: "fire the graphic", "load the decision log".
+ */
+export function errorMessage(err: unknown, action: string): string {
+  if (!(err instanceof ApiError)) return `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`;
+  if (err.status === 0) {
+    return `Couldn't ${action}: the API at ${apiWhere()} isn't answering. Check that it is running, then try again.`;
+  }
+  // Already decided, by someone else or the timer.
+  if (err.status === 409) return `Couldn't ${action}: ${err.detail}. Nothing was changed.`;
+  if (err.status >= 500) {
+    return `Couldn't ${action}: the API failed while handling it (${err.status}). Its terminal has the error; `
+      + "try again, and restart the API if it keeps happening.";
+  }
+  return `Couldn't ${action}: ${err.detail} (${err.status}).`;
 }
 
 /** Decide one graphic. `override_line` is accepted only on override; sending it elsewhere is a 422. */
@@ -141,22 +190,25 @@ export async function decidePackage(packageId: string, action: "approve" | "hold
 export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
 
 /**
- * 20x through the dead air, real time for as long as anyone owes an answer.
+ * 20x through the dead air by default, real time for as long as anyone owes an answer.
  *
- * Falling back to 1x on an open decision is the API's default at any speed, so `speed` here only sets how
- * fast the match moves when the running order is clear. The two mitigations compose: the window picks the
- * five minutes worth watching, the decompression skips the gaps inside them, and all four decisions are
- * still taken at the speed the operator would really have.
+ * Falling back to 1x on an open decision is the API's default at any speed (decision_speed, not sent
+ * here), so `speed` only sets how fast the match moves when the running order is clear. The two
+ * mitigations compose: the window picks the five minutes worth watching, the decompression skips the gaps
+ * inside them, and all four decisions are still taken at the speed the operator would really have.
  */
 export type ReplayScope = "window" | "full";
 
-export const startReplay = (scope: ReplayScope = "window", file = "data/reference/match-042.jsonl", speed = 20) =>
+/** What the console offers for the dead air between decisions. */
+export const REPLAY_SPEEDS = [10, 20, 30, 50] as const;
+export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
+
+export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 20,
+                            file = "data/reference/match-042.jsonl") =>
   post("/matches/replay", { file, speed, ...(scope === "window" ? DEMO_WINDOW : {}) });
 
 export async function fetchDecisions(): Promise<DecisionEntry[]> {
-  const r = await fetch(`${API}/decisions`);
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-  const body = await r.json();
+  const body = await get("/decisions");
   return Array.isArray(body) ? body : body.decisions ?? [];
 }
 
@@ -171,10 +223,16 @@ export type ViewerGroup = {
   allegiance: Allegiance;
 };
 
+/** "newcomer.deaf.hi.away" as the picker shows it: "hi newcomer · deaf". */
+export const viewLabel = (key: string) => {
+  const [persona, access, lang] = key.split(".");
+  return `${lang} ${persona}${access === "deaf" ? " · deaf" : ""}`;
+};
+
 /** What one viewer group would get if this proposal were fired now. Read-only: nothing airs. */
 export type PreviewLine = {
-  key?: string;
-  view?: string;
+  /** The whole group, not its key: `view.key` is what to label and key the row by. */
+  view: ViewerGroup;
   text: string;
   source: "variant" | "template" | "base" | "override" | string;
   lang_shown: Lang;
@@ -183,13 +241,14 @@ export type PreviewLine = {
 };
 
 export async function fetchViewerGroups(): Promise<ViewerGroup[]> {
-  const r = await fetch(`${API}/viewer-groups`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  const body = await r.json();
+  const body = await get("/viewer-groups");
   return Array.isArray(body) ? body : body.groups ?? [];
 }
 
-/** At most 12 views per the API. `overrideLine` previews typed text before it is fired. */
+/**
+ * At most 12 views per the API. `overrideLine` previews typed text before it is fired.
+ * The API answers `{proposal_id, override_line, items}` (preview.py `Preview`).
+ */
 export async function fetchPreview(
   proposalId: string,
   views: string[],
@@ -198,10 +257,8 @@ export async function fetchPreview(
   const qs = new URLSearchParams();
   for (const v of views.slice(0, 12)) qs.append("view", v);
   if (overrideLine) qs.set("override_line", overrideLine);
-  const r = await fetch(`${API}/proposals/${proposalId}/preview?${qs}`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  const body = await r.json();
-  return Array.isArray(body) ? body : body.previews ?? [];
+  const body: { items?: PreviewLine[] } = await get(`/proposals/${proposalId}/preview?${qs}`);
+  return body.items ?? [];
 }
 
 /** GET /metrics — the three numbers a broadcaster asks for before trusting a tool in the gallery. */
@@ -230,9 +287,7 @@ export type GalleryMetrics = {
 };
 
 export async function fetchMetrics(): Promise<GalleryMetrics> {
-  const r = await fetch(`${API}/metrics`);
-  if (!r.ok) throw new Error(`${r.status}`);
-  return r.json();
+  return get("/metrics");
 }
 
 export const sourceWord = (s: string) =>

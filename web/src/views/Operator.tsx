@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel,
-  type ReplayScope,
+  WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel, errorMessage,
+  REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
+import ErrorBoundary from "../components/ErrorBoundary";
 import IntelChips from "../components/IntelChips";
 import MatchIntel from "../components/MatchIntel";
 import PitchView, { type PitchShot } from "../components/PitchView";
@@ -15,6 +16,18 @@ import type { MomentMetrics } from "../intel";
 import "./operator.css";
 
 const OPEN: Proposal["status"][] = ["proposed", "held"];
+const OVERRIDE_MAX = 280; // the API's limit on override_line, for firing and for the preview alike
+const ACT_WORDS = {
+  approve: "fire the graphic",
+  hold: "hold the graphic",
+  reject: "drop the graphic",
+  override: "fire the override",
+} as const;
+const PACKAGE_WORDS = {
+  approve: "fire the goal routine",
+  hold: "hold the goal routine",
+  reject: "drop the goal routine",
+} as const;
 const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
@@ -34,7 +47,8 @@ export default function Operator() {
   const [speed, setSpeed] = useState<number | null>(null);
   const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
   const [scope, setScope] = useState<ReplayScope>("window");
-  const [logError, setLogError] = useState(false);
+  const [pace, setPace] = useState<ReplaySpeed>(20);
+  const [logError, setLogError] = useState<string | null>(null);
 
   // Column split, as a percentage given to the decisions column. Remembered per console.
   const [split, setSplit] = useState<number>(() => {
@@ -85,8 +99,8 @@ export default function Operator() {
   // The log is the API's, not ours: holds by the timer and expiries never pass through this console.
   const refreshDecisions = useCallback(() => {
     fetchDecisions()
-      .then((d) => { setDecisions(d); setLogError(false); })
-      .catch(() => setLogError(true));
+      .then((d) => { setDecisions(d); setLogError(null); })
+      .catch((err) => setLogError(errorMessage(err, "load the decision log")));
   }, []);
 
   useEffect(() => {
@@ -128,20 +142,21 @@ export default function Operator() {
     return () => window.clearInterval(t);
   }, []);
 
-  const run = useCallback(async (key: string, fn: () => Promise<unknown>) => {
+  /** `action` is what the banner says was being tried if it fails: "fire the graphic". */
+  const run = useCallback(async (key: string, action: string, fn: () => Promise<unknown>) => {
     setBusy((b) => ({ ...b, [key]: true }));
     setError(null);
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err, action));
     } finally {
       setBusy((b) => ({ ...b, [key]: false }));
     }
   }, []);
 
   const act = (id: string, a: "approve" | "hold" | "override" | "reject") =>
-    run(id, async () => {
+    run(id, ACT_WORDS[a], async () => {
       const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
       setProposals((x) => ({ ...x, [p.proposal_id]: p }));
       if (a === "override") setOverride((o) => ({ ...o, [id]: "" }));
@@ -149,7 +164,7 @@ export default function Operator() {
     });
 
   const actPackage = (packageId: string, a: "approve" | "hold" | "reject") =>
-    run(packageId, async () => {
+    run(packageId, PACKAGE_WORDS[a], async () => {
       const items = await decidePackage(packageId, a);
       setProposals((x) => {
         const next = { ...x };
@@ -222,10 +237,19 @@ export default function Operator() {
                 <option value="window">Minutes 41–46</option>
                 <option value="full">Full match</option>
               </select>
+              {/* Only the dead air: the match still drops to real time whenever a graphic is waiting. */}
+              <select
+                aria-label="Replay speed between decisions"
+                title="Speed between decisions. The match drops to real time whenever a graphic is waiting."
+                value={pace}
+                onChange={(e) => setPace(Number(e.target.value) as ReplaySpeed)}
+              >
+                {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+              </select>
               <button
                 className="primary"
                 disabled={busy.replay}
-                onClick={() => run("replay", async () => { setEnded(null); await startReplay(scope); })}
+                onClick={() => run("replay", "start the replay", async () => { setEnded(null); await startReplay(scope, pace); })}
               >
                 {ended ? "Run again" : "Start replay"}
               </button>
@@ -252,7 +276,7 @@ export default function Operator() {
         </p>
       )}
       {logError && link === "live" && (
-        <p className="warnbar">The decision log is not answering (<code>GET /decisions</code>). Decisions are still being recorded.</p>
+        <p className="warnbar">{logError} Decisions are still being recorded; the log refreshes every 5 s.</p>
       )}
       {fallbackCount > 0 && (
         <p className="warnbar">
@@ -308,7 +332,8 @@ export default function Operator() {
                   warning={warnings[p.proposal_id]}
                   deliveries={deliveries[p.proposal_id]}
                   override={override[p.proposal_id] ?? ""}
-                  busy={Boolean(busy[p.proposal_id])}
+                  // A routine's own buttons wait while Fire all 3 is in flight, or a second click is a 409.
+                  busy={Boolean(busy[p.proposal_id] || (g.packageId && busy[g.packageId]))}
                   name={name}
                   views={views}
                   onChangeViews={changeViews}
@@ -512,17 +537,21 @@ function Card({
 
       <DeliveryChips items={deliveries} />
 
-      {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once. */}
-      <PreviewFor
-        proposalId={p.proposal_id}
-        views={views}
-        onChangeViews={onChangeViews}
-        overrideLine={override}
-      />
+      {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once.
+          Its own boundary too: a bad preview row must never take the Fire button with it. */}
+      <ErrorBoundary name="Preview for">
+        <PreviewFor
+          proposalId={p.proposal_id}
+          views={views}
+          onChangeViews={onChangeViews}
+          overrideLine={override}
+        />
+      </ErrorBoundary>
 
       <input
         id={`override-${p.proposal_id}`}
         placeholder="Replacement line…"
+        maxLength={OVERRIDE_MAX}
         value={override}
         onChange={(e) => onOverrideChange(e.target.value)}
       />

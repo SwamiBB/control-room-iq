@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { WS } from "../api";
 import IntelChips from "../components/IntelChips";
 import type { IntelRegister, MomentMetrics } from "../intel";
@@ -53,6 +53,11 @@ export type Packet = {
   allegiance: Allegiance;
   verified: boolean;
   fallback: boolean;
+  /** The packet's slot in play time (packets.py packet_slot). Its length is how long the graphic stays up. */
+  t_in_ms: number;
+  t_out_ms: number;
+  priority: number;
+  /** A floor for collisions, not the duration: it defaults to 4000 for every layer. */
   min_hold_ms: number;
   replaces: string[];
   approval_id?: string;
@@ -62,7 +67,7 @@ export type Packet = {
   fan_card?: FanCard | null;
 };
 
-type Cue = {
+export type Cue = {
   cue_id: string;
   kind: "chance" | "goal" | "whistle" | "crowd_rising" | "crowd_roar" | "crowd_groan" | "card";
   team?: string | null;
@@ -72,7 +77,58 @@ type Cue = {
   hold_ms: number;
 };
 
-type Held = { packet: Packet; arrivedAt: number; until: number };
+export type Held = { packet: Packet; arrivedAt: number; until: number };
+
+const MIN_ON_SCREEN_MS = 2000;
+
+/**
+ * How long a packet stays on screen: its slot, or its caption card's hold if that is longer.
+ *
+ * The slot is play time and this socket has no match clock, so its length is spent in real time from
+ * arrival. Not min_hold_ms: that is 4000 on every packet, which would cut the 45 s goal ticker and the
+ * 8 s caption card short.
+ */
+export function holdMs(p: Packet): number {
+  const slot = p.t_out_ms - p.t_in_ms;
+  return Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+}
+
+/** Adds a packet. A re-send under the same cue_id replaces it; a packet supersedes the ids it names. */
+export function withPacket(held: Map<string, Held>, packet: Packet, now: number): Map<string, Held> {
+  const next = new Map(held);
+  for (const id of packet.replaces ?? []) next.delete(id);
+  next.set(packet.cue_id, { packet, arrivedAt: now, until: now + holdMs(packet) });
+  return next;
+}
+
+/** What is still up at `now`, newest first. */
+export function liveAt(held: Map<string, Held>, now: number): Held[] {
+  return [...held.values()].filter((h) => h.until > now).sort((a, b) => b.arrivedAt - a.arrivedAt);
+}
+
+/**
+ * What goes in the main slot, from `live` (newest first).
+ *
+ * The caption layer never queues: a new line always cuts the running one. Otherwise the newest graphic
+ * wins, except that a ticker never displaces anything else. A goal routine's three packets arrive in the
+ * same instant when fired, and a newest-wins ticker would take the slot from the lead graphic, which is the
+ * one carrying the deaf fan's caption card.
+ *
+ * Arrival order is all this can go on. The routine's timing (package_offset_ms, t_in_ms) is play time and
+ * this socket has no match clock; spending it as real time would put the scorer stats 25 real seconds after
+ * the goal while the match, at replay speed, has moved minutes on. So nothing here delays a packet.
+ */
+export function mainSlot(live: Held[]): Held | undefined {
+  return live.find((h) => h.packet.layer === "caption")
+    ?? live.find((h) => h.packet.layer !== "caption" && h.packet.layer !== "ticker")
+    ?? live.find((h) => h.packet.layer === "ticker");
+}
+
+/** Drops what has expired. Returns the same map when nothing has, so an idle tick does not re-render. */
+export function pruneExpired(held: Map<string, Held>, now: number): Map<string, Held> {
+  if ([...held.values()].every((h) => h.until > now)) return held;
+  return new Map([...held].filter(([, h]) => h.until > now));
+}
 
 /**
  * The facts under the caption. Every value is the stats engine's; only the labels are translated,
@@ -106,6 +162,25 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
+}
+
+/**
+ * The strike cue's lifetime. show() puts a cue up for its hold_ms, cutting any running one; clear() takes
+ * it down at once, which is what a change of settings needs: clearing only the timer left the cue up for good.
+ */
+export function cueTimer(setCue: (c: Cue | null) => void) {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return {
+    show(c: Cue) {
+      clearTimeout(t);
+      setCue(c);
+      t = setTimeout(() => setCue(null), c.hold_ms ?? 1500);
+    },
+    clear() {
+      clearTimeout(t);
+      setCue(null);
+    },
+  };
 }
 
 const CUE_WORDS: Record<Cue["kind"], string> = {
@@ -142,19 +217,12 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [held, setHeld] = useState<Map<string, Held>>(new Map());
   const [cue, setCue] = useState<Cue | null>(null);
   const [refused, setRefused] = useState(0);
-  const cueTimer = useRef<number | undefined>(undefined);
+  const [cues] = useState(() => cueTimer(setCue));
 
+  // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
     const now = Date.now();
-    setHeld((prev) => {
-      const next = new Map(prev);
-      // A new packet supersedes the ids it names, whatever order they arrived in.
-      for (const id of packet.replaces ?? []) next.delete(id);
-      // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
-      const hold = Math.max(packet.min_hold_ms ?? 4000, 2000);
-      next.set(packet.cue_id, { packet, arrivedAt: now, until: now + hold });
-      return next;
-    });
+    setHeld((prev) => withPacket(prev, packet, now));
   }, []);
 
   const url = `${WS}/ws/viewer?${new URLSearchParams({ persona, access, lang, allegiance })}`;
@@ -170,36 +238,25 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         }
         upsert(packet);
       }
-      if (m.type === "fan_cue") {
-        const c = m.cue as Cue;
-        setCue(c);
-        window.clearTimeout(cueTimer.current);
-        cueTimer.current = window.setTimeout(() => setCue(null), c.hold_ms ?? 1500);
-      }
+      if (m.type === "fan_cue") cues.show(m.cue as Cue);
     }
   });
 
+  // New settings mean a new feed: a cue from the old one must not outlive it.
   useEffect(() => {
-    return () => window.clearTimeout(cueTimer.current);
-  }, [persona, access, lang, allegiance, upsert]);
+    return () => cues.clear();
+  }, [persona, access, lang, allegiance, cues]);
 
-  // Expire held packets on a light tick rather than per-packet timers.
-  const [, forceTick] = useState(0);
+  // Expire held packets on a light tick rather than per-packet timers. Dropping them is what re-renders,
+  // and `live` is worked out on every render: a memo on `held` alone never saw the clock move.
   useEffect(() => {
-    const t = window.setInterval(() => forceTick((n) => n + 1), 500);
+    const t = window.setInterval(() => setHeld((prev) => pruneExpired(prev, Date.now())), 500);
     return () => window.clearInterval(t);
   }, []);
 
-  const live = useMemo(() => {
-    const now = Date.now();
-    return [...held.values()].filter((h) => h.until > now).sort((a, b) => b.arrivedAt - a.arrivedAt);
-  }, [held]);
+  const live = liveAt(held, Date.now());
 
-  // The caption layer never queues: a new line always cuts the running one.
-  const caption = live.find((h) => h.packet.layer === "caption");
-  const graphic = live.find((h) => h.packet.layer !== "caption");
-  const current = caption ?? graphic;
-  const packet = current?.packet;
+  const packet = mainSlot(live)?.packet;
 
   const register: IntelRegister = persona;
   const names: Record<string, string> = packet?.payload?.names ?? {};
@@ -304,7 +361,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       )}
 
       <ul className="history">
-        {live.slice(1).map((h) => (
+        {/* Everything else still up; the main slot is not always the newest, so filter rather than slice. */}
+        {live.filter((h) => h.packet !== packet).map((h) => (
           <li key={h.packet.cue_id}>{h.packet.line}</li>
         ))}
       </ul>
