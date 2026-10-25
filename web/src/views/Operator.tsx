@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
-  REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
+  COMPRESSED_SPEEDS, REAL_TIME, speedLabel, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl, fetchDeliveries, fetchReplayStatus, canStartReplay,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
@@ -271,11 +271,14 @@ export default function Operator() {
               {/* Only the dead air: the match still drops to real time whenever a graphic is waiting. */}
               <select
                 aria-label="Replay speed between decisions"
-                title="Speed between decisions. The match drops to real time whenever a graphic is waiting."
+                title="Real time is the speed of a live feed. The others compress the gaps between decisions; the match drops to real time whenever a graphic is waiting."
                 value={pace}
                 onChange={(e) => setPace(Number(e.target.value) as ReplaySpeed)}
               >
-                {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+                <option value={REAL_TIME}>{speedLabel(REAL_TIME)}</option>
+                <optgroup label="Compressed for the demo">
+                  {COMPRESSED_SPEEDS.map((s) => <option key={s} value={s}>{speedLabel(s)}</option>)}
+                </optgroup>
               </select>
               <button
                 className="primary"
@@ -298,7 +301,7 @@ export default function Operator() {
           <div className="scoreboard">
             <b>{state.home.goals} – {state.away.goals}</b>
             <span>{clk ? clock(clk.clock_ms, clk.period) : clock(state.t_ms, state.period)}</span>
-            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === 1 ? "real time" : `${speed}×`}` : ""}</small>
+            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === REAL_TIME ? "real time" : `${speed}×`}` : ""}</small>
           </div>
         )}
       </header>

@@ -203,9 +203,16 @@ export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
  */
 export type ReplayScope = "window" | "full";
 
-/** What the console offers for the dead air between decisions. */
-export const REPLAY_SPEEDS = [10, 20, 30, 50] as const;
+/**
+ * What the console offers for the dead air between decisions. 1x is not a slow option: it is the only speed a
+ * live feed has. The rest compress the replay for a demo.
+ */
+export const REPLAY_SPEEDS = [1, 10, 20, 30, 50] as const;
 export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
+export const REAL_TIME: ReplaySpeed = 1;
+export const COMPRESSED_SPEEDS = REPLAY_SPEEDS.filter((s) => s !== REAL_TIME);
+
+export const speedLabel = (s: number) => (s === REAL_TIME ? "Real time · 1×" : `${s}×`);
 
 export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 20,
                             file = "data/reference/match-042.jsonl") =>

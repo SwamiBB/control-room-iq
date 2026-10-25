@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  canStartReplay, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -152,6 +152,23 @@ describe("startReplay", () => {
     const body = await sent();
     expect(body.speed).toBe(20);
     expect(body).not.toHaveProperty("decision_speed");
+  });
+});
+
+describe("replay speeds", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("offers real time, labelled as such, beside the demo compressions", () => {
+    expect(REPLAY_SPEEDS[0]).toBe(1);
+    expect(speedLabel(1)).toBe("Real time · 1×");
+    expect(COMPRESSED_SPEEDS.map(speedLabel)).toEqual(["10×", "20×", "30×", "50×"]);
+  });
+
+  it("sends 1 for real time", async () => {
+    const fetch = vi.fn(async (_url: string, _init: any) => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetch);
+    await startReplay("window", 1);
+    expect(JSON.parse(String(fetch.mock.calls[0][1].body)).speed).toBe(1);
   });
 });
 
