@@ -186,7 +186,8 @@ export async function decidePackage(packageId: string, action: "approve" | "hold
  * The demo window: minutes 41 to 46 of the reference match.
  *
  * A big chance saved, the goal that followed it, a free kick in the final third and a second big chance
- * — four decisions, one of them a goal routine. Everything before 41:00 is folded into match state by the
+ * — three decisions, one of them a goal routine: the save is on the goal's move, so the goal takes it over
+ * (#60) and it never becomes a card. Everything before 41:00 is folded into match state by the
  * API without proposing anything, so the desk joins a match already in progress rather than waiting forty
  * minutes for one, which is also the path a console takes connecting to a live feed mid-match.
  */
@@ -198,7 +199,7 @@ export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
  * Falling back to 1x on an open decision is the API's default at any speed (decision_speed, not sent
  * here), so `speed` only sets how fast the match moves when the running order is clear. The two
  * mitigations compose: the window picks the five minutes worth watching, the decompression skips the gaps
- * inside them, and all four decisions are still taken at the speed the operator would really have.
+ * inside them, and all three decisions are still taken at the speed the operator would really have.
  */
 export type ReplayScope = "window" | "full";
 
