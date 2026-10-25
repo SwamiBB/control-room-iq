@@ -28,6 +28,8 @@
 .replay-ended.error { opacity: 1; }
 
 .scoreboard { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+/* Keeps the score on the right, beside Settings, rather than centred between the title and the menu. */
+.gallery-head .scoreboard { margin-left: auto; }
 .scoreboard b { font-size: 22px; }
 .scoreboard small { opacity: 0.6; }
 

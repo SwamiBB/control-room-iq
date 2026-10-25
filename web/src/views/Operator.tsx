@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
-  REPLAY_SPEEDS, type ReplayScope, type ReplaySpeed,
+  COMPRESSED_SPEEDS, REAL_TIME, speedLabel, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl, fetchDeliveries, fetchReplayStatus, canStartReplay,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
@@ -10,8 +10,11 @@ import IntelChips from "../components/IntelChips";
 import MatchIntel from "../components/MatchIntel";
 import PitchView, { type PitchShot } from "../components/PitchView";
 import PreviewFor from "../components/PreviewFor";
+import SettingsMenu from "../components/SettingsMenu";
 import MetricsPanel from "../components/MetricsPanel";
+import { chime, primeChime } from "../chime";
 import { Resync } from "../resync";
+import { loadSettings, newArrivals, saveSettings, shortcutFor, type OperatorSettings } from "../settings";
 import { useLiveSocket } from "../useLiveSocket";
 import type { MomentMetrics } from "../intel";
 import "./operator.css";
@@ -33,6 +36,15 @@ const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
 
+/** localStorage, or nothing where reading it throws (a private window, blocked site data). */
+const browserStore = () => {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
 export default function Operator() {
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [moments, setMoments] = useState<MomentMsg[]>([]);
@@ -52,6 +64,14 @@ export default function Operator() {
   const [scope, setScope] = useState<ReplayScope>("window");
   const [pace, setPace] = useState<ReplaySpeed>(20);
   const [logError, setLogError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<OperatorSettings>(() => loadSettings(browserStore()));
+  const changeSettings = (next: OperatorSettings) => {
+    if (next.alert && !settings.alert) primeChime(); // this click is what lets the page make a sound
+    setSettings(next);
+    saveSettings(browserStore(), next);
+  };
+  // Proposals already on the desk, so a re-send on reconnect or a status change is not a new arrival.
+  const seen = useRef(new Set<string>());
 
   // Column split, as a percentage given to the decisions column. Remembered per console.
   const [split, setSplit] = useState<number>(() => {
@@ -138,7 +158,10 @@ export default function Operator() {
 
   const link = useLiveSocket(`${WS}/ws/operator`, (m: any) => {
     {
-      if (m.type === "proposal") setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
+      if (m.type === "proposal") {
+        setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
+        if (newArrivals(seen.current, [m.proposal]).length > 0 && settings.alert) chime();
+      }
       if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
       if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
       if (m.type === "match") {
@@ -235,6 +258,44 @@ export default function Operator() {
     return [...packs, ...singles].sort((a, b) => weight(a) - weight(b));
   }, [open]);
 
+  // Shortcuts act on the top of the running order: the card the operator is looking at first.
+  const top = groups[0];
+  const topRef = useRef(top);
+  topRef.current = top;
+  const decideTop = useRef<(a: "approve" | "hold" | "reject") => void>(() => undefined);
+  decideTop.current = (a) => {
+    const g = topRef.current;
+    if (!g) return;
+    if (g.packageId) {
+      if (!busy[g.packageId]) actPackage(g.packageId, a);
+      return;
+    }
+    const p = g.items[0];
+    if (busy[p.proposal_id] || (a === "hold" && p.status === "held")) return; // as the buttons are disabled
+    act(p.proposal_id, a);
+  };
+  useEffect(() => {
+    if (!settings.shortcuts) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Named fields: a KeyboardEvent's are prototype getters, which a spread would not copy.
+      const a = shortcutFor({
+        key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, repeat: e.repeat,
+        target: e.target as HTMLElement | null,
+      });
+      if (!a) return;
+      e.preventDefault();
+      decideTop.current(a);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [settings.shortcuts]);
+  // A setting remembered from last time has had no click to unlock sound yet: the first one will do.
+  useEffect(() => {
+    if (!settings.alert) return;
+    window.addEventListener("pointerdown", primeChime, { once: true });
+    return () => window.removeEventListener("pointerdown", primeChime);
+  }, [settings.alert]);
+
   const onAir = all
     .filter((p) => p.status === "aired" || p.status === "approved" || p.status === "overridden")
     .sort((a, b) => String(b.decided_at ?? "").localeCompare(String(a.decided_at ?? "")));
@@ -271,11 +332,14 @@ export default function Operator() {
               {/* Only the dead air: the match still drops to real time whenever a graphic is waiting. */}
               <select
                 aria-label="Replay speed between decisions"
-                title="Speed between decisions. The match drops to real time whenever a graphic is waiting."
+                title="Real time is the speed of a live feed. The others compress the gaps between decisions; the match drops to real time whenever a graphic is waiting."
                 value={pace}
                 onChange={(e) => setPace(Number(e.target.value) as ReplaySpeed)}
               >
-                {REPLAY_SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
+                <option value={REAL_TIME}>{speedLabel(REAL_TIME)}</option>
+                <optgroup label="Compressed for the demo">
+                  {COMPRESSED_SPEEDS.map((s) => <option key={s} value={s}>{speedLabel(s)}</option>)}
+                </optgroup>
               </select>
               <button
                 className="primary"
@@ -298,9 +362,10 @@ export default function Operator() {
           <div className="scoreboard">
             <b>{state.home.goals} – {state.away.goals}</b>
             <span>{clk ? clock(clk.clock_ms, clk.period) : clock(state.t_ms, state.period)}</span>
-            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === 1 ? "real time" : `${speed}×`}` : ""}</small>
+            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === REAL_TIME ? "real time" : `${speed}×`}` : ""}</small>
           </div>
         )}
+        <SettingsMenu settings={settings} onChange={changeSettings} />
       </header>
 
       {link !== "live" && (
@@ -343,6 +408,13 @@ export default function Operator() {
 
           {groups.map((g) => (
             <article key={g.packageId ?? g.items[0].proposal_id} className={`card ${g.packageId ? "routine" : ""}`}>
+              {settings.shortcuts && g === top && (
+                <p className="keys-hint" aria-label="Keyboard shortcuts act on this card">
+                  <span><kbd>F</kbd>{g.packageId ? "fire all" : "fire"}</span>
+                  <span><kbd>H</kbd>hold</span>
+                  <span><kbd>D</kbd>drop</span>
+                </p>
+              )}
               {g.packageId && (
                 <div className="routine-head">
                   <h3>Goal routine</h3>
@@ -370,6 +442,8 @@ export default function Operator() {
                   // A routine's own buttons wait while Fire all 3 is in flight, or a second click is a 409.
                   busy={Boolean(busy[p.proposal_id] || (g.packageId && busy[g.packageId]))}
                   name={name}
+                  showReasoning={settings.reasoning}
+                  showPreview={settings.preview}
                   views={views}
                   onChangeViews={changeViews}
                   onOverrideChange={(v) => setOverride((o) => ({ ...o, [p.proposal_id]: v }))}
@@ -504,11 +578,13 @@ export default function Operator() {
 
 function Card({
   p, inPackage, showCountdown = true, warning, deliveries, override, busy, name,
-  views, onChangeViews, onOverrideChange, onAct,
+  showReasoning = true, showPreview = true, views, onChangeViews, onOverrideChange, onAct,
 }: {
   p: Proposal;
   inPackage: boolean;
   showCountdown?: boolean;
+  showReasoning?: boolean;
+  showPreview?: boolean;
   views: string[];
   onChangeViews: (v: string[]) => void;
   warning?: SlaWarning;
@@ -573,26 +649,28 @@ function Card({
 
       {advice && <p className="advice">Hold advised — {advice.reason}</p>}
 
-      {p.evidence?.length > 0 && (
+      {showReasoning && p.evidence?.length > 0 && (
         <ul className="evidence">
           {p.evidence.map((e) => <li key={e.event_id}>{e.text}</li>)}
         </ul>
       )}
 
-      <p className="reasoning">{p.reasoning}</p>
+      {showReasoning && <p className="reasoning">{p.reasoning}</p>}
 
       <DeliveryChips items={deliveries} />
 
       {/* Every item of a goal routine gets its own, since Fire all 3 pushes all three at once.
           Its own boundary too: a bad preview row must never take the Fire button with it. */}
-      <ErrorBoundary name="Preview for">
-        <PreviewFor
-          proposalId={p.proposal_id}
-          views={views}
-          onChangeViews={onChangeViews}
-          overrideLine={override}
-        />
-      </ErrorBoundary>
+      {showPreview && (
+        <ErrorBoundary name="Preview for">
+          <PreviewFor
+            proposalId={p.proposal_id}
+            views={views}
+            onChangeViews={onChangeViews}
+            overrideLine={override}
+          />
+        </ErrorBoundary>
+      )}
 
       <input
         id={`override-${p.proposal_id}`}
