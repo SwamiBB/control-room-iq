@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   WS, clock, playClock, layerName, modelLabel, decide, decidePackage, startReplay, decisionLabel,
+  type ReplayScope,
   fetchDecisions, decisionsCsvUrl,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
 } from "../api";
@@ -30,6 +31,9 @@ export default function Operator() {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
+  const [speed, setSpeed] = useState<number | null>(null);
+  const [ended, setEnded] = useState<{ error?: string | null } | null>(null);
+  const [scope, setScope] = useState<ReplayScope>("window");
   const [logError, setLogError] = useState(false);
 
   // Column split, as a percentage given to the decisions column. Remembered per console.
@@ -96,9 +100,24 @@ export default function Operator() {
       if (m.type === "proposal") setProposals((p) => ({ ...p, [m.proposal.proposal_id]: m.proposal }));
       if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
       if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
-      if (m.type === "match") setMeta(m.meta);
+      if (m.type === "match") {
+        // A fresh match clears the desk: last run's cards, log and deliveries belong to that match.
+        setMeta(m.meta);
+        setProposals({});
+        setMoments([]);
+        setDeliveries({});
+        setWarnings({});
+        setDecisions([]);
+        setState(null);
+        setClk(null);
+        setEnded(null);
+      }
       if (m.type === "deliveries") setDeliveries((d) => ({ ...d, [m.proposal_id]: m.deliveries }));
       if (m.type === "sla_warning") setWarnings((w) => ({ ...w, [m.proposal_id]: m }));
+      if (m.type === "replay") {
+        setSpeed(typeof m.speed === "number" ? m.speed : null);
+        if (m.finished) setEnded({ error: m.error ?? null });
+      }
     }
   });
 
@@ -192,17 +211,35 @@ export default function Operator() {
       <header className="gallery-head">
         <div>
           <h1>Graphics operator</h1>
-          {meta ? (
-            <p className="match">{meta.home.name} v {meta.away.name} · {meta.venue}</p>
-          ) : (
-            <button className="primary" onClick={() => run("replay", () => startReplay())}>Start replay</button>
+          {meta && <p className="match">{meta.home.name} v {meta.away.name} · {meta.venue}</p>}
+          {(!meta || ended) && (
+            <p className="replay-start">
+              <select
+                aria-label="How much of the match to replay"
+                value={scope}
+                onChange={(e) => setScope(e.target.value as ReplayScope)}
+              >
+                <option value="window">Minutes 41–46</option>
+                <option value="full">Full match</option>
+              </select>
+              <button
+                className="primary"
+                disabled={busy.replay}
+                onClick={() => run("replay", async () => { setEnded(null); await startReplay(scope); })}
+              >
+                {ended ? "Run again" : "Start replay"}
+              </button>
+              {ended?.error
+                ? <span className="replay-ended error">Replay stopped: {ended.error}</span>
+                : ended && <span className="replay-ended">Replay complete</span>}
+            </p>
           )}
         </div>
         {state && (
           <div className="scoreboard">
             <b>{state.home.goals} – {state.away.goals}</b>
             <span>{clk ? clock(clk.clock_ms, clk.period) : clock(state.t_ms, state.period)}</span>
-            <small>play {playClock(nowPlay)}</small>
+            <small>play {playClock(nowPlay)}{speed ? ` · ${speed === 1 ? "real time" : `${speed}×`}` : ""}</small>
           </div>
         )}
       </header>

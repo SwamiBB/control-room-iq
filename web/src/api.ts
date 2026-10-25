@@ -130,8 +130,28 @@ export async function decidePackage(packageId: string, action: "approve" | "hold
   return post(`/packages/${packageId}/${action}`, { actor: "operator" }) as Promise<Proposal[]>;
 }
 
-export const startReplay = (file = "data/reference/match-042.jsonl", speed = 20) =>
-  post("/matches/replay", { file, speed });
+/**
+ * The demo window: minutes 41 to 46 of the reference match.
+ *
+ * A big chance saved, the goal that followed it, a free kick in the final third and a second big chance
+ * — four decisions, one of them a goal routine. Everything before 41:00 is folded into match state by the
+ * API without proposing anything, so the desk joins a match already in progress rather than waiting forty
+ * minutes for one, which is also the path a console takes connecting to a live feed mid-match.
+ */
+export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
+
+/**
+ * 20x through the dead air, real time for as long as anyone owes an answer.
+ *
+ * Falling back to 1x on an open decision is the API's default at any speed, so `speed` here only sets how
+ * fast the match moves when the running order is clear. The two mitigations compose: the window picks the
+ * five minutes worth watching, the decompression skips the gaps inside them, and all four decisions are
+ * still taken at the speed the operator would really have.
+ */
+export type ReplayScope = "window" | "full";
+
+export const startReplay = (scope: ReplayScope = "window", file = "data/reference/match-042.jsonl", speed = 20) =>
+  post("/matches/replay", { file, speed, ...(scope === "window" ? DEMO_WINDOW : {}) });
 
 export async function fetchDecisions(): Promise<DecisionEntry[]> {
   const r = await fetch(`${API}/decisions`);

@@ -21,6 +21,12 @@
 .gallery-head h1 { margin: 0; }
 .gallery-head .match { margin: 2px 0 0; opacity: 0.7; font-size: 13px; }
 
+/* Start / run again, with how much of the match to play. Shown before a replay and once one ends. */
+.replay-start { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 0; font-size: 13px; }
+.replay-start select { font: inherit; padding: 5px 6px; }
+.replay-ended { opacity: 0.7; }
+.replay-ended.error { opacity: 1; }
+
 .scoreboard { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
 .scoreboard b { font-size: 22px; }
 .scoreboard small { opacity: 0.6; }
