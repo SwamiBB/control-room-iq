@@ -143,6 +143,46 @@ def test_tracking_frames_and_running(ref):
     outfield = [v for pid, v in summary.items() if not pid.endswith(("-01", "-15"))]
     assert max(v["top_speed_kmh"] for v in outfield) <= 34.5  # capped by pace: (7 + 2.5) m/s
     assert 9.5 <= statistics.median(v["distance_km"] for v in outfield) <= 12.5  # docs/CALIBRATION.md range
+    assert all(len(f["ball"]) == 3 for f in frames) and max(f["ball"][2] for f in frames) > 3, "lofted passes"
+
+
+def test_tracking_players_are_at_the_ball_when_they_play_it(ref):
+    """The pitch view must show the passer at the ball: players run onto their next touch and arrive on time."""
+    from simulator.tracking import _attacks_right, _to_abs
+
+    meta, evs = ref
+    frames, _ = build_tracking(meta, evs)
+    by_ms = {f["play_ms"]: f for f in frames}
+    gaps = []
+    for e in evs:
+        if e.type in (EventType.PASS, EventType.SHOT_TAKEN, EventType.CARRY) and e.x is not None and e.player:
+            f = by_ms.get(e.play_ms // 250 * 250)
+            if f and e.player in f["players"]:
+                ex, ey = _to_abs(_attacks_right(e.team, meta.home.team_id, e.period), e.x, e.y)
+                px, py = f["players"][e.player]
+                gaps.append(((px - ex) * 1.05) ** 2 + ((py - ey) * 0.68) ** 2)
+    gaps.sort()
+    assert gaps[len(gaps) // 2] ** 0.5 < 1.0 and gaps[int(0.9 * len(gaps))] ** 0.5 < 4.0  # metres
+
+
+def test_tracking_movement_has_no_jumps_and_a_real_shape(ref):
+    meta, evs = ref
+    frames, _ = build_tracking(meta, evs)
+    jolts = ticks = 0
+    for a, b, c in zip(frames, frames[1:], frames[2:], strict=False):
+        if not a["period"] == b["period"] == c["period"]:
+            continue
+        for pid, (x, y) in c["players"].items():
+            if pid in b["players"] and pid in a["players"]:
+                (x1, y1), (x0, y0) = b["players"][pid], a["players"][pid]
+                ticks += 1
+                jolts += (((x - 2 * x1 + x0) * 1.05) ** 2 + ((y - 2 * y1 + y0) * 0.68) ** 2) ** 0.5 / 0.0625 > 6
+    assert jolts / ticks < 0.001, "acceleration over 6 m/s2 (elite players top out around 5-6)"
+    team = meta.home.short_name.lower()
+    widths = [(max(v[1] for k, v in f["players"].items() if k.startswith(team) and not k.endswith(("-01", "-15")))
+               - min(v[1] for k, v in f["players"].items() if k.startswith(team) and not k.endswith(("-01", "-15"))))
+              * 0.68 for f in frames[::20]]
+    assert 34 <= statistics.median(widths) <= 46, "team width in metres"
 
 
 def test_calibration_runs():
@@ -158,3 +198,17 @@ def test_committed_reference_files_are_current(story):
     meta, events = generate(story)
     lines = [meta.model_dump_json()] + [e.model_dump_json() for e in events]
     assert reference_paths(story)[0].read_text(encoding="utf-8").splitlines() == lines
+
+
+@pytest.mark.parametrize("seed", [42, 7, 101])
+def test_viewer_builds_for_every_reference_match(seed, tmp_path):
+    import json
+
+    from simulator.viewer import build_view
+
+    out = tmp_path / f"view-{seed}.html"
+    n = build_view(seed, out)
+    html = out.read_text(encoding="utf-8")
+    assert n > 20_000 and "/*DATA*/null" not in html
+    data = json.loads(html.split("const D = ", 1)[1].split(";\n", 1)[0])
+    assert data["jumps"] and len(data["frames"]) == n and data["meta"]["homeColor"].startswith("#")
