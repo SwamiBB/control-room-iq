@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { intelChips } from "../intel";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -191,5 +192,30 @@ describe("captionCardFor (who gets the caption card)", () => {
   it("gives nobody a card when the packet carries none", () => {
     expect(captionCardFor(ticker, "deaf")).toBeNull();
     expect(captionCardFor(undefined, "deaf")).toBeNull();
+  });
+});
+
+describe("nameLookup (names in the chips)", () => {
+  // payload.intel as match_intel.intel_payload builds it: the names sit beside the ids they belong to.
+  const withIntel: Packet = {
+    ...approved,
+    payload: {
+      intel: {
+        key_pass: { event_id: "e-9", team: "har", player: "har-06", distance_m: 31, difficulty: 0.7 },
+        names: { "har-06": "Oli Stone" },
+      },
+    },
+  };
+
+  it("reads payload.intel.names, so a chip says the player's name and not har-06", () => {
+    expect(nameLookup(withIntel)("har-06")).toBe("Oli Stone");
+    const chips = intelChips(withIntel.payload?.intel, nameLookup(withIntel), "fan");
+    expect(chips[0].label).toBe("Pass by Oli Stone");
+  });
+
+  it("falls back to payload.names, then to the id", () => {
+    expect(nameLookup({ ...approved, payload: { names: { "riv-09": "Ana Ruiz" } } })("riv-09")).toBe("Ana Ruiz");
+    expect(nameLookup(approved)("riv-09")).toBe("riv-09");
+    expect(nameLookup(undefined)(null)).toBe("");
   });
 });

@@ -168,6 +168,15 @@ export function captionCardFor(packet: Packet | undefined, access: Access): FanC
   return access === "deaf" ? packet?.fan_card ?? null : null;
 }
 
+/**
+ * Player id to display name, for the chips. The agents put the names beside the numbers they belong to, in
+ * `payload.intel.names`; `payload.names` is kept as a fallback. An id with no name is shown as the id.
+ */
+export function nameLookup(packet: Packet | undefined): (id?: string | null) => string {
+  const names = packet?.payload?.intel?.names ?? packet?.payload?.names ?? {};
+  return (id) => (id ? names[id] ?? id : "");
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -268,8 +277,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const packet = mainSlot(live)?.packet;
 
   const register: IntelRegister = persona;
-  const names: Record<string, string> = packet?.payload?.names ?? {};
-  const nameOf = (id?: string | null) => (id ? names[id] ?? id : "");
+  const nameOf = nameLookup(packet);
   const view = packet?.payload?.perspective;
   const accent = allegiance !== "neutral" ? view?.color : undefined;
   const card = captionCardFor(packet, access);
