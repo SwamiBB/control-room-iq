@@ -150,11 +150,14 @@ class Hub:
         self.deliveries.clear()
         self.state = None
         self.replay_speed = None
-        for task in self.moment_tasks:  # the old match's agents must not post into the new one
-            task.cancel()
-        self.moment_tasks.clear()
+        self.cancel_moments()  # the old match's agents must not post into the new one
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
         self.goal_phases.clear()
+
+    def cancel_moments(self) -> None:
+        for task in self.moment_tasks:
+            task.cancel()
+        self.moment_tasks.clear()
         self.state_published_at = 0.0
 
     async def broadcast_operators(self, msg: dict) -> None:
@@ -497,6 +500,7 @@ async def _replay(req: ReplayRequest) -> None:
         await _drive_replay(req)
     except Exception as exc:  # noqa: BLE001
         logger.exception("replay failed")
+        hub.cancel_moments()  # a failed replay must not keep adding cards behind a "finished" console
         await _finish_replay(f"{type(exc).__name__}: {exc}")
     else:
         await _finish_replay(None)
@@ -668,20 +672,26 @@ async def _supersede(phase: str, goal: Moment) -> None:
 
 
 def _clock(m: Moment) -> str:
-    return f"{m.t_ms // 60000:02d}:{m.t_ms // 1000 % 60:02d}"
+    """The match minute as viewers know it: the period clock restarts at half time, the match minute does not."""
+    minute = m.t_ms // 60000 + (45 if m.period == 2 else 0)
+    return f"{minute:02d}:{m.t_ms // 1000 % 60:02d}"
+
+
+def _taken_by_goal(m: Moment) -> bool:
+    return m.kind != MomentKind.GOAL and _phase_of(m) in hub.goal_phases
 
 
 async def _handle_moment(m: Moment) -> None:
     res = await pipeline.process(m, meta=hub.meta)
-    superseded = m.kind != MomentKind.GOAL and _phase_of(m) in hub.goal_phases
-    if superseded and res.proposal:  # the goal on this move arrived while these agents were still writing
+    if _taken_by_goal(m) and res.proposal:  # the goal on this move arrived while these agents were still writing
         res.notes.append("No graphic proposed: the goal on the same move took over")
         res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
-    if res.proposal:
+    # Checked again: the goal can arrive during the broadcast above, after the first check.
+    if res.proposal and not _taken_by_goal(m):
         flagged = unsourced_numbers(res.proposal.line, m)
         lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
         for p in build_goal_package(lead, m, hub.meta):

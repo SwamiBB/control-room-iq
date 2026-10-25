@@ -226,7 +226,7 @@ sequenceDiagram
 
 At about 41', a big-chance proposal is pending. A **goal** on the same `phase_id` arrives 1.4 s later.
 
-1. The chance proposal becomes `superseded`. The console shows "held, goal followed" with the hold button highlighted. **Supersession** is a priority table over pending proposals.
+1. The chance proposal becomes `superseded`. The console shows "held, goal followed" with the hold button highlighted. **Supersession** is a priority table over pending proposals. *As built (#60): the goal supersedes every pending card of its move. The decision log records it as `expired` with actor `supersession`; there is no separate `superseded` status yet. A card from that move whose agents finish after the goal is never queued.*
 2. The goal proposal becomes the active decision, with `hold_advice` explaining the hold.
 3. On approval, the goal card **preempts** the running lower third. The scheduler re-sends the displaced cue under the same `cue_id` with a shortened duration and `preempted_by`.
 4. The renderer airs the goal card. The deaf fan, who saw the strike pulse 1.4 s earlier, gets the caption and detail in their language.

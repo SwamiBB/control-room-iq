@@ -33,16 +33,19 @@ class SlowPipeline:
 
 
 def test_a_moment_is_handed_to_the_agents_without_waiting_for_them(monkeypatch):
-    monkeypatch.setattr(main, "pipeline", SlowPipeline(delay=0.2))
+    fake = SlowPipeline(delay=0.2)
+    monkeypatch.setattr(main, "pipeline", fake)
 
     async def scenario():
         await _start_moment(_on_move())
-        started = dict(hub.proposals)  # right after the hand-off: the agents are still writing
+        await asyncio.sleep(0.02)  # the agents have started and are still writing; the match goes on meanwhile
+        mid_write = (list(fake.calls), dict(hub.proposals))
         await _drain_moments()
-        return started
+        return mid_write
 
-    started = asyncio.run(scenario())
-    assert started == {} and "p-mo-1" in hub.proposals and hub.moment_tasks == set()
+    calls, proposals = asyncio.run(scenario())
+    assert calls == ["mo-1"] and proposals == {}
+    assert "p-mo-1" in hub.proposals and hub.moment_tasks == set()
 
 
 def test_a_goal_supersedes_the_pending_card_of_its_move(monkeypatch):
@@ -96,17 +99,93 @@ def test_a_goal_leaves_other_moves_alone(monkeypatch):
 
 
 def test_a_new_match_stops_the_old_matchs_agents(monkeypatch):
-    monkeypatch.setattr(main, "pipeline", SlowPipeline(delay=5))
+    fake = SlowPipeline(delay=5)
+    monkeypatch.setattr(main, "pipeline", fake)
 
     async def scenario():
         await _start_moment(_on_move())
+        await asyncio.sleep(0.02)  # the old match's agents are mid-write
         task = next(iter(hub.moment_tasks))
         hub.new_match(build_meta(7))
         await asyncio.sleep(0)  # let the cancellation land
         return task
 
     task = asyncio.run(scenario())
-    assert task.cancelled() and hub.proposals == {}
+    assert fake.calls == ["mo-1"] and task.cancelled() and hub.proposals == {}
+
+
+def test_a_goal_that_arrives_during_the_broadcast_still_takes_the_card(monkeypatch):
+    # The save's moment is being broadcast when the goal lands: the card must still not be queued.
+    monkeypatch.setattr(main, "pipeline", SlowPipeline())
+
+    async def goal_lands_mid_broadcast(msg):
+        if msg["type"] == "moment" and msg["moment"]["moment_id"] == "save":
+            hub.goal_phases.add("ph-1")
+
+    monkeypatch.setattr(hub, "broadcast_operators", goal_lands_mid_broadcast)
+
+    async def scenario():
+        await _start_moment(_on_move(moment_id="save"))
+        await _drain_moments()
+
+    asyncio.run(scenario())
+    assert "p-save" not in hub.proposals
+
+
+def test_a_goal_without_a_move_supersedes_nothing(monkeypatch):
+    monkeypatch.setattr(main, "pipeline", SlowPipeline())
+
+    async def scenario():
+        await _start_moment(_on_move(moment_id="chance"))
+        await _drain_moments()
+        await _start_moment(moment("goal", beat="result", kind=MomentKind.GOAL, importance=1.0))  # no phase
+        await _drain_moments()
+
+    asyncio.run(scenario())
+    assert hub.proposals["p-chance"].status == ProposalStatus.PROPOSED
+    assert any(pid.startswith("p-goal") for pid in hub.proposals) and hub.goal_phases == set()
+
+
+def test_a_held_card_is_not_superseded(monkeypatch):
+    # Holding is the operator's (or the timer's) decision; supersession only takes cards nobody has decided on.
+    monkeypatch.setattr(main, "pipeline", SlowPipeline())
+
+    async def scenario():
+        await _start_moment(_on_move(moment_id="save"))
+        await _drain_moments()
+        hub.proposals["p-save"].status = ProposalStatus.HELD
+        await _start_moment(_on_move(moment_id="goal", kind=MomentKind.GOAL, importance=1.0))
+        await _drain_moments()
+
+    asyncio.run(scenario())
+    assert hub.proposals["p-save"].status == ProposalStatus.HELD
+
+
+def test_a_failed_replay_stops_its_agents(monkeypatch):
+    fake = SlowPipeline(delay=5)
+    monkeypatch.setattr(main, "pipeline", fake)
+    seen = {}
+
+    async def drive_then_fail(req):
+        await _start_moment(_on_move())
+        await asyncio.sleep(0.02)  # the agents are writing when the replay breaks
+        seen["task"] = next(iter(hub.moment_tasks))
+        raise RuntimeError("feed broke")
+
+    monkeypatch.setattr(main, "_drive_replay", drive_then_fail)
+
+    async def scenario():
+        await main._replay(main.ReplayRequest())
+        await asyncio.sleep(0)  # checked inside the loop: asyncio.run would cancel leftovers on its own at exit
+        return seen["task"].cancelled(), set(hub.moment_tasks)
+
+    cancelled, left = asyncio.run(scenario())
+    assert fake.calls == ["mo-1"] and cancelled and left == set() and hub.proposals == {}
+
+
+def test_the_supersession_log_names_the_match_minute():
+    first, second = moment(period=1, t_ms=41 * 60_000 + 15_000), moment(period=2, t_ms=18 * 60_000 + 5_000)
+    assert (main._clock(first), main._clock(second)) == ("41:15", "63:05")
 
 
 def test_the_match_folder_is_built_off_the_event_loop(monkeypatch):
