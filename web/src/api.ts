@@ -72,7 +72,10 @@ export type MomentMsg = {
   };
   explanation: { headline: string; why_it_matters: string; pattern: string; cites: string[]; confidence: number };
   line: string;
+  /** Real fallbacks: a timeout, a bad reply, a declined goal. */
   failures: string[];
+  /** Decisions that are not failures, written for the operator ("No graphic proposed: <reason>"). Shown as is. */
+  notes?: string[];
   intel?: MomentMetrics | null;
 };
 

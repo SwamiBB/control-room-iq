@@ -485,6 +485,8 @@ export default function Operator() {
                 <small>
                   pattern: {m.explanation.pattern} · cites {m.explanation.cites.join(", ")}
                   {m.failures.length > 0 && ` · fallback used (${m.failures.length})`}
+                  {/* The producer's own call, not a failure; the API writes it for the operator, so as is. */}
+                  {(m.notes ?? []).map((note, i) => <span key={i} className="note"> · {note}</span>)}
                 </small>
               </article>
             ))}
