@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
-# The base image ships an older pip with known CVEs (Trivy); upgrade it before installing anything.
-RUN pip install --no-cache-dir --upgrade pip
+# The base image ships an older pip and setuptools with known CVEs (Trivy); upgrade them before installing anything.
+RUN pip install --no-cache-dir --upgrade pip "setuptools>=83"
 COPY pyproject.toml README.md ./
 COPY packages ./packages
 COPY services ./services
