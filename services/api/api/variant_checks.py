@@ -11,17 +11,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayLayer, OverlayProposal
+from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal, max_chars_for
 from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
 
 BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8
 DEVANAGARI_MIN_SHARE = 0.3
-
-# Agree with the renderer; deliberately generous so normal es/hi expansion (~25%) fits.
-LAYER_MAX_CHARS = {OverlayLayer.LOWER_THIRD: 90, OverlayLayer.STAT_PANEL: 90, OverlayLayer.HEATMAP: 90,
-                   OverlayLayer.TICKER: 140, OverlayLayer.FULL_SCREEN: 120, OverlayLayer.CAPTION: 160,
-                   OverlayLayer.PLAYER_TAG: 40, OverlayLayer.PITCH_OVERLAY: 60}
 
 _BANNED = (re.compile(r"\b(referee|ref|odds|bet|betting|bookmakers?|injur(?:y|ed|ies)(?!\s+time))\b", re.I),
            re.compile(r"\b(árbitro|arbitral|apuestas?|cuotas?|lesi[oó]n|lesionad[oa])\b", re.I),
@@ -82,7 +77,7 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
     cited = frozenset(m.event_ids) | {e.event_id for e in p.evidence} if m else frozenset()
     return CheckContext(base_line=p.line, allowed_numbers=tuple(float(a) for a in allowed),
                         required_players=tuple(named), other_players=tuple(others), cited=frozenset(cited),
-                        max_chars=LAYER_MAX_CHARS.get(p.layer, 90))
+                        max_chars=max_chars_for(p.layer, p.line))
 
 
 # ---------- checks ----------

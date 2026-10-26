@@ -13,10 +13,10 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator |
 | Live demo (deaf Spanish viewer) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/viewer?persona=newcomer&access=deaf&lang=es&allegiance=neutral |
 | Video (under 2 minutes) | [link] |
-| Tests in CI | 528 passing (364 Python + 164 TypeScript) |
+| Tests in CI | 541 passing (377 Python + 164 TypeScript) |
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
-| Foundry evaluation | [faithfulness x.xx · relevance x.xx · fluency x.xx over N lines in EN / ES / HI] |
-| Planted falsehoods | [N planted, N caught] |
+| Foundry evaluation | Groundedness 4.4 (cards) · 3.8 (on-air lines) · 4.2 ES · 4.0 HI; relevance 4.6–5.0; violence 0–1.2 of 7; 50 outputs from 10 moments, 1–5 scale. Fluency is 2.5–3.3 by design: cards are broadcast fragments, not sentences ([details](evals/results/latest.md)) |
+| Planted falsehoods | 10 real lines with one number changed. A number the match data doesn't contain: 5 of 5 caught by the code check before air. A real number from the wrong place: the code check can't tell; the groundedness judge scores it 2.0 (real lines 3.8–4.6) |
 | From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
 
 All match data is synthetic. Clubs, players and venues are fictional.
@@ -38,8 +38,7 @@ and [SECURITY.md](SECURITY.md) for the full posture.
   gated by code checks (invented numbers, name drift, banned content, actually-translated, faithfulness).
   See [`services/api/api/variant_checks.py`](services/api/api/variant_checks.py).
 - **Model choice is auditable.** A per-agent router (quality / balanced / cost) records the served model
-  on every proposal and every OpenTelemetry span. One trace per `moment_id`. Every decision is in an
-  append-only log, downloadable at `GET /decisions.csv`.
+  on every proposal. Every decision is in an append-only log, downloadable at `GET /decisions.csv`.
   See [`services/agents/agents/config.py`](services/agents/agents/config.py).
 
 Enterprise substrate: managed identity + OIDC (no secrets in the repo), CodeQL + Trivy + Dependabot on
@@ -144,13 +143,13 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | --- | --- | --- |
 | Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
-| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer); the served model is recorded on every proposal | Built |
-| Foundry Agent Service | The five agents registered so they can be inspected in the portal | Landing shortly |
-| Foundry evaluations | Faithfulness, relevance and fluency per language, plus the planted-falsehood set | Landing shortly |
+| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
+| Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
+| Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`) | Built |
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
 | Azure Container Apps | Ingest, API and web | Built |
 | Azure Cosmos DB (serverless) | Match state and the decision log | Built |
-| Application Insights + OpenTelemetry | Resource provisioned and wired to the apps; OpenTelemetry instrumentation lands with the evaluation runner | Resource built; traces landing shortly |
+| Application Insights + OpenTelemetry | Resource provisioned and its connection string wired to the apps; OpenTelemetry tracing of the agent calls is next | Resource built; tracing in progress |
 | Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 
 ## Quick start (local, no Azure)
