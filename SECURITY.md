@@ -3,6 +3,38 @@
 Control Room IQ is designed for the production gallery, where "the AI did it" is not an acceptable
 explanation. The security posture reflects that: the trust boundary is structural, not procedural.
 
+## The trust boundary at a glance
+
+Three independent layers verify the same invariant — every `OverlayPacket` must carry its approval
+triple (`approval_id`, `approved_by`, `approved_at`). Any text that reaches a screen without the triple
+is refused at whichever layer sees it first; the gate holds even if the layers above it were bypassed.
+
+```mermaid
+flowchart LR
+  TXT[/"AI-generated text<br/>wanting to reach a screen"/]
+  AIR([On-air])
+  REJ[Refused and logged]
+
+  subgraph trust["Trust boundary · three independent layers"]
+    L1{{"1 · Schema<br/>OverlayPacket Pydantic model<br/>rejects construction<br/>without the approval triple"}}
+    L2{{"2 · Builder<br/>packets.py builds only<br/>from a logged decision"}}
+    L3{{"3 · Renderer<br/>refuses packets missing the triple<br/>and logs the refusal"}}
+  end
+
+  TXT --> L1
+  L1 -->|validates| L2
+  L2 -->|logged decision| L3
+  L3 -->|triple present| AIR
+  L1 -.->|missing triple| REJ
+  L2 -.->|no logged decision| REJ
+  L3 -.->|missing triple| REJ
+```
+
+The schema catches it at construction time (unit tests, dev, CI — the type cannot exist without the
+triple). The builder catches it at build time (there is no code path that produces a packet without
+looking up a logged decision). The renderer catches it at runtime (even if the first two were
+bypassed). Three locks on the same door.
+
 ## Reporting a vulnerability
 
 Report privately to the repository maintainers. Do not open public issues for security findings.
