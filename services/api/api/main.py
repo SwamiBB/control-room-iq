@@ -105,8 +105,9 @@ if not logging.getLogger().handlers:
     # reach stderr bare, with no time or source. Before tracing starts: Azure Monitor adds its own handler to the
     # root logger, which would skip this and leave the console without the app's warnings.
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-telemetry.configure("crq-api")  # before the app exists, so its requests are traced too
+telemetry.configure("crq-api")
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
+telemetry.instrument_app(app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 

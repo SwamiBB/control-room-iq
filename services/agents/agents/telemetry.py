@@ -24,6 +24,7 @@ tracer = trace.get_tracer("control-room-iq")
 
 # Long-lived sockets and the health probe would each be one span lasting minutes, or thousands of empty ones.
 _NOT_TRACED = "healthz,ws/.*"
+_on = False
 
 
 def configure(service_name: str) -> bool:
@@ -38,11 +39,25 @@ def configure(service_name: str) -> bool:
 
         from .clients import _credential
 
-        os.environ.setdefault("OTEL_PYTHON_FASTAPI_EXCLUDED_URLS", _NOT_TRACED)
         configure_azure_monitor(connection_string=connection_string, credential=_credential(),
                                 resource=Resource.create({"service.name": service_name}))
         enable_instrumentation(enable_sensitive_data=settings.trace_content)
+        global _on
+        _on = True
         return True
     except Exception:  # noqa: BLE001 - tracing must never stop the API
         logger.exception("Tracing to Application Insights unavailable; continuing without it")
         return False
+
+
+def instrument_app(app) -> None:
+    """Trace the API's requests (an operator's fire, hold or override; a replay starting). Done on the app itself:
+    Azure Monitor patches the FastAPI class, which misses an app module that imported FastAPI before tracing began."""
+    if not _on:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app, excluded_urls=_NOT_TRACED, exclude_spans=["receive", "send"])
+    except Exception:  # noqa: BLE001 - tracing must never stop the API
+        logger.exception("Request tracing unavailable; continuing without it")
