@@ -213,6 +213,8 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .tag.rejected { color: #b91c1c; }
 .tag.held, .tag.sla_held { color: #b45309; }
 .tag.expired { opacity: 0.6; }
+/* Words with an explanation on hover (Held, Held by the timer, Expired, the countdowns). */
+.tag[title], .sla[title], .tile[title] { cursor: help; }
 
 /* ---- program feed --------------------------------------------------------- */
 

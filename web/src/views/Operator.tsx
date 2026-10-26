@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, errorMessage,
+  WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, decisionHelp, DECISION_HELP, errorMessage,
   COMPRESSED_SPEEDS, REAL_TIME, speedLabel, type ReplayScope, type ReplaySpeed,
   fetchDecisions, decisionsCsvUrl, fetchDeliveries, fetchReplayStatus, canStartReplay,
   type DecisionEntry, type DeliveryAudit, type MomentMsg, type PlayClock, type Proposal, type SlaWarning,
@@ -513,7 +513,7 @@ export default function Operator() {
             {log.length === 0 && <li className="empty">No decisions yet.</li>}
             {log.map((d) => (
               <li key={d.entry_id}>
-                <span className={`tag ${d.action}`}>{decisionLabel(d.action, d.actor)}</span>
+                <span className={`tag ${d.action}`} title={decisionHelp(d.action, d.actor)}>{decisionLabel(d.action, d.actor)}</span>
                 <span className="log-line">{lineFor(d.proposal_id)}</span>
                 <small>{d.actor}</small>
               </li>
@@ -643,6 +643,9 @@ function Card({
     <div className={`item ${p.status} ${warning_on ? "warn" : ""}`}>
       <div className="item-head">
         <b className="layer">{layerName(p.layer)}</b>
+        {p.status === "held" && (
+          <span className="tag held" title={decisionHelp(p.status, p.decided_by)}>{decisionLabel(p.status, p.decided_by)}</span>
+        )}
         {inPackage && p.item_label && <span className="seq">{p.item_label}</span>}
         {inPackage && (p.package_offset_ms ?? 0) > 0 && (
           <span className="muted">+{Math.round((p.package_offset_ms ?? 0) / 1000)} s</span>
@@ -661,13 +664,13 @@ function Card({
       </div>
 
       {showCountdown && secondsLeft != null && p.status === "proposed" && (
-        <div className={`sla ${warning_on ? "warn" : ""}`}>
+        <div className={`sla ${warning_on ? "warn" : ""}`} title={DECISION_HELP.timer}>
           {warning_on ? `Holds in ${secondsLeft} s` : `${secondsLeft} s to decide`}
         </div>
       )}
 
       {p.status === "held" && expiresAt != null && (
-        <div className="sla">Expires at {playClock(expiresAt)}</div>
+        <div className="sla" title={DECISION_HELP.expired}>Expires at {playClock(expiresAt)}</div>
       )}
 
       <p className="line">{p.line}</p>
@@ -746,7 +749,11 @@ function PackageCountdown({ lead, warned }: { lead: Proposal; warned: boolean })
   const left = Math.max(0, Math.ceil((Date.parse(lead.hold_at) - Date.now()) / 1000));
   const warnAt = lead.warn_at ? Date.parse(lead.warn_at) : null;
   const amber = warned || (warnAt != null && Date.now() >= warnAt);
-  return <span className={`sla ${amber ? "warn" : ""}`}>{amber ? `Holds in ${left} s` : `${left} s to decide`}</span>;
+  return (
+    <span className={`sla ${amber ? "warn" : ""}`} title={DECISION_HELP.timer}>
+      {amber ? `Holds in ${left} s` : `${left} s to decide`}
+    </span>
+  );
 }
 
 /* ----------------------------------------------------------------------- timeline */
