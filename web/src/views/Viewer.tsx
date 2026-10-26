@@ -10,6 +10,7 @@ import type { IntelRegister, MomentMetrics } from "../intel";
 import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
 import { HEADINGS, chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
+import { SHOT_ON_SCREEN_MS, useRecent } from "../useRecent";
 import "./viewer.css";
 
 type Persona = "newcomer" | "fan" | "analyst";
@@ -556,6 +557,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   }, []);
 
   const live = liveAt(held, Date.now());
+  // The latest shot's path for a few seconds after it arrives, then the pitch is the players' again.
+  const shotUp = useRecent(strip?.shot ? strip.shot.points.join(";") : null, SHOT_ON_SCREEN_MS);
 
   // Every layer on screen is drawn below. The caption card rides on whichever of them carries it (the goal
   // routine's lead), not on the newest, so the scorer's lower third arriving with it no longer hides the card.
@@ -620,13 +623,13 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         {/* Behind the graphics: the markings, the players and the ball, and the latest shot from where it was struck
             to where it finished. */}
         <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid slice"
-             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : track ? "Pitch with the players" : "Pitch"}>
+             role="img" aria-label={strip?.shot && shotUp ? "Pitch with the latest shot" : track ? "Pitch with the players" : "Pitch"}>
           <PitchLines />
           {track && (
             <TrackingLayer frame={track.frame} trail={track.trail.slice(0, -1)} homeTeam={standing?.homeTeam}
                            stepMs={track.stepMs} />
           )}
-          {strip?.shot && (
+          {strip?.shot && shotUp && (
             <BallPath key={strip.shot.points.join(";")} points={strip.shot.points} animate
                       mirror={shotMirror(strip.shot.player, standing?.homeTeam, standing?.period)}
                       label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
