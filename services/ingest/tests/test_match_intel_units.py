@@ -2,6 +2,7 @@
 
 from crq_schemas import EventType, MatchEvent, MomentKind
 from ingest.derive import KEEP_PER_KIND
+from ingest.intel import intel_for
 from ingest.stats import StateFolder
 from simulator.cli import build_meta
 
@@ -100,3 +101,30 @@ def test_the_chance_beat_carries_the_shot_speed():
     ms = _moments(f, [_ev(EventType.SHOT_TAKEN, 60_000, HOME, H[0], attrs={"xg": 0.4, "speed_kmh": 101.0})])
     chance = next(m for m in ms if m.kind == MomentKind.BIG_CHANCE and m.beat == "chance")
     assert chance.metrics.shot_speed_kmh == 101.0
+
+
+def test_a_fast_strike_has_its_badge_on_both_beats_and_crosses_once():
+    f = _folder()
+    taken = _ev(EventType.SHOT_TAKEN, 60_000, HOME, H[0], attrs={"xg": 0.4, "speed_kmh": 104.0})
+    ms = _moments(f, [taken, _ev(EventType.SHOT, 61_000, HOME, H[0], outcome="saved",
+                                 attrs={"xg": 0.4, "speed_kmh": 104.0})])
+    beats = {m.beat: m for m in ms if m.kind == MomentKind.BIG_CHANCE}
+    assert [t.kind for t in beats["chance"].metrics.thresholds] == ["shot_speed"]
+    assert [t.kind for t in beats["result"].metrics.thresholds] == ["shot_speed"], "the result card keeps its chip"
+    assert beats["result"].event_ids[1] == taken.event_id, "the badge's event is cited by the result"
+    assert [t.kind for t in intel_for(beats["result"]).thresholds] == ["shot_speed"]
+    assert [t.kind for t in f.state.thresholds] == ["shot_speed"], "counted once"
+
+
+def test_a_slow_strike_has_no_speed_badge():
+    ms = _moments(_folder(), [_ev(EventType.SHOT_TAKEN, 60_000, HOME, H[0], attrs={"xg": 0.4, "speed_kmh": 80.0})])
+    assert next(m for m in ms if m.beat == "chance").metrics.thresholds == []
+
+
+def test_a_fast_goal_from_a_half_chance_keeps_its_badge_on_the_goal():
+    f = _folder()
+    ms = _moments(f, [_ev(EventType.SHOT_TAKEN, 60_000, HOME, H[0], attrs={"xg": 0.05, "speed_kmh": 110.0}),
+                      _ev(EventType.SHOT, 61_000, HOME, H[0], outcome="goal", attrs={"xg": 0.05, "speed_kmh": 110.0})])
+    goal = next(m for m in ms if m.kind == MomentKind.GOAL)
+    assert [t.kind for t in goal.metrics.thresholds] == ["shot_speed"]
+    assert [t.kind for t in f.state.thresholds] == ["shot_speed"]

@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from crq_schemas import MatchEvent, MatchMeta
+from dotenv import load_dotenv
 
 from . import calibrate, scripted, tracking, viewer
 from .engine import MatchEngine, new_match_id
@@ -113,6 +114,7 @@ def iter_file(path: Path):
 async def _replay(args: argparse.Namespace) -> None:
     producer = None
     if args.eventhub:
+        from azure.eventhub import EventData
         from azure.eventhub.aio import EventHubProducerClient
         from azure.identity.aio import DefaultAzureCredential
 
@@ -122,8 +124,12 @@ async def _replay(args: argparse.Namespace) -> None:
     last_t, last_period = 0, 1
     wall = time.monotonic()
     batch = []
+    meta, sent_meta = None, False
     try:
         for meta, ev in iter_file(Path(args.file)):
+            if producer and not sent_meta:  # ingest creates the match's state from this record, so it goes first
+                await producer.send_batch([EventData(meta.model_dump_json())], partition_key=meta.match_id)
+                sent_meta = True
             if ev.period != last_period:
                 last_t, last_period = 0, ev.period
             delay = max(0, (ev.t_ms - last_t) / 1000 / args.speed)
@@ -131,7 +137,6 @@ async def _replay(args: argparse.Namespace) -> None:
             if delay > 0:
                 await asyncio.sleep(delay)
             if producer:
-                from azure.eventhub import EventData
                 batch.append(EventData(ev.model_dump_json()))
                 if len(batch) >= 20 or ev.type.value in ("shot", "match_end", "half_end"):
                     await producer.send_batch(batch, partition_key=meta.match_id)
@@ -140,8 +145,8 @@ async def _replay(args: argparse.Namespace) -> None:
                 print(ev.model_dump_json(), flush=True)
     finally:
         if producer:
-            if batch:
-                await producer.send_batch(batch)
+            if batch and meta is not None:  # same partition as the rest, so the last events stay in order
+                await producer.send_batch(batch, partition_key=meta.match_id)
             await producer.close()
     print(f"replayed in {time.monotonic() - wall:.1f}s", file=sys.stderr)
 
@@ -174,6 +179,7 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--speed", type=float, default=10.0, help="match-clock multiplier")
     r.add_argument("--eventhub", action="store_true")
     r.set_defaults(fn=lambda a: asyncio.run(_replay(a)))
+    load_dotenv()  # EVENTHUB_NAMESPACE and the other azd values, as docs/SETUP.md describes
     args = p.parse_args(argv)
     args.fn(args)
 
