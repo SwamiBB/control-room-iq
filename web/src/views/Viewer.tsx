@@ -3,7 +3,9 @@ import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
 import { PitchLines } from "../components/PitchView";
+import TrackingLayer from "../components/TrackingLayer";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
+import { asFrame, nextTrail, shotMirror, type TrackingFrame } from "../components/tracking";
 import type { IntelRegister, MomentMetrics } from "../intel";
 import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
@@ -435,6 +437,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [cues] = useState(() => cueTimer(setCue));
   const [strip, setStrip] = useState<Strip | null>(null);
   const [standing, setStanding] = useState<MatchStanding | null>(null);
+  // The players and the ball: the latest frame, the ball's recent frames, and when the latest arrived.
+  const [track, setTrack] = useState<{ frame: TrackingFrame; trail: TrackingFrame[]; stepMs: number; at: number } | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
@@ -458,6 +462,18 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         upsert(packet);
       }
       if (m.type === "fan_cue") cues.show(m.cue as Cue);
+      if (m.type === "tracking") {
+        const frame = asFrame(m.frame);
+        if (!frame) return;
+        const at = Date.now();
+        // Each frame is reached over the time since the last one, so the dots glide at any replay speed.
+        setTrack((prev) => ({
+          frame,
+          trail: prev ? nextTrail(prev.trail, frame) : [frame],
+          stepMs: prev ? Math.min(400, Math.max(80, at - prev.at)) : 0,
+          at,
+        }));
+      }
     }
   });
 
@@ -476,6 +492,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           setHeld(new Map());
           cues.clear();
           setStrip(null);
+          setTrack(null);
           setWarming(true);
         }
         if (st) setWarming(false);
@@ -561,12 +578,18 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       </header>
 
       <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
-        {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
+        {/* Behind the graphics: the markings, the players and the ball, and the latest shot from where it was struck
+            to where it finished. */}
         <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid slice"
-             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
+             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : track ? "Pitch with the players" : "Pitch"}>
           <PitchLines />
+          {track && (
+            <TrackingLayer frame={track.frame} trail={track.trail.slice(0, -1)} homeTeam={standing?.homeTeam}
+                           stepMs={track.stepMs} />
+          )}
           {strip?.shot && (
             <BallPath key={strip.shot.points.join(";")} points={strip.shot.points} animate
+                      mirror={shotMirror(strip.shot.player, standing?.homeTeam, standing?.period)}
                       label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
           )}
         </svg>

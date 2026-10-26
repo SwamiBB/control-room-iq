@@ -107,6 +107,30 @@
 .viewer-pitch .lines .spot { fill: rgba(255, 255, 255, 0.16); }
 .viewer-pitch .lines .goal { fill: rgba(255, 255, 255, 0.08); stroke: rgba(255, 255, 255, 0.16); }
 
+/* The players and the ball, from the tracking stream: side colours, shirt numbers, the ball with its trail. */
+.viewer-pitch .tracking .player circle { fill: var(--home); stroke: rgba(0, 0, 0, 0.55); stroke-width: 0.22; }
+.viewer-pitch .tracking .player.away circle { fill: var(--away); }
+.viewer-pitch .tracking .player text {
+  font: 700 1.3px var(--cond);
+  text-anchor: middle;
+  fill: #fff;
+}
+.viewer-pitch .tracking .player.away text { fill: #14181f; }
+.viewer-pitch .tracking .ball circle { fill: #fff; stroke: rgba(0, 0, 0, 0.6); stroke-width: 0.15; }
+.viewer-pitch .tracking .ball .shadow { fill: rgba(0, 0, 0, 0.35); }
+.viewer-pitch .tracking .ball-trail {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.4);
+  stroke-width: 0.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Under a full screen the play carries on, but further back, so the dots do not crowd the headline. */
+.viewer .pitch.full-screen-up .tracking { opacity: 0.35; }
+@media (prefers-reduced-motion: reduce) {
+  .viewer-pitch .tracking .player, .viewer-pitch .tracking .ball { transition: none !important; }
+}
+
 /* The frame has a centre. */
 .viewer .pitch > .vignette {
   position: absolute;
