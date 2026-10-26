@@ -131,4 +131,4 @@ def test_each_agent_has_a_router_deployment():
     assert deployment_for("explainer") == settings.router_quality == deployment_for("producer")
     assert deployment_for("narrator") == settings.router_balanced
     assert deployment_for("personalizer") == settings.router_cost == deployment_for("localizer")
-    assert deployment_for("unknown") == settings.model_router
+    assert deployment_for("unknown") == settings.router_balanced

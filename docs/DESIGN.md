@@ -241,12 +241,13 @@ the requested targets, copies the English version's cites, and drops anything la
 plus the API's proposal queue, which the producer receives as `on_air` so it can avoid layer collisions.
 
 Agent Framework is used through `Agent(client=OpenAIChatClient(...), instructions=..., response_format=...)`
-with Entra ID credentials; the client targets the `model-router` deployment. In Foundry Agent Service the
+with Entra ID credentials; each agent's client targets its routing mode's router deployment (`router-quality`,
+`router-balanced` or `router-cost`, from `deployment_for`). In Foundry Agent Service the
 same agents are registered by name so they can be inspected, evaluated, and traced from the portal.
 
 ### 5.3 Timeouts and fallbacks
 
-`AGENT_TIMEOUT_S` (default 8 s) wraps every call. On timeout or any exception the step returns a
+`AGENT_TIMEOUT_S` (default 12 s) wraps every call. On timeout or any exception the step returns a
 template result and appends a failure string to `MomentResult.failures`:
 
 | Step | Fallback |

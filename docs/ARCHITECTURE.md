@@ -38,7 +38,7 @@ flowchart TB
     end
     subgraph Foundry["Microsoft Foundry · crq-dev-foundry"]
         AGS[Foundry Agent Service<br/>explainer · narrator · producer · personalizer · localizer]
-        MR[model-router: router-quality · router-balanced · router-cost<br/>+ gpt-4.1-mini fallback]
+        MR[model router, one deployment per mode:<br/>router-quality · router-balanced · router-cost<br/>+ gpt-4.1-mini]
         EVAL[Evaluations]
         TR[Tracing]
     end
@@ -111,9 +111,12 @@ sequenceDiagram
     P-->>V: overlay (variant for persona, lang)
 ```
 
-Latency budget from event to proposal on the console: ingest < 200 ms, explainer ≤ 4 s, narrator ≤ 2 s,
-(personalizer → localizer) ∥ producer ≤ 6 s, total ≤ 12 s; the 8-second agent timeout plus fallbacks caps the worst
-case at about 20 s (the localizer is a second call after the personalizer). Overlay timing uses the match clock, so proposal latency shifts when a graphic is
+Latency target from event to proposal on the console (a goal, not yet met): ingest < 200 ms, explainer ≤ 4 s,
+narrator ≤ 2 s, (personalizer → localizer) ∥ producer ≤ 6 s, total ≤ 12 s. Measured on the demo window (Oct 26, three
+routers at low reasoning effort, 4 moments): 12.4 s best, 15.3 s average, 20.4 s worst; the card waits for the
+translations, which are the longer branch. The 12-second agent timeout plus fallbacks caps the worst
+case at four timeouts in a row, about 48 s (explainer, narrator, personalizer, localizer; the producer runs beside the
+last two). Overlay timing uses the match clock, so proposal latency shifts when a graphic is
 proposed, not when it is scheduled to air.
 
 ## 4. Data
@@ -146,8 +149,8 @@ Pydantic models in `packages/schemas` (see DESIGN.md §2). Overlay `payload` per
 | --- | --- | --- |
 | Agent Framework (`agent-framework` ≥ 1.22, `agent-framework-foundry`) | `services/agents` | `Agent` per role; sequential and concurrent composition in `workflow.py`; structured outputs via `response_format` |
 | Foundry Agent Service | Foundry project `crq` | Agents registered by name for portal inspection, evaluation, and tracing |
-| Model router (`model-router`, 2025-11-18) | All agent calls | Routing mode per agent via request metadata; selected model recorded in spans |
-| Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Used when the router returns an error or exceeds timeout budget |
+| Model router (`model-router` 2025-11-18): `router-quality`, `router-balanced`, `router-cost` | All agent calls | One deployment per routing mode, since the mode is a deployment setting; each agent calls its own (`AGENT_ROUTING`), with `reasoning_effort` low; selected model recorded on the card and in spans |
+| Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Deployed, not yet called (#35): today a failed or timed-out call falls back to the template |
 | Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language, content safety |
 | Tracing | All services | OpenTelemetry via Agent Framework instrumentation → Application Insights |
 | Content safety | Foundry resource | Applied to all generated text |
@@ -164,7 +167,7 @@ flowchart LR
         CAE[Container Apps env]
         EHNS[Event Hubs ns]
         COSM[Cosmos DB]
-        FND[Foundry + project<br/>model-router · gpt-4.1-mini]
+        FND[Foundry + project<br/>router-quality · router-balanced · router-cost · gpt-4.1-mini]
         LAPP[Logic App]
         LOGS[Log Analytics + App Insights]
         KV[Key Vault<br/>local-dev secrets only]
@@ -185,7 +188,7 @@ Environments: `dev` (sandbox, the demo) only. Naming `crq-<env>-<resource>`, tag
 
 | Quality | Target | How |
 | --- | --- | --- |
-| Responsiveness | Proposal on console ≤ 10 s after the event; overlay timing exact on the match clock | Async pipeline, concurrent agents, 8 s timeouts, match-clock scheduling |
+| Responsiveness | Target: proposal on console ≤ 10 s after the event (measured Oct 26: 15.3 s average); overlay timing exact on the match clock | Async pipeline, concurrent agents, 12 s timeouts, match-clock scheduling |
 | Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, KEDA scaling, checkpointed consumers |
 | Explainability | Every line traceable to events; faithfulness measured | Cited event IDs, state snapshots per moment, Foundry evaluation per narrative |
 | Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, Logic App auto-hold |

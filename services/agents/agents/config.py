@@ -23,14 +23,34 @@ def _languages() -> tuple[str, ...]:
     return tuple(x for x in wanted if x in supported) or ("en",)
 
 
+# What every reasoning model the routers can pick accepts: gpt-5.1 and later reject "minimal", and gpt-5, gpt-5-mini
+# and o4-mini reject "none". To send no effort at all, leave the setting empty.
+REASONING_EFFORTS = ("low", "medium", "high")
+
+
+def _reasoning_effort() -> str:
+    """AGENT_REASONING_EFFORT, checked once here: a value the models reject would fail every call with a 400 and
+    quietly turn every card into a template. Empty means send none."""
+    value = os.environ.get("AGENT_REASONING_EFFORT", "low").strip().lower()
+    if value and value not in REASONING_EFFORTS:
+        logging.getLogger(__name__).warning("AGENT_REASONING_EFFORT=%r is not supported (%s); sending none",
+                                            value, ", ".join(REASONING_EFFORTS))
+        return ""
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     foundry_project_endpoint: str = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
     azure_openai_endpoint: str = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    # Model router deployment handles routing; per-agent routing hints are passed as metadata.
-    model_router: str = os.environ.get("MODEL_ROUTER_DEPLOYMENT", "model-router")
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
-    agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
+    # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
+    # 12 s lets an occasional slow router pick finish instead of falling back to the template.
+    agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "12"))
+    # Passed to the routers, which hand it to the reasoning models they pick. In the Oct 26 demo-window runs "low"
+    # kept every agent call under 8 s with the writing unchanged; the default effort took half the explainer calls
+    # past 8 s (#39). Empty sends no reasoning_effort.
+    reasoning_effort: str = _reasoning_effort()
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
     languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.
@@ -47,7 +67,7 @@ AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", 
 
 
 def deployment_for(agent: str) -> str:
-    """The router deployment an agent should call; falls back to the single model-router deployment."""
+    """The router deployment an agent should call; an agent with no routing mode gets the balanced router."""
     mode = AGENT_ROUTING.get(agent)
     return {"quality": settings.router_quality, "balanced": settings.router_balanced,
-            "cost": settings.router_cost}.get(mode or "", settings.model_router)
+            "cost": settings.router_cost}.get(mode or "", settings.router_balanced)

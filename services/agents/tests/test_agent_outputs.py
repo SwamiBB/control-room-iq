@@ -109,9 +109,10 @@ def test_a_proposal_that_ends_before_it_starts_uses_the_template():
 
 def test_model_outputs_carry_their_run_details_and_templates_do_not():
     res = _run(_pipeline(personalizer=_variants(("fan", "none"))), _moment())
-    assert res.proposal.meta.routing == "balanced" and res.proposal.meta.model_served == "test-model"
+    # Each agent reports its own router's mode (#47): the producer is on quality, the personalizer on cost.
+    assert res.proposal.meta.routing == "quality" and res.proposal.meta.model_served == "test-model"
     by_access = {v.access: v for v in res.variants}
-    assert by_access["none"].meta.model_served == "test-model"
+    assert by_access["none"].meta.routing == "cost" and by_access["none"].meta.model_served == "test-model"
     assert by_access["deaf"].meta.routing == "template"  # filled from the template, not the model
 
 
@@ -150,10 +151,10 @@ def test_a_model_proposal_is_built_by_code():
 
 def test_the_explainer_gets_its_moment_id_and_run_details_from_code():
     reply = json.dumps({"moment_id": "invented", "headline": "h", "why_it_matters": "w", "pattern": "chaos",
-                        "cites": ["e-1"], "confidence": 0.8, "meta": {"routing": "quality", "latency_ms": 1}})
+                        "cites": ["e-1"], "confidence": 0.8, "meta": {"routing": "cost", "latency_ms": 1}})
     expl = _run(_pipeline(explainer=reply), _moment()).explanation
     assert expl.moment_id == "mo-1"
-    assert expl.meta.routing == "balanced" and expl.meta.model_served == "test-model"
+    assert expl.meta.routing == "quality" and expl.meta.model_served == "test-model"
     assert expl.meta.latency_ms is not None and expl.meta.latency_ms != 1
 
 

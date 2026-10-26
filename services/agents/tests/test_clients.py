@@ -14,10 +14,10 @@ from crq_schemas import Explanation  # noqa: E402
 from openai.lib._pydantic import to_strict_json_schema  # noqa: E402
 
 
-def _online_client():
+def _online_client(deployment=None):
     # Placeholder endpoint and token provider: building the client sends no request.
     return OpenAIChatCompletionClient(azure_endpoint="https://example.openai.azure.com/",
-                                      credential=lambda: "test-token", model="model-router")
+                                      credential=lambda: "test-token", model=deployment or "router-balanced")
 
 
 def test_make_agent_online_sets_structured_output(monkeypatch):
@@ -33,17 +33,53 @@ def test_pipeline_builds_online(monkeypatch):
     assert all(isinstance(a, Agent) for a in (p.explainer, p.narrator, p.personalizer, p.producer, p.localizer))
     assert p.producer.default_options["response_format"] is ProducerDecision
     assert "response_format" not in p.narrator.default_options
+    for n in config.AGENT_ROUTING:  # whatever the developer's .env says, as long as it is passed through
+        assert getattr(p, n).default_options.get("reasoning_effort") == (config.settings.reasoning_effort or None)
+
+
+def test_each_agent_calls_its_routing_modes_deployment(monkeypatch):
+    # The routing mode is a deployment setting, so each agent needs a client for its own router (#47).
+    monkeypatch.setattr(clients, "chat_client", _online_client)
+    p = MomentPipeline()
+    assert {n: getattr(p, n).client.model for n in config.AGENT_ROUTING} == {
+        n: config.deployment_for(n) for n in config.AGENT_ROUTING}
+    assert config.AGENT_ROUTING == {"explainer": "quality", "producer": "quality", "narrator": "balanced",
+                                    "personalizer": "cost", "localizer": "cost"}
+
+
+def test_a_reasoning_effort_the_models_reject_is_not_sent(monkeypatch, caplog):
+    for value, sent in (("LOW", "low"), ("high", "high"), ("", ""), ("none", ""), ("minimal", ""), ("lo", "")):
+        monkeypatch.setenv("AGENT_REASONING_EFFORT", value)
+        with caplog.at_level(logging.WARNING):
+            assert config._reasoning_effort() == sent
+    assert "'minimal' is not supported" in caplog.text
+
+
+def test_all_routers_share_one_credential(monkeypatch):
+    monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
+                                                             azure_openai_endpoint="https://example.openai.azure.com/"))
+    clients._client_for.cache_clear()
+    clients._credential.cache_clear()
+    try:
+        a, b = clients.chat_client("router-quality"), clients.chat_client("router-cost")
+        assert a is not b and clients._credential() is clients._credential()
+        # The default deployment, named or not, is one client.
+        balanced = clients.settings.router_balanced
+        assert clients.chat_client() is clients.chat_client(None) is clients.chat_client(balanced)
+    finally:
+        clients._client_for.cache_clear()
+        clients._credential.cache_clear()
 
 
 def test_chat_client_builds_with_real_settings(monkeypatch):
     # The real factory, not a copy of its arguments: a wrong argument would otherwise hide behind the except.
     monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
                                                              azure_openai_endpoint="https://example.openai.azure.com/"))
-    clients.chat_client.cache_clear()
+    clients._client_for.cache_clear()
     try:
         assert isinstance(clients.chat_client(), OpenAIChatCompletionClient)
     finally:
-        clients.chat_client.cache_clear()
+        clients._client_for.cache_clear()
 
 
 def _open_objects(node, path=""):
@@ -75,13 +111,18 @@ def test_client_failure_falls_back_to_templates(monkeypatch, caplog):
     monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
                                                              azure_openai_endpoint="https://example.openai.azure.com/"))
     monkeypatch.setattr("agent_framework.openai.OpenAIChatCompletionClient", broken)
-    clients.chat_client.cache_clear()
+    clients._client_for.cache_clear()
     try:
         with caplog.at_level(logging.ERROR):
             assert clients.make_agent("explainer", "Explain the moment.", Explanation) is None
         assert "template fallback" in caplog.text
+        # The failure is not cached: once the client can be built, that router's next agent gets one.
+        monkeypatch.undo()
+        monkeypatch.setattr(clients, "settings", config.Settings(
+            offline=False, azure_openai_endpoint="https://example.openai.azure.com/"))
+        assert isinstance(clients.chat_client(config.deployment_for("explainer")), OpenAIChatCompletionClient)
     finally:
-        clients.chat_client.cache_clear()
+        clients._client_for.cache_clear()
 
 
 def test_agent_failure_falls_back_to_template(monkeypatch, caplog):

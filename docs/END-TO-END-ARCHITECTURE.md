@@ -432,7 +432,7 @@ flowchart TB
 
 ### 9.1 Routing per agent
 
-In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/config.py` (falls back to `MODEL_ROUTER_DEPLOYMENT` until the three deployments exist).
+In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/config.py` (an agent with no routing mode gets `router-balanced`). Each agent has its own client for its router, and `AGENT_REASONING_EFFORT` (default `low`) is sent with every call.
 
 | Agent | Deployment | Why |
 | --- | --- | --- |
@@ -458,7 +458,7 @@ In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/
 | Failure | Behavior |
 | --- | --- |
 | Foundry or router quota unavailable | `CRQ_OFFLINE=1`: golden and template outputs, same visible path |
-| Agent timeout (8 s per agent; result beat budget ≤ 12 s) | Template-backed card and packet; `fallback_reason` recorded; no stall |
+| Agent timeout (12 s per agent, `AGENT_TIMEOUT_S`; result-beat target ≤ 12 s, measured 15.3 s average) | Template-backed card and packet; `fallback_reason` recorded; no stall |
 | Variant fails checks, or the Localizer is slow or fails | Template in that language immediately, else the English line marked English. Never English labeled as es/hi. Never delay the English line |
 | Output fails validation | Log `fallback_reason`, publish the deterministic template. Unsupported content is never published |
 | Scheduler not ready | Arrival-time timing labeled "unscheduled". SLA still runs |

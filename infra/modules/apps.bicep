@@ -32,8 +32,10 @@ var commonEnv = [
   { name: 'COSMOS_ENDPOINT', value: cosmosEndpoint }
   { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
   { name: 'AZURE_OPENAI_ENDPOINT', value: openAiEndpoint }
-  { name: 'MODEL_ROUTER_DEPLOYMENT', value: 'model-router' }
   { name: 'MODEL_FALLBACK_DEPLOYMENT', value: 'gpt-4.1-mini' }
+  { name: 'ROUTER_QUALITY', value: 'router-quality' }
+  { name: 'ROUTER_BALANCED', value: 'router-balanced' }
+  { name: 'ROUTER_COST', value: 'router-cost' }
   { name: 'AZURE_CLIENT_ID', value: reference(identityId, '2023-01-31').clientId }
 ]
 
