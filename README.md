@@ -38,8 +38,7 @@ and [SECURITY.md](SECURITY.md) for the full posture.
   gated by code checks (invented numbers, name drift, banned content, actually-translated, faithfulness).
   See [`services/api/api/variant_checks.py`](services/api/api/variant_checks.py).
 - **Model choice is auditable.** A per-agent router (quality / balanced / cost) records the served model
-  on every proposal and every OpenTelemetry span. One trace per `moment_id`. Every decision is in an
-  append-only log, downloadable at `GET /decisions.csv`.
+  on every proposal. Every decision is in an append-only log, downloadable at `GET /decisions.csv`.
   See [`services/agents/agents/config.py`](services/agents/agents/config.py).
 
 Enterprise substrate: managed identity + OIDC (no secrets in the repo), CodeQL + Trivy + Dependabot on
