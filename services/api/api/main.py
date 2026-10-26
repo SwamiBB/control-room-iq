@@ -478,9 +478,18 @@ class ReplayRequest(BaseModel):
     to_play_ms: int | None = None
 
 
+# Replays read only match files under data/: the bundled reference matches, or one generated locally. A path from
+# the request is never opened outside it, so a caller can't probe the filesystem or have another file's contents
+# echoed back in a parse error (#22).
+REPLAY_ROOT = Path("data").resolve()
+
+
 @app.post("/matches/replay")
 async def replay(req: ReplayRequest):
     path = Path(req.file)
+    resolved = path.resolve()
+    if path.suffix != ".jsonl" or not resolved.is_relative_to(REPLAY_ROOT):
+        raise HTTPException(422, "replay a .jsonl match under data/, e.g. data/reference/match-042.jsonl")
     if not path.exists():
         raise HTTPException(404, f"{path} not found; replay a match in data/reference/, or generate one with "
                                  "the simulator")

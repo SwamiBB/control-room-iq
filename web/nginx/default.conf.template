@@ -15,6 +15,11 @@ server {
     server_name _;
     root /usr/share/nginx/html;
 
+    # The stock config leaves compression off: the bundle and the polled JSON go out compressed.
+    gzip on;
+    gzip_types application/javascript text/css application/json image/svg+xml;
+    gzip_min_length 1024;
+
     # Live sockets: operator desk, viewer and overlay feed.
     location /ws/ {
         proxy_pass ${API_UPSTREAM};
