@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
@@ -19,6 +19,18 @@ type Lang = "en" | "es" | "hi";
 
 const PERSONAS: Record<Persona, string> = { newcomer: "New to football", fan: "Fan", analyst: "Analyst" };
 const ACCESS: Record<Access, string> = { none: "Standard", deaf: "Deaf — cues and captions" };
+
+/** What each choice changes, for the pickers' tooltips: the personalizer agent's rules, in a viewer's words. */
+export const PERSONA_HELP: Record<Persona, string> = {
+  newcomer: "Plain words, no jargon. Says what happened rather than the statistic, with one fact at most.",
+  fan: "Knows the game. Warm, factual lines with a key number or two, rounded: a speed, a pass length.",
+  analyst: "Precise and neutral. The supporting figure in full: speeds to one decimal, pass difficulty and accuracy.",
+};
+export const ACCESS_HELP: Record<Access, string> = {
+  none: "The graphics as broadcast.",
+  deaf: "A visual cue on every strike, and a caption card with who, where, the outcome and the score. "
+    + "Lines never rely on sound.",
+};
 const LANGS: Record<Lang, string> = { en: "English", es: "Español", hi: "हिन्दी" };
 const SIDES: Record<Allegiance, string> = { home: "Home", away: "Away", neutral: "Neutral" };
 
@@ -403,6 +415,21 @@ export function cueTimer(setCue: (c: Cue | null) => void) {
 /** The strike cue's one word, in the viewer's language. */
 export const cueWord = (kind: string, lang: Lang) => HEADINGS[`cue.${kind}`]?.[lang] ?? heading("cue.play", lang);
 
+/**
+ * A small "?" beside a picker's label: hover or focus it for what every choice means. The select carries the
+ * current choice's meaning as its own tooltip too, and points screen readers at this list.
+ */
+function Help<K extends string>({ id, names, help }: { id: string; names: Record<K, string>; help: Record<K, string> }) {
+  return (
+    <span className="help" tabIndex={0} aria-label="What these mean">
+      ?
+      <span className="tip" role="tooltip" id={id}>
+        {(Object.keys(names) as K[]).map((k) => <span key={k}><b>{names[k]}</b>: {help[k]}</span>)}
+      </span>
+    </span>
+  );
+}
+
 export type ViewerPreset = {
   persona?: Persona;
   access?: Access;
@@ -424,6 +451,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [access, setAccess] = useState<Access>(initial.access ?? "none");
   const [lang, setLang] = useState<Lang>(initial.lang ?? "en");
   const [allegiance, setAllegiance] = useState<Allegiance>(initial.allegiance ?? "neutral");
+  const helpId = useId(); // the multiviewer draws three viewers: their tooltip ids must not collide
   useEffect(() => {
     if (preset) return;
     try {
@@ -556,15 +584,21 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         )}
         <div className="viewer-controls" hidden={!chrome}>
           <label>
-            <span>Who is watching</span>
-            <select value={persona} onChange={(e) => setPersona(e.target.value as Persona)}>
-              {Object.entries(PERSONAS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <span>Who is watching <Help id={`${helpId}-persona`} names={PERSONAS} help={PERSONA_HELP} /></span>
+            <select value={persona} onChange={(e) => setPersona(e.target.value as Persona)}
+                    title={PERSONA_HELP[persona]} aria-describedby={`${helpId}-persona`}>
+              {Object.entries(PERSONAS).map(([k, v]) => (
+                <option key={k} value={k} title={PERSONA_HELP[k as Persona]}>{v}</option>
+              ))}
             </select>
           </label>
           <label>
-            <span>Access</span>
-            <select value={access} onChange={(e) => setAccess(e.target.value as Access)}>
-              {Object.entries(ACCESS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <span>Accessibility <Help id={`${helpId}-access`} names={ACCESS} help={ACCESS_HELP} /></span>
+            <select value={access} onChange={(e) => setAccess(e.target.value as Access)}
+                    title={ACCESS_HELP[access]} aria-describedby={`${helpId}-access`}>
+              {Object.entries(ACCESS).map(([k, v]) => (
+                <option key={k} value={k} title={ACCESS_HELP[k as Access]}>{v}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -624,10 +658,12 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           );
         })}
 
-        {shown.length === 0 && !cue && (
+        {/* A feed says nothing between graphics: the pitch carries the picture. Only the link's state, or a
+            new run loading, is worth a line. */}
+        {shown.length === 0 && !cue && (link !== "live" || warming) && (
           <p className="viewer-idle">
             {link === "live"
-              ? warming ? "Warming up: the next run is loading." : "Waiting for the next approved graphic."
+              ? "Warming up: the next run is loading."
               : link === "connecting"
                 ? "Connecting…"
                 : "Lost the feed. Reconnecting automatically."}
@@ -640,7 +676,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
       {access !== "deaf" && (
         <p className="viewer-note">
-          Strike cues and detail cards go to deaf-access viewers. Switch Access to see them.
+          Strike cues and detail cards go to deaf-access viewers. Switch Accessibility to see them.
         </p>
       )}
 

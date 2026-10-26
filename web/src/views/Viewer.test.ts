@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueWord, kickerFor, cueTimer, holdMs, isApproved, isRestart, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { ACCESS_HELP, PERSONA_HELP, captionCardFor, cueWord, kickerFor, cueTimer, holdMs, isApproved, isRestart, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -375,5 +375,12 @@ describe("cueWord (the strike cue, #54)", () => {
 
   it("says Play, in the viewer's language, for a kind it does not know", () => {
     expect(cueWord("new_kind", "es")).toBe("Juego");
+  });
+});
+
+describe("the pickers' help", () => {
+  it("explains every persona and every access choice", () => {
+    for (const p of ["newcomer", "fan", "analyst"] as const) expect(PERSONA_HELP[p].length).toBeGreaterThan(20);
+    for (const a of ["none", "deaf"] as const) expect(ACCESS_HELP[a].length).toBeGreaterThan(10);
   });
 });
