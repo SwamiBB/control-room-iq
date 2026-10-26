@@ -80,6 +80,7 @@ from .timing import (
     sla_times,
     stale_proposals,
 )
+from .tracking_feed import TrackingFeed, load_tracking
 from .variant_checks import build_context, unsourced_numbers
 
 
@@ -134,6 +135,9 @@ class Hub:
         self.moment_tasks: set[asyncio.Task] = set()  # agent pipelines running beside the replay (#51)
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
         self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
+        self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
+        self.tracking_index: int | None = None  # the frame last sent
+        self.tracking_sent_at = 0.0  # time.monotonic() of that send
 
     def new_match(self, meta: MatchMeta) -> None:
         """Clear the desk for a fresh match.
@@ -154,6 +158,7 @@ class Hub:
         self.cancel_moments()  # the old match's agents must not post into the new one
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
         self.goal_phases.clear()
+        self.tracking, self.tracking_index, self.tracking_sent_at = None, None, 0.0
 
     def cancel_moments(self) -> None:
         for task in self.moment_tasks:
@@ -187,6 +192,14 @@ class Hub:
                 continue
             try:
                 await ws.send_json({"type": "fan_cue", "cue": cue.model_dump(mode="json")})
+            except Exception:  # noqa: BLE001
+                self.viewers.pop(ws, None)
+
+    async def broadcast_tracking(self, frame: dict) -> None:
+        """The players and the ball, to every viewer: match data, not generated text, so no approval gate."""
+        for ws in list(self.viewers):
+            try:
+                await ws.send_json({"type": "tracking", "frame": frame})
             except Exception:  # noqa: BLE001
                 self.viewers.pop(ws, None)
 
@@ -546,7 +559,9 @@ async def _start_match(meta: MatchMeta) -> StateFolder:
     hub.new_match(meta)
     await hub.broadcast_operators({"type": "match", "meta": meta.model_dump(mode="json")})
     # Building the folder loads the match's tracking file (about 1 s); off the event loop, sockets keep flowing (#42).
-    folder = await asyncio.to_thread(StateFolder, meta)
+    # The viewers' positions come from the same file, read alongside.
+    folder, hub.tracking = await asyncio.gather(asyncio.to_thread(StateFolder, meta),
+                                                asyncio.to_thread(load_tracking, meta))
     hub.match_state = folder.state
     return folder
 
@@ -603,6 +618,23 @@ async def _pace(gap_ms: int, req: ReplayRequest) -> None:
         step = min(left, PACING_SLICE_MS * speed)
         await asyncio.sleep(step / 1000 / speed)
         left -= step
+        # The clock already reads the next event's time; the match itself is `left` short of it.
+        await _send_tracking(hub.clock.play_ms - int(left))
+
+
+TRACKING_SEND_S = 0.2  # at most this often in real time: every frame at real time (4 a second), a sample faster
+
+
+async def _send_tracking(play_ms: int) -> None:
+    """The viewers' players and ball as they are at play_ms, when that is a frame they have not had yet."""
+    if hub.tracking is None or not hub.viewers:
+        return
+    i = hub.tracking.index_at(play_ms)
+    now = time.monotonic()
+    if i is None or i == hub.tracking_index or now - hub.tracking_sent_at < TRACKING_SEND_S:
+        return
+    hub.tracking_index, hub.tracking_sent_at = i, now
+    await hub.broadcast_tracking(hub.tracking.frame(i))
 
 
 async def _announce_speed(speed: float) -> None:
