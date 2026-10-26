@@ -10,13 +10,26 @@ param eventHubNamespaceFqdn string
 param cosmosEndpoint string
 param foundryProjectEndpoint string
 param openAiEndpoint string
-// The images azd deployed last (SERVICE_*_IMAGE_NAME), so a provision keeps the running apps instead of resetting
-// them to the placeholder. Empty on the very first provision, before anything is built.
-param apiImageName string = ''
-param ingestImageName string = ''
-param webImageName string = ''
+// Whether each app already exists (azd sets SERVICE_*_RESOURCE_EXISTS). If it does, provisioning keeps the image it
+// is running, read from Azure; otherwise the app starts on the placeholder until the first `azd deploy`.
+param apiExists bool = false
+param ingestExists bool = false
+param webExists bool = false
 
 var placeholderImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+
+module apiImage 'fetch-image.bicep' = {
+  name: 'api-image'
+  params: { name: 'ca-${app}-api-${suffix}', exists: apiExists }
+}
+module ingestImage 'fetch-image.bicep' = {
+  name: 'ingest-image'
+  params: { name: 'ca-${app}-ingest-${suffix}', exists: ingestExists }
+}
+module webImage 'fetch-image.bicep' = {
+  name: 'web-image'
+  params: { name: 'ca-${app}-web-${suffix}', exists: webExists }
+}
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'caenv-${app}-${suffix}'
@@ -61,7 +74,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'api'
-        image: empty(apiImageName) ? placeholderImage : apiImageName
+        image: empty(apiImage.outputs.image) ? placeholderImage : apiImage.outputs.image
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
@@ -82,7 +95,7 @@ resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'ingest'
-        image: empty(ingestImageName) ? placeholderImage : ingestImageName
+        image: empty(ingestImage.outputs.image) ? placeholderImage : ingestImage.outputs.image
         env: commonEnv
         resources: { cpu: json('0.5'), memory: '1Gi' }
       } ]
@@ -107,7 +120,7 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'web'
-        image: empty(webImageName) ? placeholderImage : webImageName
+        image: empty(webImage.outputs.image) ? placeholderImage : webImage.outputs.image
         // The web image's nginx proxies the API paths here (#14); the API has no public address of its own.
         env: [ { name: 'API_UPSTREAM', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
         resources: { cpu: json('0.25'), memory: '0.5Gi' }

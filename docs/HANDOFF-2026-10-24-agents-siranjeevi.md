@@ -113,5 +113,5 @@ written on Friday, October 23 by merging Siranjeevi's own list with the agent it
 
 ### If time runs short
 
-Items 1, 3, 4 and 5 are done. Of the rest, 2 changes what the demo does, so do it first. Anything from 3 or 6 that does not ship by Monday comes out of the README's "Built on
-Microsoft Foundry and Azure" table.
+Items 1, 3, 4 and 5 are done. Of the rest, 2 changes what the demo does, so do it first. Anything from 2 or 6 that
+does not ship by Monday comes out of the README's "Built on Microsoft Foundry and Azure" table.

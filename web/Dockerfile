@@ -8,7 +8,8 @@ RUN npm run build
 FROM nginxinc/nginx-unprivileged:alpine
 # OS package fixes the base image hasn't picked up yet (curl, brotli: Trivy).
 USER root
-RUN apk upgrade --no-cache
+# Upgrading can reinstall nginx's files as root; give its runtime directories back to the nginx user (uid 101).
+RUN apk upgrade --no-cache  && chown -R 101:0 /var/cache/nginx /etc/nginx/conf.d  && chmod -R g+w /var/cache/nginx /etc/nginx/conf.d
 USER 101
 COPY --from=build /app/dist /usr/share/nginx/html
 # The image's entrypoint fills ${API_UPSTREAM} from the environment at start (#14), so no API address is

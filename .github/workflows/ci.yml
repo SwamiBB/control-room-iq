@@ -62,7 +62,8 @@ jobs:
             test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080$path)" = 200 || { echo "FAIL $path"; exit 1; }
           done
           curl -fs localhost:8080/healthz | grep -q '"ok"'
-          curl -fs -H 'Accept-Encoding: gzip' -o /dev/null -D - localhost:8080/ | grep -iq 'content-encoding: gzip' || echo "note: index.html below gzip_min_length"
+          asset=$(curl -fs localhost:8080/ | grep -o '/assets/[^"]*\.js' | head -1)
+          curl -fs -H 'Accept-Encoding: gzip' -o /dev/null -D - "localhost:8080$asset" | grep -iq 'content-encoding: gzip'
       - name: Logs on failure
         if: failure()
         run: docker logs api || true; docker logs web || true

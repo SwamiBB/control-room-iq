@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir -e .
 # StateFolder read the reference matches and their tracking files (#13).
 COPY data/reference ./data/reference
 # Run as an unprivileged user (Trivy DS-0002): nothing writes to the image at runtime.
-RUN useradd --system --uid 10001 --no-create-home app
+RUN useradd --system --uid 10001 --create-home --home-dir /home/app app
 USER 10001
 ENV PYTHONPATH=/app/packages/schemas:/app/services/simulator:/app/services/ingest:/app/services/agents:/app/services/api
 EXPOSE 8000
