@@ -5,6 +5,7 @@ import IntelChips from "../components/IntelChips";
 import { PitchLines } from "../components/PitchView";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
+import { LAYER_RECTS, layerOf, onScreen, rectStyle } from "../layout";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
@@ -391,7 +392,11 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const live = liveAt(held, Date.now());
 
-  const packet = mainSlot(live)?.packet;
+  // Every layer on screen is drawn below. The caption card rides on whichever of them carries it (the goal
+  // routine's lead), not on the newest, so the scorer's lower third arriving with it no longer hides the card.
+  const shown = onScreen(live);
+  const packet = shown.find((h) => h.packet.fan_card)?.packet ?? mainSlot(live)?.packet;
+  const fullScreenUp = shown.some((h) => layerOf(h.packet.layer) === "full_screen");
 
   const register: IntelRegister = persona;
   const nameOf = nameLookup(packet);
@@ -449,7 +454,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           : <span className="live-score waiting">{heading("waiting", lang)}</span>}
       </div>
 
-      <div className="pitch">
+      <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
         {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
         <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid meet"
              role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
@@ -471,19 +476,28 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           </div>
         )}
 
-        {/* Beat two: generated caption, only ever inside an approved packet. */}
-        {packet && (
-          <div className={`overlay ${packet.layer}`}>
-            {!packet.verified && <span className="badge override">Unverified</span>}
-            {packet.fallback && <span className="badge fallback">Template</span>}
-            {packet.lang !== lang && <span className="badge lang">in English</span>}
-            {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
-            <p className="line">{packet.line}</p>
-            <IntelChips metrics={packet.payload?.intel as MomentMetrics | undefined} name={nameOf} register={register} />
-          </div>
-        )}
+        {/* Beat two: generated captions, only ever inside approved packets, each layer in its own place. */}
+        {shown.map(({ packet: p }) => {
+          const layer = layerOf(p.layer);
+          return (
+            <div key={p.cue_id} className={`overlay layer-${layer}`} style={rectStyle(LAYER_RECTS[layer])}>
+              {(!p.verified || p.fallback || p.lang !== lang) && (
+                <div className="badges">
+                  {!p.verified && <span className="badge override">Unverified</span>}
+                  {p.fallback && <span className="badge fallback">Template</span>}
+                  {p.lang !== lang && <span className="badge lang">in English</span>}
+                </div>
+              )}
+              {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
+              <p className="line">{p.line}</p>
+              {layer !== "ticker" && layer !== "player_tag" && (
+                <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+              )}
+            </div>
+          );
+        })}
 
-        {!packet && !cue && (
+        {shown.length === 0 && !cue && (
           <p className="viewer-idle">
             {link === "live"
               ? "Waiting for the next approved graphic."
@@ -504,8 +518,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       )}
 
       <ul className="history">
-        {/* Everything else still up; the main slot is not always the newest, so filter rather than slice. */}
-        {live.filter((h) => h.packet !== packet).map((h) => (
+        {/* Still live but not on screen: an older graphic on a busy layer, or a panel waiting under a full screen. */}
+        {live.filter((h) => !shown.includes(h)).map((h) => (
           <li key={h.packet.cue_id}>{h.packet.line}</li>
         ))}
       </ul>

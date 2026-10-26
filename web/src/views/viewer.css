@@ -124,8 +124,84 @@
   height: 100%;
   pointer-events: none;
 }
-.viewer .pitch > .overlay,
-.viewer .pitch > .viewer-idle { position: relative; }
+
+/* ---- Graphics by layer (layout.ts places them; sizes follow the frame, so the multiviewer scales too) ---- */
+.viewer .pitch { container-type: inline-size; }
+
+.viewer .pitch > .overlay {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.4em;
+  padding: 0.6em 1em;
+  background: rgba(10, 13, 18, 0.9);
+  color: #fff;
+  border: 0;
+  border-left: 4px solid var(--side-color, var(--accent));
+  border-radius: 3px;
+  font-size: clamp(11px, 1.8cqi, 19px);
+  animation: overlay-in 240ms ease-out;
+}
+.viewer .pitch > .overlay .line { margin: 0; font-weight: 600; line-height: 1.25; }
+.viewer .pitch > .overlay .intel-chips { margin: 0; font-size: 0.78em; }
+.viewer .pitch > .overlay .badges { display: flex; gap: 6px; }
+.viewer .pitch > .overlay .badge { font-size: 0.6em; margin: 0; }
+
+/* Full screen: the centred card. */
+.viewer .pitch > .overlay.layer-full_screen {
+  align-items: center;
+  text-align: center;
+  border-left: 0;
+  border-top: 5px solid var(--side-color, var(--accent));
+  font-size: clamp(14px, 3.1cqi, 34px);
+}
+.viewer .pitch > .overlay.layer-full_screen .intel-chips { justify-content: center; font-size: 0.5em; }
+
+/* Ticker: one line, full width, at the very bottom. */
+.viewer .pitch > .overlay.layer-ticker {
+  flex-direction: row;
+  align-items: center;
+  border-left: 0;
+  border-top: 2px solid var(--side-color, var(--accent));
+  border-radius: 0;
+  font-size: clamp(11px, 1.6cqi, 17px);
+  padding: 0 1.2em;
+}
+.viewer .pitch > .overlay.layer-ticker .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Side panels start at the top of their column. */
+.viewer .pitch > .overlay.layer-stat_panel,
+.viewer .pitch > .overlay.layer-heatmap { justify-content: flex-start; }
+
+/* Deaf caption band and the pitch label: centred, lighter. */
+.viewer .pitch > .overlay.layer-caption,
+.viewer .pitch > .overlay.layer-pitch_overlay {
+  align-items: center;
+  text-align: center;
+  border-left: 0;
+  background: rgba(0, 0, 0, 0.78);
+}
+.viewer .pitch > .overlay.layer-player_tag { font-size: clamp(10px, 1.5cqi, 16px); }
+
+@keyframes overlay-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .viewer .pitch > .overlay { animation: none; } }
+
+/* A full-screen graphic is about the moment the path shows; the path waits rather than peek out from under it. */
+.viewer .pitch.full-screen-up .ball-path { visibility: hidden; }
+
+/* Nothing up: a quiet line at the bottom, inside the frame. */
+.viewer .pitch > .viewer-idle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3%;
+  margin: 0;
+  text-align: center;
+}
 
 .viewer {
   max-width: 560px;
