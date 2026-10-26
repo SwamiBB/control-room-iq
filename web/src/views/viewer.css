@@ -78,14 +78,22 @@
   container-type: inline-size; /* the caption card, under the frame, scales with the viewer's width */
 }
 
-/* A second screen, not a stadium screen: broadcast proportions, so the controls, the feed and the caption
-   card stay in one view without scrolling. */
+/* Hindi graphics: the condensed face has no Devanagari, so name the one that takes over rather than leave it
+   to the system's fallback. Latin (names, numbers) stays condensed. */
+.viewer[data-lang="hi"] {
+  --cond: "Barlow Condensed", "Nirmala UI", "Noto Sans Devanagari", "Mangal", system-ui, sans-serif;
+}
+
+/* A second screen, not a stadium screen: always 16:9. The layer regions are percentages of the frame's height
+   and the type is sized to its width, so a frame stretched wider than 16:9 (a height cap on a wide window)
+   left text taller than its region, cut off at the bottom. A short window gets a smaller picture instead. */
 .viewer .pitch {
   position: relative;
   overflow: hidden;
+  box-sizing: border-box;
   aspect-ratio: 16 / 9;
-  max-height: 46vh;
-  min-height: 200px;
+  width: min(100%, calc(72vh * 16 / 9));
+  margin-inline: auto;
   container-type: inline-size;
   border-radius: 5px;
   border: 1px solid #262f3a;
@@ -107,8 +115,9 @@
   background: radial-gradient(120% 90% at 50% 38%, transparent 42%, rgba(0, 0, 0, 0.55) 100%);
 }
 
-/* A full-screen graphic dims the whole frame; the lower third and the ticker stay up on top of it. */
-.viewer .pitch > .scrim { position: absolute; inset: 0; pointer-events: none; background: rgba(8, 11, 15, 0.78); }
+/* A full-screen graphic dims the whole frame, by half so the match still shows through; the lower third and the
+   ticker stay up on top of it. */
+.viewer .pitch > .scrim { position: absolute; inset: 0; pointer-events: none; background: rgba(8, 11, 15, 0.5); }
 .viewer .pitch.full-screen-up .ball-path { visibility: hidden; }
 
 /* ---- Score bug: top left, always there ---- */
@@ -209,8 +218,21 @@
 .overlay .badge.lang { color: #8fb3ff; }
 .overlay .badge.override { color: #f59e6b; }
 
-/* Lower third: a band at bottom left, a coloured spine down its left edge. */
+/* Devanagari's marks sit above and below the line, so it needs the line height; and it has no capitals, so a
+   letter-spaced kicker only pulls its syllables apart ("गो ल"). */
+.viewer[data-lang="hi"] .overlay .main { line-height: 1.35; }
+.viewer[data-lang="hi"] .overlay .kick { line-height: 1.35; letter-spacing: 0; text-transform: none; }
+
+/* Lower third: a band at bottom left, a coloured spine down its left edge. Its region holds two lines of the
+   main text, Hindi included; a longer line ends in an ellipsis rather than being sliced through. */
 .overlay.layer-lower_third { align-items: flex-end; }
+.overlay.layer-lower_third .main {
+  font-size: 2.4cqw;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 .overlay.layer-lower_third .spine { width: 0.45cqw; min-width: 3px; flex: none; background: var(--side-color, var(--home)); }
 
 /* Ticker: the full-width strip at the very bottom, a solid tag block and the line beside it. */
@@ -250,6 +272,10 @@
 .overlay.layer-full_screen .body { background: none; align-items: center; gap: 1cqw; }
 .overlay.layer-full_screen .kick { font-size: 2cqw; letter-spacing: 0.2em; color: var(--live); font-weight: 700; }
 .overlay.layer-full_screen .main { font-size: 4.6cqw; font-weight: 700; line-height: 1.05; }
+.viewer[data-lang="hi"] .overlay.layer-full_screen .main { line-height: 1.2; }
+/* The scrim only half-dims the pitch, so the type carries its own shadow to stay legible over the markings. */
+.overlay.layer-full_screen .kick,
+.overlay.layer-full_screen .main { text-shadow: 0 0 2px rgba(0, 0, 0, 0.9), 0 2px 14px rgba(0, 0, 0, 0.85); }
 .overlay.layer-full_screen .detail .intel-chips { justify-content: center; font-size: 1.8cqw; }
 
 /* Side panels and the pitch label: the same furniture, from the top of their region. */
