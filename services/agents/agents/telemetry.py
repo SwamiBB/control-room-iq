@@ -44,7 +44,10 @@ def configure(service_name: str) -> bool:
 
         from .clients import _credential
 
-        configure_azure_monitor(connection_string=connection_string, credential=_credential(),
+        # Every trace is kept. The default limits it to 5 traces a second, and a moment's agent, model and Event Hubs
+        # spans alone pass that, so whole traces were dropped: an operator's fire went missing with its decision
+        # and airing. The demo's volume is small; a busy production deployment would sample.
+        configure_azure_monitor(connection_string=connection_string, credential=_credential(), sampling_ratio=1.0,
                                 resource=Resource.create({"service.name": service_name}))
     except Exception:  # noqa: BLE001 - tracing must never stop the API
         logger.exception("Tracing to Application Insights unavailable; continuing without it")
