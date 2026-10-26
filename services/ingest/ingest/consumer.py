@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 from crq_schemas import MatchEvent, MatchMeta
@@ -25,7 +26,7 @@ from crq_schemas import MatchEvent, MatchMeta
 from .stats import StateFolder
 
 log = logging.getLogger("ingest.consumer")
-IDLE_WARN_S = 60  # a silence this long is logged once, until the next event
+IDLE_WARN_S = 60  # no event on any partition for this long is logged once, until the next event
 
 
 class UnusableRecord(Exception):
@@ -74,13 +75,13 @@ async def run_eventhub() -> None:
                                max_wait_time=IDLE_WARN_S)
 
 
-def make_handlers(matches_c, moments_c, state_c, publish):
+def make_handlers(matches_c, moments_c, state_c, publish, clock=time.monotonic):
     """on_event and on_error for EventHubConsumerClient.receive. The Azure clients are passed in, so tests can
     fake them."""
     from azure.core.exceptions import ResourceNotFoundError
 
     folders: dict[str, StateFolder] = {}
-    idle = {"warned": False}
+    idle = {"last": clock(), "warned": False}  # one clock for the consumer: a match keeps only one partition busy
 
     async def fold(body: dict) -> None:
         if "home" in body:  # MatchMeta record
@@ -104,14 +105,14 @@ def make_handlers(matches_c, moments_c, state_c, publish):
             await state_c.upsert_item(snapshot)
 
     async def on_event(partition_context, event) -> None:
-        if event is None:  # nothing on this partition for IDLE_WARN_S
-            if not idle["warned"]:
+        if event is None:  # nothing on this partition for IDLE_WARN_S; warn only if no partition has had anything
+            if not idle["warned"] and clock() - idle["last"] >= IDLE_WARN_S:
                 idle["warned"] = True
                 log.warning("no events read in %d s: either nothing is being sent, or this identity lacks the "
                             "Azure Event Hubs Data Receiver role (reading without it returns nothing, no error)",
                             IDLE_WARN_S)
             return
-        idle["warned"] = False
+        idle["last"], idle["warned"] = clock(), False
         try:
             body = json.loads(event.body_as_str())
             if not isinstance(body, dict):

@@ -85,21 +85,27 @@ def test_an_event_for_an_unseen_match_says_its_meta_is_missing(caplog):
     assert len(part.checkpoints) == 5 and not published
 
 
-def test_silence_is_logged_once_until_the_next_event(caplog):
+def test_silence_is_logged_only_when_no_partition_has_had_an_event(caplog):
     meta, _ = _match()
-    on_event, on_error = make_handlers(FakeContainer(), FakeContainer(), FakeContainer(), None)
+    now = [0.0]
+    on_event, on_error = make_handlers(FakeContainer(), FakeContainer(), FakeContainer(), None, clock=lambda: now[0])
     part = FakePartition()
 
     async def go():
-        for _ in range(8):  # every idle partition reports in
+        for step in range(1, 4):  # a match keeps one partition busy while the other 7 report idle every minute
+            now[0] = step * IDLE_WARN_S
+            await on_event(part, FakeEvent(meta.model_dump_json(), step))
+            for _ in range(7):
+                await on_event(part, None)
+        assert not caplog.records, "events are flowing: no idle warning"
+        now[0] += IDLE_WARN_S
+        for _ in range(8):  # now every partition is quiet
             await on_event(part, None)
-        await on_event(part, FakeEvent(meta.model_dump_json(), 0))
-        await on_event(part, None)
         await on_error(part, PermissionError("unauthorized"))
 
     with caplog.at_level(logging.WARNING, logger="ingest.consumer"):
         asyncio.run(go())
     msgs = [r.getMessage() for r in caplog.records]
     idle = [m for m in msgs if f"no events read in {IDLE_WARN_S} s" in m]
-    assert len(idle) == 2 and "Data Receiver" in idle[0]
+    assert len(idle) == 1 and "Data Receiver" in idle[0], "once, until the next event"
     assert msgs[-1] == "Event Hubs error on partition 3: PermissionError: unauthorized"
