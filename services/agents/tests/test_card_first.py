@@ -104,19 +104,7 @@ def test_a_fallback_card_over_its_layer_limit_sets_the_limit():
     assert p.personalizer.inputs[0]["max_chars"] == len(long_line)  # a version need not be shorter than its source
 
 
-def test_each_agent_call_is_a_span_with_its_routing_and_the_model_served():
-    from opentelemetry import trace
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-    spans = InMemorySpanExporter()
-    provider = trace.get_tracer_provider()
-    if not isinstance(provider, TracerProvider):
-        provider = TracerProvider()
-        trace.set_tracer_provider(provider)
-    provider.add_span_processor(SimpleSpanProcessor(spans))
-
+def test_each_agent_call_is_a_span_with_its_routing_and_the_model_served(spans):
     log: list = []
     p = _pipeline(log)
 
@@ -132,4 +120,5 @@ def test_each_agent_call_is_a_span_with_its_routing_and_the_model_served():
     assert by_agent["producer"].attributes["crq.model_served"] == "m"
     assert not by_agent["producer"].attributes["crq.call_failed"]
     narrator = by_agent["narrator"].attributes
-    assert narrator["crq.call_failed"] and "router unreachable" in narrator["crq.error"]
+    # Trace content is off in the tests: the error's type is kept, its message (which can quote a reply) is not.
+    assert narrator["crq.call_failed"] and narrator["crq.error"] == "narrator: ConnectionError"

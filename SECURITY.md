@@ -154,7 +154,9 @@ routing mode, the model the router chose (`crq.model_served`), latency, and whet
 The moment's span lists every template fallback with its reason (`crq.failure_reasons`). Inside each agent
 span, Agent Framework's own GenAI spans record tokens in and out and the request.
 Each decision (`crq.decision`: action, actor, seconds on the desk) and each airing (`crq.air`: what every
-viewer group got, and why not its own version) is a span linked back to the moment's trace. Traces go to
+viewer group got, and why not its own version) is a span linked back to the moment's trace; an operator's
+decision and its airing sit inside their fire, hold or override request. Read-only polls aren't traced.
+With trace content off, failure reasons keep the error's type but not its message, which can quote a reply. Traces go to
 Application Insights, which is connected to the Foundry project (Observability > Traces), with Entra ID
 only. On the demo, spans also carry the prompt and response text (`CRQ_TRACE_CONTENT`), because all match
 data is synthetic; a deployment with real viewer data turns that off.

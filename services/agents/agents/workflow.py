@@ -51,7 +51,7 @@ from pydantic import BaseModel, Field
 from .clients import make_agent
 from .config import AGENT_ROUTING, settings
 from .match_intel import NameOf, intel_context, intel_for, intel_payload, intel_short
-from .telemetry import tracer
+from .telemetry import brief, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -299,10 +299,14 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
     seen: dict = {} if info is None else info
     with tracer.start_as_current_span(f"crq.agent {role}", attributes={
             "crq.agent": role, "crq.routing": AGENT_ROUTING.get(role, "balanced")}) as span:
-        result, error = await _call(agent, payload, model, fallback, seen)
+        try:
+            result, error = await _call(agent, payload, model, fallback, seen)
+        except asyncio.CancelledError:
+            span.set_attribute("crq.cancelled", True)  # a new match replaced this one mid-call
+            raise
         span.set_attribute("crq.call_failed", error is not None)
         if error:
-            span.set_attribute("crq.error", error)
+            span.set_attribute("crq.error", brief(error))
         for key in ("model_served", "latency_ms"):
             if seen.get(key) is not None:
                 span.set_attribute(f"crq.{key}", seen[key])
@@ -322,7 +326,7 @@ async def _call(agent, payload: dict, model, fallback, info: dict):
         # A timeout has an empty message, which left only "TimeoutError: " in the decision log (#39).
         reason = (f"timed out after {settings.agent_timeout_s:g} s" if isinstance(ex, TimeoutError)
                   else f"{type(ex).__name__}: {ex}")
-        logger.warning("Agent %s fell back to its template: %s", name, reason)
+        logger.warning("Agent %s fell back to its template: %s", name, brief(reason))  # logs go to App Insights
         return fallback(), f"{name}: {reason}"
 
 

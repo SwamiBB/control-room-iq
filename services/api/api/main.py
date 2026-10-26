@@ -22,7 +22,7 @@ from typing import Annotated, get_args
 
 from agents import telemetry
 from agents.config import settings
-from agents.telemetry import tracer
+from agents.telemetry import brief, tracer
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     Access,
@@ -258,9 +258,9 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
         attrs["crq.package_id"] = p.package_id
     if p.proposed_at:
         attrs["crq.seconds_on_desk"] = round((entry.at - p.proposed_at).total_seconds(), 2)
-    # Its own trace whoever decided (an operator's request, the timer, a goal), linked to the moment's.
-    tracer.start_span("crq.decision", context=otel_context.Context(), links=_links(p.moment_id),
-                      attributes=attrs).end()
+    # Inside an operator's request it sits beside the airing it caused; from the timer or a goal it is its own trace.
+    # Either way it links to the moment's trace.
+    tracer.start_span("crq.decision", links=_links(p.moment_id), attributes=attrs).end()
     return entry
 
 
@@ -550,7 +550,7 @@ async def replay(req: ReplayRequest):
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
     hub.replay_speed = None
-    hub.replay_task = asyncio.create_task(_replay(req))
+    hub.replay_task = _background(_replay(req))
     return {"started": True}
 
 
@@ -727,29 +727,44 @@ async def _start_moment(m: Moment) -> None:
     if m.kind == MomentKind.GOAL and (phase := _phase_of(m)):
         hub.goal_phases.add(phase)
         await _supersede(phase, m)
-    task = asyncio.create_task(_run_moment(m))
+    task = _background(_run_moment(m))
     hub.moment_tasks.add(task)
     task.add_done_callback(hub.moment_tasks.discard)
 
 
+def _background(coro) -> asyncio.Task:
+    """A task that outlives the span it was started in (a replay, a moment, the timer): it starts with no current
+    span, so it can't keep adding to a request's trace long after the request ended."""
+    token = otel_context.attach(otel_context.Context())
+    try:
+        return asyncio.create_task(coro)
+    finally:
+        otel_context.detach(token)
+
+
 async def _run_moment(m: Moment) -> None:
-    async with hub.moment_slots:
-        # One trace per moment, a new root rather than a child of the request that started the replay: the
-        # agents' spans nest inside; its decisions and airings link back to it.
-        with tracer.start_as_current_span("crq.moment", context=otel_context.Context(), record_exception=False,
-                                          set_status_on_exception=False, attributes={
-                "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
-                "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
-            hub.moment_traces[m.moment_id] = span.get_span_context()
-            try:
+    # One trace per moment: the agents' spans nest inside; its decisions and airings link back to it. It starts
+    # before the wait for a free slot, so a moment that queued shows why its card was late.
+    waiting = time.perf_counter()
+    with tracer.start_as_current_span("crq.moment", context=otel_context.Context(), attributes={
+            "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
+            "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
+        hub.moment_traces[m.moment_id] = span.get_span_context()
+        try:
+            async with hub.moment_slots:
+                span.set_attribute("crq.slot_wait_ms", round((time.perf_counter() - waiting) * 1000))
                 await _handle_moment(m)
-            except asyncio.CancelledError:
-                span.set_attribute("crq.cancelled", True)  # a new match replaced this one: not a failure
-                raise
-            except Exception as ex:  # noqa: BLE001 - one moment's failure must not stop the match
-                span.record_exception(ex)
-                span.set_status(Status(StatusCode.ERROR, f"{type(ex).__name__}: {ex}"))
-                logger.exception("moment %s failed", m.moment_id)
+        except asyncio.CancelledError:
+            span.set_attribute("crq.cancelled", True)  # a new match replaced this one: not a failure
+            raise
+        except Exception as ex:  # noqa: BLE001 - one moment's failure must not stop the match
+            _record_failure(span, ex)
+            logger.exception("moment %s failed", m.moment_id)
+
+
+def _record_failure(span, ex: Exception) -> None:
+    span.record_exception(ex)
+    span.set_status(Status(StatusCode.ERROR, brief(f"{type(ex).__name__}: {ex}")))
 
 
 async def _drain_moments() -> None:
@@ -808,13 +823,17 @@ async def _handle_moment(m: Moment) -> None:
         res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
         if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
             await on_card(res)
-    except Exception:
+    except Exception as ex:
         if not queued:
             raise  # nothing reached the desk: the moment fails as a whole, as before
         # The card is already on the desk: keep its record and tell the operators, rather than leave it orphaned.
         logger.exception("moment %s: the versions failed after the card was queued", m.moment_id)
         record = hub.results.setdefault(m.moment_id, {})
         record["failures"] = [*record.get("failures", []), "versions: failed after the card; templates used"]
+        span = trace.get_current_span()
+        _record_failure(span, ex)
+        span.set_attribute("crq.card", True)
+        span.set_attribute("crq.failure_reasons", [brief(r) for r in record["failures"]])
         await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                        **record})
         return
@@ -828,7 +847,7 @@ async def _handle_moment(m: Moment) -> None:
     span.set_attribute("crq.versions", len(res.variants))
     span.set_attribute("crq.failures", len(res.failures))
     if res.failures:  # every template fallback in this moment and why, including those decided after a call
-        span.set_attribute("crq.failure_reasons", list(res.failures))
+        span.set_attribute("crq.failure_reasons", [brief(r) for r in res.failures])
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     # A graphic fired before the versions existed keeps the text it aired with (a template in the viewer's
@@ -862,7 +881,7 @@ async def _queue_proposal(p: OverlayProposal) -> None:
                              "warn_at": warn_at, "hold_at": hold_at})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
-    asyncio.create_task(_auto_hold(p.proposal_id))
+    _background(_auto_hold(p.proposal_id))
 
 
 # ---------- websockets ----------

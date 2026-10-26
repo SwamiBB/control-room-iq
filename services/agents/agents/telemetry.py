@@ -22,8 +22,13 @@ from .config import settings
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("control-room-iq")
 
-# Long-lived sockets and the health probe would each be one span lasting minutes, or thousands of empty ones.
-_NOT_TRACED = "healthz,ws/.*"
+# Only requests that change something are traced (a fire, hold, override or drop; a replay starting). The read-only
+# polls (each viewer every 2 s, each console every 5 s), the health probe and the long-lived sockets would bury them
+# under thousands of empty spans.
+_NOT_TRACED = ",".join([
+    "healthz", "ws/", "/state", "/proposals$", "/proposals/[^/]+/preview", "/decisions", "/deliveries", "/metrics",
+    "/schedule", "/recap", "/viewer-groups", "/packages/[^/]+$",
+])
 _on = False
 
 
@@ -41,13 +46,22 @@ def configure(service_name: str) -> bool:
 
         configure_azure_monitor(connection_string=connection_string, credential=_credential(),
                                 resource=Resource.create({"service.name": service_name}))
-        enable_instrumentation(enable_sensitive_data=settings.trace_content)
-        global _on
-        _on = True
-        return True
     except Exception:  # noqa: BLE001 - tracing must never stop the API
         logger.exception("Tracing to Application Insights unavailable; continuing without it")
         return False
+    global _on
+    _on = True  # exporting from here on, whatever happens to the agents' instrumentation below
+    try:
+        enable_instrumentation(enable_sensitive_data=settings.trace_content)
+    except Exception:  # noqa: BLE001
+        logger.exception("Agent Framework spans unavailable; the app's own spans are still traced")
+    return True
+
+
+def brief(reason: str) -> str:
+    """A failure reason fit for telemetry: with trace content off, the error's type and not its message, which can
+    quote the model's reply (a validation error does). Content on (synthetic data) keeps it whole."""
+    return reason if settings.trace_content else ": ".join(reason.split(": ")[:2])
 
 
 def instrument_app(app) -> None:

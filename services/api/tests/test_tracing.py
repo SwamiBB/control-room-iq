@@ -10,23 +10,16 @@ from api_factories import RecordingSocket, moment, proposal
 from crq_schemas import Persona
 from fastapi.testclient import TestClient
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 from simulator.cli import build_meta
 
-SPANS = InMemorySpanExporter()
-_provider = trace.get_tracer_provider()
-if not isinstance(_provider, TracerProvider):
-    _provider = TracerProvider()
-    trace.set_tracer_provider(_provider)
-_provider.add_span_processor(SimpleSpanProcessor(SPANS))
+SPANS = None  # the shared in-memory exporter (services/conftest.py), set for each test
 
 
 @pytest.fixture(autouse=True)
-def clear_spans():
-    SPANS.clear()
+def _spans(spans):
+    global SPANS
+    SPANS = spans
 
 
 def _named(name):
@@ -106,14 +99,50 @@ def test_a_moment_cancelled_by_a_new_match_is_not_an_error(monkeypatch):
     assert span.attributes["crq.cancelled"] is True and span.status.status_code != StatusCode.ERROR
 
 
-def test_every_decision_is_its_own_trace_linked_to_the_moment(monkeypatch):
+def test_an_operator_s_decision_sits_in_their_request_and_links_to_the_moment(monkeypatch):
     _moment_with_card(monkeypatch)
     (moment_span,) = _named("crq.moment")
-    with trace.get_tracer("test").start_as_current_span("POST /proposals/p-card/hold"):
+    with trace.get_tracer("test").start_as_current_span("POST /proposals/p-card/hold") as request:
         TestClient(app).post("/proposals/p-card/hold")
     (decision,) = _named("crq.decision")
-    assert decision.parent is None and decision.attributes["crq.action"] == "held"
+    assert decision.parent.span_id == request.get_span_context().span_id and decision.attributes["crq.action"] == "held"
     assert [link.context for link in decision.links] == [moment_span.get_span_context()]
+
+
+def test_background_work_starts_its_own_trace_not_the_request_s(monkeypatch):
+    seen = {}
+
+    async def background_work():
+        seen["parent"] = trace.get_current_span().get_span_context().is_valid
+
+    async def from_a_request():
+        with trace.get_tracer("test").start_as_current_span("POST /matches/replay"):
+            await main._background(background_work())
+
+    asyncio.run(from_a_request())
+    assert seen == {"parent": False}  # the replay, a moment or the timer: no request span to keep adding to
+
+
+def test_a_moment_that_waited_for_a_slot_says_how_long(monkeypatch):
+    _moment_with_card(monkeypatch)
+    (span,) = _named("crq.moment")
+    assert span.attributes["crq.slot_wait_ms"] >= 0
+
+
+def test_a_failure_after_the_card_is_on_the_desk_is_recorded_on_the_moment(monkeypatch):
+    m = moment()
+    card = proposal("p-late-fail")
+
+    async def process(_m, on_card=None, **_kwargs):
+        await on_card(MomentResult(moment=m, explanation=fallback_explanation(m), line="l", variants=[],
+                                   proposal=card, failures=[]))
+        raise RuntimeError("the localizer broke")
+
+    monkeypatch.setattr(main.pipeline, "process", process)
+    asyncio.run(_run_moment(m))
+    (span,) = _named("crq.moment")
+    assert span.status.status_code == StatusCode.ERROR and span.attributes["crq.card"] is True
+    assert "versions: failed after the card; templates used" in span.attributes["crq.failure_reasons"]
 
 
 def test_a_new_match_forgets_the_last_run_s_traces(monkeypatch):
