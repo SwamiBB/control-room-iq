@@ -452,10 +452,11 @@ class StateFolder:
         self._moment_n += 1
         # a badge carried from another event (a fast strike's, on its result) cites that event too
         carried = [t.event_id for t in self._crossed if t.event_id and t.event_id != ev.event_id]
+        event_ids = [ev.event_id, *dict.fromkeys(carried)]
         return Moment(moment_id=f"{self.meta.match_id}-mo{self._moment_n:04d}", match_id=self.meta.match_id,
                       play_ms=self.state.play_ms, t_ms=ev.t_ms, period=ev.period, kind=kind, beat=beat,  # type: ignore[arg-type]
                       importance=round(min(1.0, importance), 2), team=ev.team, player=ev.player,
-                      event_ids=[ev.event_id, *dict.fromkeys(carried)], summary=summary, state=self.state.model_copy(deep=True),
+                      event_ids=event_ids, summary=summary, state=self.state.model_copy(deep=True),
                       metrics=self._metrics(ev, kind))
 
     def _name(self, pid: str | None) -> str:
