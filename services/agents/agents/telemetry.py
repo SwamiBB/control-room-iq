@@ -17,6 +17,8 @@ import os
 
 from opentelemetry import trace
 
+from .config import settings
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("control-room-iq")
 
@@ -27,7 +29,7 @@ _NOT_TRACED = "healthz,ws/.*"
 def configure(service_name: str) -> bool:
     """Start exporting traces, once, at process start. Returns whether tracing is on."""
     connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
-    if not connection_string or os.environ.get("CRQ_OFFLINE", "0") == "1":
+    if not connection_string or settings.offline:
         return False
     try:
         from agent_framework.observability import enable_instrumentation
@@ -39,7 +41,7 @@ def configure(service_name: str) -> bool:
         os.environ.setdefault("OTEL_PYTHON_FASTAPI_EXCLUDED_URLS", _NOT_TRACED)
         configure_azure_monitor(connection_string=connection_string, credential=_credential(),
                                 resource=Resource.create({"service.name": service_name}))
-        enable_instrumentation(enable_sensitive_data=os.environ.get("CRQ_TRACE_CONTENT", "").lower() == "true")
+        enable_instrumentation(enable_sensitive_data=settings.trace_content)
         return True
     except Exception:  # noqa: BLE001 - tracing must never stop the API
         logger.exception("Tracing to Application Insights unavailable; continuing without it")

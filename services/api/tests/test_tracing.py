@@ -13,6 +13,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
+from simulator.cli import build_meta
 
 SPANS = InMemorySpanExporter()
 _provider = trace.get_tracer_provider()
@@ -81,6 +83,43 @@ def test_a_failed_moment_is_recorded_on_its_trace(monkeypatch):
     asyncio.run(_run_moment(moment()))
     (span,) = _named("crq.moment")
     assert any(e.name == "exception" for e in span.events)
+    assert span.status.status_code == StatusCode.ERROR  # counted as a failure in App Insights
+
+
+def test_each_moment_is_its_own_trace_even_inside_the_request_that_started_the_replay(monkeypatch):
+    _moment_with_card(monkeypatch)
+    with trace.get_tracer("test").start_as_current_span("POST /matches/replay") as request:
+        asyncio.run(_run_moment(moment("mo-2")))
+    first, second = _named("crq.moment")
+    assert second.parent is None and second.context.trace_id != request.get_span_context().trace_id
+    assert first.context.trace_id != second.context.trace_id
+
+
+def test_a_moment_cancelled_by_a_new_match_is_not_an_error(monkeypatch):
+    async def process(_m, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main.pipeline, "process", process)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(_run_moment(moment()))
+    (span,) = _named("crq.moment")
+    assert span.attributes["crq.cancelled"] is True and span.status.status_code != StatusCode.ERROR
+
+
+def test_every_decision_is_its_own_trace_linked_to_the_moment(monkeypatch):
+    _moment_with_card(monkeypatch)
+    (moment_span,) = _named("crq.moment")
+    with trace.get_tracer("test").start_as_current_span("POST /proposals/p-card/hold"):
+        TestClient(app).post("/proposals/p-card/hold")
+    (decision,) = _named("crq.decision")
+    assert decision.parent is None and decision.attributes["crq.action"] == "held"
+    assert [link.context for link in decision.links] == [moment_span.get_span_context()]
+
+
+def test_a_new_match_forgets_the_last_run_s_traces(monkeypatch):
+    m = _moment_with_card(monkeypatch)
+    hub.new_match(build_meta(42))
+    assert m.moment_id not in hub.moment_traces
 
 
 def test_tracing_is_off_without_a_connection_string(monkeypatch):
@@ -89,5 +128,5 @@ def test_tracing_is_off_without_a_connection_string(monkeypatch):
     monkeypatch.delenv("APPLICATIONINSIGHTS_CONNECTION_STRING", raising=False)
     assert telemetry.configure("crq-test") is False
     monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=00000000-0000-0000-0000-0")
-    monkeypatch.setenv("CRQ_OFFLINE", "1")
-    assert telemetry.configure("crq-test") is False  # offline runs (tests, demos without Azure) never export
+    assert telemetry.settings.offline  # the tests run offline, as demos without Azure do: those never export
+    assert telemetry.configure("crq-test") is False

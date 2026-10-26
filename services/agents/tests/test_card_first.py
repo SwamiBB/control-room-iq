@@ -130,5 +130,6 @@ def test_each_agent_call_is_a_span_with_its_routing_and_the_model_served():
     assert set(by_agent) == {"explainer", "narrator", "producer", "personalizer", "localizer"}
     assert by_agent["producer"].attributes["crq.routing"] == "quality"
     assert by_agent["producer"].attributes["crq.model_served"] == "m"
-    assert not by_agent["producer"].attributes["crq.fallback"]
-    assert by_agent["narrator"].attributes["crq.fallback"] and by_agent["narrator"].attributes["crq.fallback_reason"]
+    assert not by_agent["producer"].attributes["crq.call_failed"]
+    narrator = by_agent["narrator"].attributes
+    assert narrator["crq.call_failed"] and "router unreachable" in narrator["crq.error"]

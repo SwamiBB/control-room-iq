@@ -150,8 +150,9 @@ container. The full log is downloadable at `GET /decisions.csv` and includes act
 proposal snapshot.
 
 One **OpenTelemetry trace per moment** (`crq.moment`) holds a `crq.agent <role>` span per agent call:
-routing mode, the model the router chose (`crq.model_served`), latency, and whether it fell back to the
-template and why. Inside each, Agent Framework's own GenAI spans record tokens in and out and the request.
+routing mode, the model the router chose (`crq.model_served`), latency, and whether the call failed and why.
+The moment's span lists every template fallback with its reason (`crq.failure_reasons`). Inside each agent
+span, Agent Framework's own GenAI spans record tokens in and out and the request.
 Each decision (`crq.decision`: action, actor, seconds on the desk) and each airing (`crq.air`: what every
 viewer group got, and why not its own version) is a span linked back to the moment's trace. Traces go to
 Application Insights, which is connected to the Foundry project (Observability > Traces), with Entra ID

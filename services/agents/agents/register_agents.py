@@ -16,12 +16,10 @@ import argparse
 import logging
 from dataclasses import dataclass
 
-from .config import AGENT_ROUTING, REGISTERED_PREFIX, deployment_for, registered_name, settings
+from .config import AGENT_ROUTING, deployment_for, registered_name, settings
 from .workflow import _prompt
 
 logger = logging.getLogger(__name__)
-
-PREFIX = REGISTERED_PREFIX
 
 # What each agent is for, shown in the portal next to its instructions.
 PURPOSE = {

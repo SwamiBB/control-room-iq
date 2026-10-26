@@ -291,7 +291,8 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
     """`info`, when given, receives the call's latency_ms and the model the router served.
 
     Each call is a `crq.agent <role>` span in the moment's trace: its routing mode, the model the router chose, and
-    whether it fell back to the template and why. Agent Framework's own spans (tokens, the request) nest inside."""
+    whether the call itself failed and why. A reply rejected later (bad JSON, a declined goal) is a template
+    fallback too: the moment's span lists them all. Agent Framework's spans (tokens, the request) nest inside."""
     if agent is None:
         return fallback(), None
     role = getattr(agent, "name", "agent")
@@ -299,9 +300,9 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
     with tracer.start_as_current_span(f"crq.agent {role}", attributes={
             "crq.agent": role, "crq.routing": AGENT_ROUTING.get(role, "balanced")}) as span:
         result, error = await _call(agent, payload, model, fallback, seen)
-        span.set_attribute("crq.fallback", error is not None)
+        span.set_attribute("crq.call_failed", error is not None)
         if error:
-            span.set_attribute("crq.fallback_reason", error)
+            span.set_attribute("crq.error", error)
         for key in ("model_served", "latency_ms"):
             if seen.get(key) is not None:
                 span.set_attribute(f"crq.{key}", seen[key])

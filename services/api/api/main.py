@@ -45,8 +45,9 @@ from crq_schemas import (
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ingest.stats import StateFolder
+from opentelemetry import context as otel_context
 from opentelemetry import trace
-from opentelemetry.trace import Link, SpanContext
+from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
@@ -98,13 +99,14 @@ async def lifespan(_: FastAPI):
         await sink.close()
 
 
-telemetry.configure("crq-api")  # before the app exists, so its requests are traced too
-app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
     # Uvicorn configures only its own loggers; without this, app warnings (agent fallbacks, sink failures)
-    # reach stderr bare, with no time or source.
+    # reach stderr bare, with no time or source. Before tracing starts: Azure Monitor adds its own handler to the
+    # root logger, which would skip this and leave the console without the app's warnings.
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+telemetry.configure("crq-api")  # before the app exists, so its requests are traced too
+app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -164,6 +166,7 @@ class Hub:
         self.cancel_moments()  # the old match's agents must not post into the new one
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
         self.goal_phases.clear()
+        self.moment_traces.clear()  # a replayed match reuses moment ids: its decisions must not link to the last run
         self.tracking, self.tracking_index, self.tracking_sent_at = None, None, 0.0
 
     def cancel_moments(self) -> None:
@@ -248,13 +251,15 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
                              action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
                              package_id=p.package_id)
     hub.decisions.append(entry)
-    seconds_on_desk = (entry.at - p.proposed_at).total_seconds() if p.proposed_at else None
-    with tracer.start_as_current_span("crq.decision", links=_links(p.moment_id), attributes={
-            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.action": action.value,
-            "crq.actor": d.actor, "crq.layer": p.layer.value, **({"crq.package_id": p.package_id} if p.package_id
-                                                                  else {}),
-            **({"crq.seconds_on_desk": round(seconds_on_desk, 2)} if seconds_on_desk is not None else {})}):
-        pass
+    attrs = {"crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.action": action.value,
+             "crq.actor": d.actor, "crq.layer": p.layer.value}
+    if p.package_id:
+        attrs["crq.package_id"] = p.package_id
+    if p.proposed_at:
+        attrs["crq.seconds_on_desk"] = round((entry.at - p.proposed_at).total_seconds(), 2)
+    # Its own trace whoever decided (an operator's request, the timer, a goal), linked to the moment's.
+    tracer.start_span("crq.decision", context=otel_context.Context(), links=_links(p.moment_id),
+                      attributes=attrs).end()
     return entry
 
 
@@ -728,15 +733,21 @@ async def _start_moment(m: Moment) -> None:
 
 async def _run_moment(m: Moment) -> None:
     async with hub.moment_slots:
-        # One trace per moment: the agents' spans nest inside; its decisions and airings link back to it.
-        with tracer.start_as_current_span("crq.moment", attributes={
+        # One trace per moment, a new root rather than a child of the request that started the replay: the
+        # agents' spans nest inside; its decisions and airings link back to it.
+        with tracer.start_as_current_span("crq.moment", context=otel_context.Context(), record_exception=False,
+                                          set_status_on_exception=False, attributes={
                 "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
                 "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
             hub.moment_traces[m.moment_id] = span.get_span_context()
             try:
                 await _handle_moment(m)
+            except asyncio.CancelledError:
+                span.set_attribute("crq.cancelled", True)  # a new match replaced this one: not a failure
+                raise
             except Exception as ex:  # noqa: BLE001 - one moment's failure must not stop the match
                 span.record_exception(ex)
+                span.set_status(Status(StatusCode.ERROR, f"{type(ex).__name__}: {ex}"))
                 logger.exception("moment %s failed", m.moment_id)
 
 
@@ -815,6 +826,8 @@ async def _handle_moment(m: Moment) -> None:
     span.set_attribute("crq.card", bool(queued))
     span.set_attribute("crq.versions", len(res.variants))
     span.set_attribute("crq.failures", len(res.failures))
+    if res.failures:  # every template fallback in this moment and why, including those decided after a call
+        span.set_attribute("crq.failure_reasons", list(res.failures))
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     # A graphic fired before the versions existed keeps the text it aired with (a template in the viewer's
