@@ -486,6 +486,15 @@ class OverlayLayer(StrEnum):
     PITCH_OVERLAY = "pitch_overlay"
 
 
+# The longest text each layer can show. Every version of an aired line (any persona, access or language) must fit
+# its graphic's layer: the agents write to it, and the API's delivery check holds them to it.
+LAYER_MAX_CHARS: dict[OverlayLayer, int] = {
+    OverlayLayer.LOWER_THIRD: 90, OverlayLayer.STAT_PANEL: 90, OverlayLayer.HEATMAP: 90, OverlayLayer.TICKER: 140,
+    OverlayLayer.FULL_SCREEN: 120, OverlayLayer.CAPTION: 160, OverlayLayer.PLAYER_TAG: 40,
+    OverlayLayer.PITCH_OVERLAY: 60,
+}
+
+
 class ProposalStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"

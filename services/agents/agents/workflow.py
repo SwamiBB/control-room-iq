@@ -1,4 +1,4 @@
-"""Moment -> Explanation -> Narrative -> English variants -> Spanish and Hindi, with the Producer alongside.
+"""Moment -> Explanation -> Narrative -> Producer (the card) -> English variants -> Spanish and Hindi.
 
 Five agents: explainer (why it matters), narrator (the English on-air line, and half/full-time recaps),
 producer (the graphic and its evidence), personalizer (English versions per persona and access), and
@@ -26,11 +26,13 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
 
 from crq_schemas import (
+    LAYER_MAX_CHARS,
     Access,
     AgentMeta,
     Alternative,
@@ -70,6 +72,10 @@ class MomentResult:
     intel: dict | None = None  # the match-intelligence block the agents used (payload.intel shape)
     # Decisions worth showing that are not failures, e.g. the producer choosing no graphic for a moment.
     notes: list[str] = field(default_factory=list)
+
+
+# Receives the card as soon as the producer has written it: a MomentResult with no variants yet.
+OnCard = Callable[[MomentResult], Awaitable[None]]
 
 
 # ---------- fallbacks (deterministic, template based) ----------
@@ -310,7 +316,15 @@ class MomentPipeline:
         self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
-                      requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None) -> MomentResult:
+                      requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None,
+                      on_card: OnCard | None = None) -> MomentResult:
+        """Run the agents on one moment.
+
+        The producer writes the card right after the narrator, and `on_card` receives it at once (a result with
+        no variants yet), so the operator isn't kept waiting for translations. The personalizer and localizer
+        then write every version from the **card's** line and within its layer's length: the line that airs is
+        the line every viewer's version is checked against (#90).
+        """
         requests = requests or [(p, a, lang, {})
                                 for p in Persona for a in get_args(Access) for lang in settings.languages]
         failures: list[str] = []
@@ -331,17 +345,17 @@ class MomentPipeline:
         if err:
             failures.append(err)
 
-        # The producer runs alongside the personalizer -> localizer chain once the line exists.
         en_requests = english_requests(requests)
         targets = localize_targets(requests)
 
-        async def _variants():
+        async def _variants(source_line: str, max_chars: int | None):
             wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in en_requests]
             info1: dict = {}
-            raw, e1 = await _run(self.personalizer, {"line": line, "moment": moment_json, "intel": intel,
-                                                     "requests": wanted},
-                                 None, lambda: fallback_variants(m, line, en_requests), info1)
-            english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests),
+            raw, e1 = await _run(self.personalizer, {"line": source_line, "max_chars": max_chars,
+                                                     "moment": moment_json, "intel": intel, "requests": wanted},
+                                 None, lambda: fallback_variants(m, source_line, en_requests), info1)
+            english, e1 = _parse_variants(raw, e1, "personalizer",
+                                          lambda: fallback_variants(m, source_line, en_requests),
                                           m.moment_id, model_meta(info1, "personalizer"))
             first: dict[tuple, NarrativeVariant] = {}
             for v in english:
@@ -349,16 +363,16 @@ class MomentPipeline:
                     first.setdefault((v.persona, v.access), v)
             english = list(first.values())
             if missing := [r for r in en_requests if (r[0], r[1]) not in first]:
-                english += fallback_variants(m, line, missing)
+                english += fallback_variants(m, source_line, missing)
                 e1 = e1 or f"personalizer: {len(missing)} of {len(en_requests)} versions missing; templates used"
             if not targets:
                 return english, [e1]
             want = [{"persona": p.value, "access": a, "lang": lang} for p, a, lang in targets]
             source = [v.model_dump(mode="json") for v in english]
             info2: dict = {}
-            raw, e2 = await _run(self.localizer, {"line": line, "variants": source, "moment": moment_json,
-                                                  "intel": intel, "names": _names(meta), "targets": want}, None, list,
-                                 info2)
+            raw, e2 = await _run(self.localizer, {"line": source_line, "max_chars": max_chars, "variants": source,
+                                                  "moment": moment_json, "intel": intel, "names": _names(meta),
+                                                  "targets": want}, None, list, info2)
             localized, e2 = _parse_variants(raw, e2, "localizer", list, m.moment_id, model_meta(info2, "localizer"))
             kept = keep_localized(localized, english, targets)
             if self.localizer is not None and not e2 and len(kept) < len(targets):
@@ -387,12 +401,22 @@ class MomentPipeline:
                 return fallback_proposal(m, expl, line), "producer: t_end_ms is not after t_start_ms; template used"
             return proposal_from(decision, m, model_meta(info3, "producer"))
 
-        (variants, variant_errors), (proposal, e3) = await asyncio.gather(_variants(), _proposal())
+        proposal, e3 = await _proposal()
         proposal = with_intel(proposal, m, _name_of(meta))
-        failures += [e for e in (*variant_errors, e3) if e]
+        if e3:
+            failures.append(e3)
+        moment_intel = intel_payload(intel_for(m), _prefer(m), _name_of(meta))
+        if on_card is not None:
+            await on_card(MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=proposal,
+                                       failures=list(failures), intel=moment_intel, notes=list(notes)))
+        # Every version is written from the line that airs, to fit its graphic. With no card (the producer chose
+        # none), the narrator's line is the reference, at the longest layer's length.
+        source_line = proposal.line if proposal is not None else line
+        max_chars = LAYER_MAX_CHARS.get(proposal.layer) if proposal is not None else None
+        variants, variant_errors = await _variants(source_line, max_chars)
+        failures += [e for e in variant_errors if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
-                            failures=failures, intel=intel_payload(intel_for(m), _prefer(m), _name_of(meta)),
-                            notes=notes)
+                            failures=failures, intel=moment_intel, notes=notes)
 
 
 def with_intel(proposal: OverlayProposal | None, m: Moment, name_of: NameOf | None = None) -> OverlayProposal | None:

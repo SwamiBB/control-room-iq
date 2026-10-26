@@ -731,25 +731,48 @@ def _taken_by_goal(m: Moment) -> bool:
 
 
 async def _handle_moment(m: Moment) -> None:
-    res = await pipeline.process(m, meta=hub.meta)
-    if _taken_by_goal(m) and res.proposal:  # the goal on this move arrived while these agents were still writing
+    queued = False
+    dropped = False  # the goal on this move took the card over
+
+    async def on_card(card: MomentResult) -> None:
+        """The card goes on the desk as soon as the producer writes it; the translations follow (#90)."""
+        nonlocal queued, dropped
+        hub.moments[m.moment_id] = m
+        # A record before the versions exist, so a preview or a fire in the meantime has the line, the deaf fan's
+        # card and the templates; a viewer's own version falls back until the translations arrive.
+        hub.results[m.moment_id] = _result_record(card)
+        if card.proposal is None:
+            return
+        if _taken_by_goal(m):  # the goal on this move arrived while the agents were writing
+            dropped = True
+            return
+        queued = True
+        await _queue_card(card.proposal, m)
+
+    res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
+    if res.proposal and not queued and (dropped or _taken_by_goal(m)):
         res.notes.append(GOAL_TOOK_OVER)
         res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
-    # Checked again: the goal can arrive during the broadcast above, after the first check. The moment has
-    # already gone out, so the reason is kept on the stored result and logged rather than broadcast twice.
-    if res.proposal and _taken_by_goal(m):
+    if queued or not res.proposal:
+        return  # already on the desk (a goal arriving later supersedes it there), or no card
+    # A pipeline without the early hand-over (tests, older stand-ins): queue now. Checked again, since the goal can
+    # arrive during the broadcast above; the moment has gone out, so the reason is kept and logged.
+    if _taken_by_goal(m):
         hub.results[m.moment_id]["notes"] = [*hub.results[m.moment_id]["notes"], GOAL_TOOK_OVER]
         logger.info("moment %s: card dropped, the goal on the same move arrived first", m.moment_id)
         return
-    if res.proposal:
-        flagged = unsourced_numbers(res.proposal.line, m)
-        lead = _from_agent(res.proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
-        for p in build_goal_package(lead, m, hub.meta):
-            await _queue_proposal(p)
+    await _queue_card(res.proposal, m)
+
+
+async def _queue_card(proposal: OverlayProposal, m: Moment) -> None:
+    flagged = unsourced_numbers(proposal.line, m)
+    lead = _from_agent(proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
+    for p in build_goal_package(lead, m, hub.meta):
+        await _queue_proposal(p)
 
 
 # Decision, package and timing fields belong to the API. The producer agent writes only a ProducerDecision and
