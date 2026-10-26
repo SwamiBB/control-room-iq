@@ -128,6 +128,8 @@ produced is flagged on the card before the operator fires.
 - **Error rate:** overrides, drops, template fallbacks and which variant checks failed.
 - **Workload:** decisions per 10 minutes of play, timer holds, expired graphics, graphics fired per click.
 
+![The graphics operator console at the moment a goal routine lands: running order with three scheduled layers, the "Fire all 3" one-click package with a twelve-second SLA countdown, match-intelligence chips (shot speed, distance, sprints) on each proposal, an amber warning flagging an unsourced number on the English line, a template-fallback notice at the top, and the Gallery Metrics panel for turnaround, operator workload and where it went wrong.](docs/img/operator-controls.png)
+
 ## Human in the loop, by design
 
 The AI proposes; the graphics operator fires every graphic. Nothing reaches air without that click.
