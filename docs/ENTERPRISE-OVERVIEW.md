@@ -1,34 +1,22 @@
-# For judges
+# Enterprise architecture overview
 
-A one-page map of Control Room IQ against the hackathon's five scoring criteria. Everything here points at
-code in this repository.
+This document is the enterprise-readiness overview for Control Room IQ: how production controls —
+reliability, transparency and audit — are enforced in code rather than policy. Every claim here points at
+a file in this repository.
 
 > **One-sentence pitch.** Control Room IQ is the AI member of the production gallery: five Foundry agents
 > propose what goes on screen, a graphics operator fires every graphic, and the deaf fan is served first.
 > The AI cannot put anything on air by itself — not because we told it not to, because the schema will not
 > let it.
 
-Category: **Best Enterprise Solution** (also fits Best Use of Microsoft Foundry).
 Live demo: see the top of [README.md](../README.md). All match data is synthetic.
 
 ---
 
-## Scoring at a glance
+## The enterprise claim
 
-| Criterion | Where to look first | Why it earns the score |
-| --- | --- | --- |
-| **Technological Implementation** | [`packages/schemas/crq_schemas/__init__.py`](../packages/schemas/crq_schemas/__init__.py), [`.github/workflows/`](../.github/workflows/), [tests count in CI] | Typed, versioned contract shared by every service; CodeQL + Trivy + Dependabot on every PR; pinned to commit SHAs; GitHub Actions via OIDC with no secrets |
-| **Agentic Design & Innovation** | [`services/agents/agents/workflow.py`](../services/agents/agents/workflow.py), [`services/agents/agents/config.py`](../services/agents/agents/config.py), [`docs/END-TO-END-ARCHITECTURE.md`](END-TO-END-ARCHITECTURE.md) §5.2 | Five agents on Microsoft Agent Framework; per-agent router (quality / balanced / cost); every agent has a timeout and a template fallback; "degrade, never stall" |
-| **Real-World Impact & Applicability** | [`docs/END-TO-END-ARCHITECTURE.md`](END-TO-END-ARCHITECTURE.md) §12, [`services/api/api/goal_package.py`](../services/api/api/goal_package.py), [`services/api/api/preview.py`](../services/api/api/preview.py) | Shaped by feedback from a working control-room operations lead; the deaf fan is served first; operator "Fire all 3" matches gallery practice; per-group preview before firing |
-| **User Experience & Presentation** | [`web/src/views/Operator.tsx`](../web/src/views/Operator.tsx), [`web/src/views/Viewer.tsx`](../web/src/views/Viewer.tsx), demo video | Operator console, pitch view, SLA countdown, hold advice, routed-model badge; four-axis viewer picker (persona × access × lang × allegiance); deaf-fan second screen |
-| **Adherence to Hackathon Category** (Best Enterprise) | the next section | Reliability, transparency and controls are not features — they are the schema |
-
----
-
-## Why this is the Best Enterprise Solution
-
-The category rewards "reliability, transparency, and controls required for production." Here is where each
-lives in the code.
+Production controls in a broadcast gallery mean reliability, transparency and auditability. Here is where
+each lives in the code.
 
 ### 1. The gate is in the schema, not in a setting
 
