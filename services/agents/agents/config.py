@@ -30,7 +30,9 @@ class Settings:
     # Model router deployment handles routing; per-agent routing hints are passed as metadata.
     model_router: str = os.environ.get("MODEL_ROUTER_DEPLOYMENT", "model-router")
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
-    agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
+    # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
+    # 12 s lets an occasional slow router pick finish instead of falling back to the template.
+    agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "12"))
     # Passed to the routers, which hand it to the reasoning models they pick. "low" kept every agent under the 8 s
     # timeout in the Oct 26 demo-window runs, with the writing unchanged; the default effort timed out half the
     # explainer calls (#39). Empty sends no reasoning_effort.

@@ -37,6 +37,7 @@ var commonEnv = [
   { name: 'ROUTER_QUALITY', value: 'router-quality' }
   { name: 'ROUTER_BALANCED', value: 'router-balanced' }
   { name: 'ROUTER_COST', value: 'router-cost' }
+  { name: 'AGENT_TIMEOUT_S', value: '12' }
   { name: 'AZURE_CLIENT_ID', value: reference(identityId, '2023-01-31').clientId }
 ]
 
