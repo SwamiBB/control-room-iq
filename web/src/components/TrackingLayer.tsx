@@ -1,8 +1,8 @@
-import { homeOf, shirtOf, teamOf, toPitch, type TrackingFrame } from "./tracking";
+import { homeOf, isKeeper, shirtOf, teamOf, toPitch, type TrackingFrame } from "./tracking";
 
 /**
  * The players and the ball as the tracking stream has them: a dot per player in their side's colour with the shirt
- * number, the ball sized by its height with a shadow when it is in the air, and a fading trail behind it. Each
+ * number (the keepers in their own colours, as their kits are), the ball sized by its height with a shadow when it is in the air, and a fading trail behind it. Each
  * moves to the next frame over the time the frames are arriving apart, so 4 frames a second read as movement.
  *
  * Draw inside the pitch's <svg>, in its metre coordinates, under the shot path.
@@ -32,7 +32,8 @@ export default function TrackingLayer({ frame, trail, homeTeam, stepMs }: {
         const { cx, cy } = toPitch(x, y);
         const shirt = shirtOf(id);
         return (
-          <g key={id} className={`player ${teamOf(id) === home ? "home" : "away"}`} style={move(cx, cy)}>
+          <g key={id} className={`player ${teamOf(id) === home ? "home" : "away"}${isKeeper(id) ? " keeper" : ""}`}
+             style={move(cx, cy)}>
             <circle r={1.25} />
             {shirt != null && <text dy="0.42">{shirt}</text>}
           </g>

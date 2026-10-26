@@ -39,6 +39,9 @@
 }
 
 .viewer-controls label > span {
+  display: flex;
+  align-items: center;
+  min-height: 17px; /* the same height with or without a "?", so the four labels line up */
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -61,6 +64,47 @@
 .viewer .viewer-controls select:hover { border-color: #8a94a8; }
 .viewer .viewer-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .viewer .viewer-controls option { color: #f3f5f9; background: #1b212b; }
+
+/* The "?" beside a picker's label: hover or focus it for what every choice means. */
+.viewer-controls .help {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 4px;
+  border: 1px solid #6b7588;
+  border-radius: 50%;
+  font: 700 10px/1 system-ui, sans-serif;
+  letter-spacing: 0;
+  color: #cfd6e2;
+  cursor: help;
+  vertical-align: 1px;
+}
+.viewer-controls .help:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.viewer-controls .help .tip {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  padding: 10px 12px;
+  border: 1px solid #3a4352;
+  border-radius: 6px;
+  background: #11161d;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  font: 400 12.5px/1.4 system-ui, sans-serif;
+  text-transform: none;
+  text-align: left;
+  color: #e3e8ef;
+}
+.viewer-controls .help .tip b { color: #fff; font-weight: 600; }
+.viewer-controls .help:hover .tip,
+.viewer-controls .help:focus .tip { display: flex; }
 
 /* ---- The feed --------------------------------------------------------------
    Broadcast treatment (the "Broadcast feed" look in the viewer-directions mock): a graded pitch, a score bug,
@@ -116,6 +160,10 @@
   fill: #fff;
 }
 .viewer-pitch .tracking .player.away text { fill: #14181f; }
+/* Keepers wear their own kits: a colour neither side's outfield uses, so they read at a glance. */
+.viewer-pitch .tracking .player.home.keeper circle { fill: #b57bff; }
+.viewer-pitch .tracking .player.away.keeper circle { fill: #ff7ab8; }
+.viewer-pitch .tracking .player.keeper text { fill: #14181f; }
 .viewer-pitch .tracking .ball circle { fill: #fff; stroke: rgba(0, 0, 0, 0.6); stroke-width: 0.15; }
 .viewer-pitch .tracking .ball .shadow { fill: rgba(0, 0, 0, 0.35); }
 .viewer-pitch .tracking .ball-trail {

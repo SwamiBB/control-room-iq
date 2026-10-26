@@ -8,9 +8,11 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 
 | | |
 | --- | --- |
-| Live demo | [URL — pre-loaded replay, no login] |
+| Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator |
+| Live demo (deaf Spanish viewer) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/viewer?persona=newcomer&access=deaf&lang=es&allegiance=neutral |
 | Video (under 2 minutes) | [link] |
-| Tests in CI | [N] passing |
+| Tests in CI | 540 passing (376 Python + 164 TypeScript) |
+| Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
 | Foundry evaluation | Groundedness 4.3 (cards) · 3.6 (on-air lines) · 4.1 ES · 4.2 HI; relevance 4.8–5.0; 50 outputs from 10 moments, 1–5 scale ([details](evals/results/latest.md)) |
 | Planted falsehoods | 10 planted wrong numbers: 7 caught by the code check before air; the groundedness judge scored all 10 at 2.0 |
 | From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
@@ -19,6 +21,28 @@ All match data is synthetic. Clubs, players and venues are fictional.
 
 <!-- Before submission: fill every [bracket] or delete the row; never guess a figure. Check the walkthrough
      against the final console and update the Status column in "Built on Microsoft Foundry and Azure". -->
+
+## For enterprise reviewers
+
+The Best Enterprise Solution category rewards *"reliability, transparency, and controls required for
+production."* Three claims, each enforced in code — see [docs/ENTERPRISE-OVERVIEW.md](docs/ENTERPRISE-OVERVIEW.md) for the full map
+and [SECURITY.md](SECURITY.md) for the full posture.
+
+- **The gate is in the schema, not in a setting.** `OverlayPacket` requires `approval_id`, `approved_by`
+  and `approved_at`; the renderer refuses anything else. There is no auto-approve path and no bypass flag.
+  See [`packages/schemas/crq_schemas/__init__.py:560`](packages/schemas/crq_schemas/__init__.py) and
+  [`services/api/tests/test_gate.py`](services/api/tests/test_gate.py).
+- **Numbers from code, words from models.** Agents may quote numbers but never compute them. Variants are
+  gated by code checks (invented numbers, name drift, banned content, actually-translated, faithfulness).
+  See [`services/api/api/variant_checks.py`](services/api/api/variant_checks.py).
+- **Model choice is auditable.** A per-agent router (quality / balanced / cost) records the served model
+  on every proposal and every OpenTelemetry span. One trace per `moment_id`. Every decision is in an
+  append-only log, downloadable at `GET /decisions.csv`.
+  See [`services/agents/agents/config.py`](services/agents/agents/config.py).
+
+Enterprise substrate: managed identity + OIDC (no secrets in the repo), CodeQL + Trivy + Dependabot on
+every PR, every GitHub action pinned to a full commit SHA, offline mode as a first-class path so the demo
+survives model quota failure.
 
 ## What it is
 

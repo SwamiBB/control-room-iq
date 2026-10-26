@@ -38,6 +38,9 @@ export function shirtOf(playerId: string): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** The keeper: the reference squads number their goalkeepers 1 (match meta, position "GK"). */
+export const isKeeper = (playerId: string) => shirtOf(playerId) === 1;
+
 /**
  * The home team's id: the score bug's, once the standing is known; until then the team listed first, as the
  * tracking file lists the home side first.

@@ -7,7 +7,7 @@ param environmentName string
 param location string = 'eastus2'
 // The {instance} part of every name; bump it if a globally unique name is taken.
 param instance string = '01'
-param ownerAlias string = 'aicoe'
+param ownerAlias string = 'platform'
 param expires string = '2026-11-30'
 // Whether each app exists already; azd fills these from SERVICE_*_RESOURCE_EXISTS (main.parameters.json).
 param apiExists bool = false

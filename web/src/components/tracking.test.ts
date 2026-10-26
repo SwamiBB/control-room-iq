@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { H, W } from "./pitchGeometry";
-import { asFrame, homeOf, nextTrail, shirtOf, shotMirror, teamOf, toPitch, TRAIL_MS, type TrackingFrame } from "./tracking";
+import { asFrame, homeOf, isKeeper, nextTrail, shirtOf, shotMirror, teamOf, toPitch, TRAIL_MS, type TrackingFrame } from "./tracking";
 
 const frame = (play_ms: number, players: TrackingFrame["players"] = { "har-09": [40, 50], "nfu-01": [96, 50] }) =>
   ({ play_ms, period: 1, ball: [50, 50, 0], players }) as TrackingFrame;
@@ -65,5 +65,14 @@ describe("nextTrail", () => {
 
   it("starts over when play goes back: a new run", () => {
     expect(nextTrail([frame(5000), frame(5250)], frame(1000))).toEqual([frame(1000)]);
+  });
+});
+
+describe("isKeeper", () => {
+  it("is the number 1 of either side", () => {
+    expect(isKeeper("har-01")).toBe(true);
+    expect(isKeeper("nfu-01")).toBe(true);
+    expect(isKeeper("har-11")).toBe(false);
+    expect(isKeeper("ref")).toBe(false);
   });
 });

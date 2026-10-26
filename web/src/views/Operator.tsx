@@ -18,6 +18,7 @@ import { stableOrder } from "../runningOrder";
 import { agentsWriting, runPhase, RUN_PHASE_TEXT } from "../runStatus";
 import { loadSettings, newArrivals, saveSettings, shortcutFor, type OperatorSettings } from "../settings";
 import { useLiveSocket } from "../useLiveSocket";
+import { SHOT_ON_SCREEN_MS, useRecent } from "../useRecent";
 import type { MomentMetrics } from "../intel";
 import "./operator.css";
 
@@ -337,6 +338,9 @@ export default function Operator() {
   };
 
   const nowPlay = clk?.play_ms ?? 0;
+  // The latest shot's path and label for a few seconds; after that only its marker stays on the shot map.
+  const latestPath = latestShotPath(moments, name);
+  const latestPathUp = useRecent(latestPath?.id, SHOT_ON_SCREEN_MS);
   // Degrading rather than stalling is by design, but the operator should be told it is happening.
   // A goal routine's stats and ticker are built in code, not a fallback, so they do not count.
   const fallbackCount = open.filter(isTemplateFallback).length;
@@ -593,7 +597,7 @@ export default function Operator() {
             pressureTrend={state?.pressure_trend}
             momentum={state?.momentum_label}
             nameOf={name}
-            latestPath={latestShotPath(moments, name)}
+            latestPath={latestPathUp ? latestPath : null}
           />
           <div className="on-air">
             {onAir[0] ? (
