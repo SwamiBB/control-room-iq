@@ -195,6 +195,10 @@ class MomentMetrics(BaseModel):
     key_pass: PassQuality | None = Field(default=None, description="The pass that set the moment up, if any")
     shot_speed_kmh: float | None = None
     ball_speed_kmh: float | None = None
+    shot_path: list[tuple[float, float]] | None = Field(
+        default=None, description="The moment's own shot as ordered (x, y) points, from where it was struck to "
+                                  "where it finished; 0-100, the shooting team attacking toward x=100. None until "
+                                  "both are known")
     thresholds: list[ThresholdIndicator] = Field(default_factory=list, description="Crossed on this moment")
 
 
@@ -252,6 +256,8 @@ class ShotRecord(BaseModel):
     # From the shot event, so the console can place markers and the analyst card can say who and how
     x: float | None = Field(default=None, description="Shot position, 0-100, the shooting team attacking toward x=100")
     y: float | None = None
+    end_x: float | None = Field(default=None, description="Where the shot finished, same frame as x and y")
+    end_y: float | None = None
     body: str | None = Field(default=None, description="foot | header")
     keeper: str | None = Field(default=None, description="The goalkeeper faced (who made the save on a saved shot)")
     blocker: str | None = Field(default=None, description="Who blocked it, on a blocked shot")

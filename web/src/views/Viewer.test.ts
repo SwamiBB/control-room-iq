@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, scoreText, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, scoreText, shotOf, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -260,5 +260,24 @@ describe("nextStrip (the strip across matches)", () => {
     const rerun = nextStrip(end, after(approved, 2_465_000));
     expect(rerun.score).toBeUndefined();
     expect(nextStrip(rerun, after(goal, 2_530_000)).score).toBe("1–0");
+  });
+});
+
+describe("the latest shot on the viewer's pitch", () => {
+  const shot: Packet = {
+    ...approved, cue_id: "c-shot", t_in_ms: 2_480_000,
+    payload: { intel: { player: "har-09", shot_path: [[94, 51], [100, 50]], names: { "har-09": "Finn Oakes" } } },
+  };
+
+  it("takes only the path the stats engine sent", () => {
+    expect(shotOf(shot)).toEqual({ points: [[94, 51], [100, 50]], player: "har-09", name: "Finn Oakes" });
+    expect(shotOf(approved)).toBeNull();
+    expect(shotOf({ ...shot, payload: { intel: { shot_path: [[94, 51]] } } })).toBeNull();
+  });
+
+  it("stays between graphics and goes with the match", () => {
+    const kept = nextStrip(nextStrip(null, shot), { ...approved, cue_id: "c-next", t_in_ms: 2_490_000 });
+    expect(kept.shot?.points).toEqual([[94, 51], [100, 50]]);
+    expect(nextStrip(kept, { ...approved, match_id: "m-2" }).shot).toBeUndefined();
   });
 });
