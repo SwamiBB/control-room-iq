@@ -5,6 +5,10 @@ import Operator from "./views/Operator";
 import Viewer from "./views/Viewer";
 import Multiview from "./views/Multiview";
 import ErrorBoundary from "./components/ErrorBoundary";
+// Condensed type for the viewer's broadcast graphics, shipped with the app so every machine draws the same.
+import "@fontsource/barlow-condensed/500.css";
+import "@fontsource/barlow-condensed/600.css";
+import "@fontsource/barlow-condensed/700.css";
 import "./styles.css";
 
 function Home() {
