@@ -14,6 +14,7 @@ import SettingsMenu from "../components/SettingsMenu";
 import MetricsPanel from "../components/MetricsPanel";
 import { chime, primeChime } from "../chime";
 import { Resync } from "../resync";
+import { stableOrder } from "../runningOrder";
 import { loadSettings, newArrivals, saveSettings, shortcutFor, type OperatorSettings } from "../settings";
 import { useLiveSocket } from "../useLiveSocket";
 import type { MomentMetrics } from "../intel";
@@ -35,6 +36,10 @@ const PACKAGE_WORDS = {
 const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
+
+const groupKey = (g: Group) => g.packageId ?? g.items[0].proposal_id;
+/** Most urgent first: a group is as urgent as its most urgent item. */
+const weightOf = (g: Group) => Math.min(...g.items.map((i) => i.priority ?? 9));
 
 /** localStorage, or nothing where reading it throws (a private window, blocked site data). */
 const browserStore = () => {
@@ -254,12 +259,22 @@ export default function Operator() {
       packageId,
       items: items.sort((a, b) => (a.package_seq ?? 0) - (b.package_seq ?? 0)),
     }));
-    const weight = (g: Group) => Math.min(...g.items.map((i) => i.priority ?? 9));
-    return [...packs, ...singles].sort((a, b) => weight(a) - weight(b));
+    return [...packs, ...singles].sort((a, b) => weightOf(a) - weightOf(b));
   }, [open]);
 
   // Shortcuts act on the top of the running order: the card the operator is looking at first.
-  const top = groups[0];
+  // The running order holds still: a card keeps the place it arrived in. While the pointer is over the list an
+  // arrival goes to the bottom, marked new, and moves to its place once the pointer leaves or "+N new" is clicked.
+  const [pointerOnList, setPointerOnList] = useState(false);
+  const orderRef = useRef<{ order: string[]; pending: string[] }>({ order: [], pending: [] });
+  const byKey = new Map(groups.map((g) => [groupKey(g), g]));
+  const { order, pending } = stableOrder(
+    orderRef.current.order, groups.map((g) => ({ key: groupKey(g), weight: weightOf(g) })), pointerOnList,
+    orderRef.current.pending,
+  );
+  orderRef.current = { order, pending };
+  const placed = order.map((k) => byKey.get(k)).filter((g): g is Group => Boolean(g));
+  const top = placed[0];
   const topRef = useRef(top);
   topRef.current = top;
   const decideTop = useRef<(a: "approve" | "hold" | "reject") => void>(() => undefined);
@@ -368,22 +383,25 @@ export default function Operator() {
         <SettingsMenu settings={settings} onChange={changeSettings} />
       </header>
 
-      {link !== "live" && (
-        <p className="error" role="alert">
-          {link === "connecting"
-            ? "Connecting to the API…"
-            : "Can't reach the API. Start it with CRQ_OFFLINE=1 — retrying automatically."}
-        </p>
-      )}
-      {logError && link === "live" && (
-        <p className="warnbar">{logError} Decisions are still being recorded; the log refreshes every 5 s.</p>
-      )}
-      {fallbackCount > 0 && (
-        <p className="warnbar">
-          {fallbackCount} of the graphics waiting came from the template fallback, not a model — the agents may be unavailable.
-        </p>
-      )}
-      {error && <p className="error" role="alert">{error}</p>}
+      {/* One bar's height is always kept here, so the desk does not drop when the fallback notice appears. */}
+      <div className="desk-notices">
+        {link !== "live" && (
+          <p className="error" role="alert">
+            {link === "connecting"
+              ? "Connecting to the API…"
+              : "Can't reach the API. Start it with CRQ_OFFLINE=1 — retrying automatically."}
+          </p>
+        )}
+        {logError && link === "live" && (
+          <p className="warnbar">{logError} Decisions are still being recorded; the log refreshes every 5 s.</p>
+        )}
+        {fallbackCount > 0 && (
+          <p className="warnbar">
+            {fallbackCount} of the graphics waiting came from the template fallback, not a model — the agents may be unavailable.
+          </p>
+        )}
+        {error && <p className="error" role="alert">{error}</p>}
+      </div>
 
       <div
         className="gallery-body"
@@ -392,11 +410,21 @@ export default function Operator() {
       >
         {/* ---- left: the decisions ------------------------------------------------ */}
         <section className="running-order">
-          <h2>Running order <span className="count">{open.length}</span></h2>
+          <h2>
+            Running order <span className="count">{open.length}</span>
+            {pending.length > 0 && (
+              <button className="new-cards" onClick={() => setPointerOnList(false)}
+                      title="New graphics wait at the bottom while the pointer is on the list, so nothing moves under it. Click to put them in priority order.">
+                +{pending.length} new below
+              </button>
+            )}
+          </h2>
 
-          <Timeline proposals={all} nowPlay={nowPlay} />
+          <div className="timeline-slot">
+            <Timeline proposals={all} nowPlay={nowPlay} />
+          </div>
 
-          {groups.length === 0 && (
+          {placed.length === 0 && (
             <p className="empty">
               {link !== "live"
                 ? "Not connected to the API, so nothing can arrive."
@@ -406,8 +434,10 @@ export default function Operator() {
             </p>
           )}
 
-          {groups.map((g) => (
-            <article key={g.packageId ?? g.items[0].proposal_id} className={`card ${g.packageId ? "routine" : ""}`}>
+          <div className="cards" onPointerEnter={() => setPointerOnList(true)} onPointerLeave={() => setPointerOnList(false)}>
+          {placed.map((g) => (
+            <article key={groupKey(g)}
+                     className={`card ${g.packageId ? "routine" : ""} ${pending.includes(groupKey(g)) ? "arrived" : ""}`}>
               {settings.shortcuts && g === top && (
                 <p className="keys-hint" aria-label="Keyboard shortcuts act on this card">
                   <span><kbd>F</kbd>{g.packageId ? "fire all" : "fire"}</span>
@@ -452,6 +482,7 @@ export default function Operator() {
               ))}
             </article>
           ))}
+          </div>
 
           {justFired.length > 0 && (
             <>
