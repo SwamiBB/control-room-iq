@@ -28,6 +28,8 @@
 .replay-ended.error { opacity: 1; }
 
 .scoreboard { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+/* Keeps the score on the right, beside Settings, rather than centred between the title and the menu. */
+.gallery-head .scoreboard { margin-left: auto; }
 .scoreboard b { font-size: 22px; }
 .scoreboard small { opacity: 0.6; }
 
@@ -38,6 +40,8 @@
   background: rgba(185, 28, 28, 0.08);
   font-size: 13px;
 }
+
+.desk-notices { display: flex; flex-direction: column; gap: 6px; min-height: 31px; }
 
 .warnbar {
   margin: 0;
@@ -75,6 +79,22 @@
 .running-order h2, .program h2 { margin: 6px 0 0; font-size: 15px; letter-spacing: 0.02em; }
 .count { opacity: 0.55; font-weight: 400; }
 .empty { opacity: 0.55; font-size: 13px; margin: 2px 0; }
+
+/* The running order holds still (runningOrder.ts): the timeline keeps room for four layers so tracks
+   coming and going do not push the cards, and arrivals wait behind "+N new" while the pointer is on the list. */
+.timeline-slot { min-height: 128px; }
+.cards { display: flex; flex-direction: column; gap: 10px; }
+.card.arrived { box-shadow: inset 3px 0 0 var(--accent); }
+.new-cards {
+  margin-left: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  letter-spacing: 0;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  vertical-align: 1px;
+}
 .muted { opacity: 0.6; }
 
 /* ---- timeline ------------------------------------------------------------- */
@@ -193,6 +213,8 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .tag.rejected { color: #b91c1c; }
 .tag.held, .tag.sla_held { color: #b45309; }
 .tag.expired { opacity: 0.6; }
+/* Words with an explanation on hover (Held, Held by the timer, Expired, the countdowns). */
+.tag[title], .sla[title], .tile[title] { cursor: help; }
 
 /* ---- program feed --------------------------------------------------------- */
 

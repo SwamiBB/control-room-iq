@@ -362,6 +362,8 @@ class StateFolder:
             if sent and sent[1] == ev.phase_id:  # the pass that set this chance up, in the same move
                 m.key_pass = sent[0]
             m.shot_speed_kmh = ev.attrs.get("speed_kmh")  # on the strike too, so the live chance overlay has it
+            if None not in (ev.x, ev.y, ev.end_x, ev.end_y):  # the strike alone has no end yet: no path
+                m.shot_path = [(ev.x, ev.y), (ev.end_x, ev.end_y)]
         if kind == MomentKind.STANDOUT_PASS and self.state.last_pass is not None:
             m.key_pass = self.state.last_pass
             m.ball_speed_kmh = self.state.last_pass.ball_speed_kmh
@@ -395,7 +397,8 @@ class StateFolder:
         """What the shot event carries, plus distance to goal and how long the move took."""
         a, ph = ev.attrs, self.state.current_phase
         return {
-            "x": ev.x, "y": ev.y, "body": a.get("body"), "keeper": a.get("keeper"), "blocker": a.get("blocker"),
+            "x": ev.x, "y": ev.y, "end_x": ev.end_x, "end_y": ev.end_y,
+            "body": a.get("body"), "keeper": a.get("keeper"), "blocker": a.get("blocker"),
             "assist_by": a.get("assist_by"), "assist_event_id": a.get("assist_event_id"),
             "distance_to_goal_m": distance_to_goal(ev.x, ev.y),
             "build_up_ms": self.state.play_ms - ph.start_play_ms if ph and ph.phase_id == ev.phase_id else None,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { errorMessage, fetchMetrics, type GalleryMetrics } from "../api";
+import { DECISION_HELP, errorMessage, fetchMetrics, type GalleryMetrics } from "../api";
 import "./metrics.css";
 
 /**
@@ -24,9 +24,9 @@ const MIX_LABEL: Record<string, string> = {
   override: "Override",
 };
 
-function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
+function Tile({ label, value, note, help }: { label: string; value: string; note?: string; help?: string }) {
   return (
-    <div className="tile">
+    <div className="tile" title={help}>
       <b>{value}</b>
       <span>{label}</span>
       {note && <small>{note}</small>}
@@ -83,8 +83,8 @@ export default function MetricsPanel() {
         <div className="tiles">
           <Tile label="Overridden" value={pct(m.errors.override_rate)} note={`${m.errors.overridden} of ${m.errors.decided}`} />
           <Tile label="Dropped" value={pct(m.errors.drop_rate)} note={`${m.errors.dropped} of ${m.errors.decided}`} />
-          <Tile label="Held by the timer" value={num(m.workload.sla_holds)} />
-          <Tile label="Expired" value={num(m.workload.expired)} />
+          <Tile label="Held by the timer" value={num(m.workload.sla_holds)} help={DECISION_HELP.timer} />
+          <Tile label="Expired" value={num(m.workload.expired)} help={DECISION_HELP.expired} />
         </div>
       </div>
 

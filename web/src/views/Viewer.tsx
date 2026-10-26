@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { WS } from "../api";
+import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
+import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
+import { PitchLines } from "../components/PitchView";
+import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
+import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
@@ -154,7 +158,7 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
   if (rows.length === 0) return null;
 
   return (
-    <dl className="caption-card">
+    <dl className="caption-card" data-kicker={heading("caption", lang)}>
       {rows.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
@@ -162,6 +166,71 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * The score bug, top left: team codes with a side chip, the score, the clock in the red tally block. It is
+ * the stats engine's own count and clock (GET /state), so it needs no approval, and it is the one thing on
+ * the frame that is always there.
+ */
+function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: Lang }) {
+  const minute = standing ? matchMinute(standing.period, standing.clockMs) : null;
+  const place = { top: `${BUG_RECT.top}%`, left: `${BUG_RECT.left}%`, maxWidth: `${BUG_RECT.width}%` };
+  return (
+    <div className="score-bug" style={place} aria-label={standing ? "Score and match clock" : undefined}>
+      {standing ? (
+        <>
+          <span className="team"><i className="chip home" />{(standing.homeTeam ?? "Home").toUpperCase()}</span>
+          <span className="score">{standing.home}–{standing.away}</span>
+          <span className="team"><i className="chip away" />{(standing.awayTeam ?? "Away").toUpperCase()}</span>
+          <span className="clock">{minute ?? heading("live", lang)}</span>
+        </>
+      ) : (
+        <span className="clock waiting">{heading("waiting", lang)}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One graphic as furniture: kicker, main line, detail. The overlay around it is only the layer's region;
+ * this is the object drawn in it, sized to its content.
+ */
+function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: Lang; register: IntelRegister }) {
+  const badges = (!p.verified || p.fallback || p.lang !== lang) && (
+    <span className="badges">
+      {!p.verified && <span className="badge override">Unverified</span>}
+      {p.fallback && <span className="badge fallback">Template</span>}
+      {p.lang !== lang && <span className="badge lang">in English</span>}
+    </span>
+  );
+  const kicker = kickerFor(p, lang);
+  // The main text is the delivered line, never fan_card.caption (that is the English reference).
+  if (layer === "ticker") {
+    return (
+      <div className="gfx">
+        <span className="tag">{kicker}</span>
+        <span className="main">{p.line}</span>
+        {badges}
+      </div>
+    );
+  }
+  const detail = layer !== "player_tag" && (
+    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+  );
+  // The spine takes the team colour the graphic carries (the scorer's stats do), else the viewer's side.
+  const teamColor = (p.payload as { team_color?: unknown } | undefined)?.team_color;
+  const spine = typeof teamColor === "string" ? { background: teamColor } : undefined;
+  return (
+    <div className="gfx">
+      {layer === "lower_third" && <span className="spine" style={spine} aria-hidden="true" />}
+      <div className="body">
+        <span className="kick">{kicker}{badges}</span>
+        <span className="main">{p.line}</span>
+        {detail && <div className="detail">{detail}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -201,8 +270,21 @@ export function scoreText(packet: Packet): string | null {
  */
 const RERUN_MS = 60_000;
 
-/** The live strip, and the match it belongs to. */
-export type Strip = { matchId: string; latestMs: number; score?: string; color?: string };
+/** The latest shot's path, for the pitch behind the graphics: points as the stats engine sent them. */
+export type StripShot = { points: PathPoint[]; player?: string | null; name?: string };
+
+/** The live strip and the pitch's latest shot, and the match they belong to. */
+export type Strip = { matchId: string; latestMs: number; score?: string; color?: string; shot?: StripShot };
+
+/** The packet's own shot path, if the stats engine sent one: never built from anything else. */
+export function shotOf(packet: Packet): StripShot | null {
+  const intel = packet.payload?.intel;
+  const points = asPath(intel?.shot_path);
+  if (!points) return null;
+  const player = intel?.player ?? null;
+  const name = player ? intel?.names?.[player] ?? packet.payload?.names?.[player] : undefined;
+  return { points, player, ...(name ? { name } : {}) };
+}
 
 /**
  * The strip after a packet. It keeps the last score any packet of this match gave. A packet for another
@@ -217,7 +299,57 @@ export function nextStrip(prev: Strip | null, packet: Packet): Strip {
     matchId: packet.match_id,
     latestMs: Math.max(base?.latestMs ?? packet.t_in_ms, packet.t_in_ms),
     ...(score ? { score, color: packet.payload?.perspective?.color } : { score: base?.score, color: base?.color }),
+    shot: shotOf(packet) ?? base?.shot,
   };
+}
+
+/**
+ * The strip after GET /state on connect: the score as the stats engine has it, so a refreshed screen shows it
+ * at once rather than "–" until the next scored graphic. A packet's own framing for this run already on the
+ * strip is kept ("winning 1–0" beats a neutral "1–0"); another match, or a rerun, starts over from the count.
+ */
+export function withStanding(prev: Strip | null, s: MatchStanding): Strip {
+  const same = prev !== null && prev.matchId === s.matchId && s.playMs > prev.latestMs - RERUN_MS;
+  if (same && prev.score) return { ...prev, latestMs: Math.max(prev.latestMs, s.playMs) };
+  return {
+    matchId: s.matchId,
+    latestMs: Math.max(same ? prev.latestMs : s.playMs, s.playMs),
+    score: `${s.home}–${s.away}`,
+    ...(same && prev.shot ? { shot: prev.shot } : {}),
+  };
+}
+
+/** The standalone viewer's choices from its URL, so a refresh brings back the same viewer. Unknown values are ignored. */
+export function settingsFromQuery(search: string): ViewerPreset {
+  const q = new URLSearchParams(search);
+  const pick = <K extends string>(key: string, allowed: Record<K, string>): K | undefined => {
+    const v = q.get(key);
+    return v !== null && v in allowed ? (v as K) : undefined;
+  };
+  return {
+    persona: pick("persona", PERSONAS),
+    access: pick("access", ACCESS),
+    lang: pick("lang", LANGS),
+    allegiance: pick("allegiance", SIDES),
+  };
+}
+
+export const queryFor = (s: Required<ViewerPreset>) =>
+  new URLSearchParams({ persona: s.persona, access: s.access, lang: s.lang, allegiance: s.allegiance }).toString();
+
+/**
+ * The small line above a graphic's main text, from what the packet already carries: what happened (the
+ * caption card's outcome), the score (the goal ticker), the official stats (the scorer's lower third), a
+ * shot, or else the layer's own word. Never generated text.
+ */
+export function kickerFor(p: Packet, lang: Lang): string {
+  const outcome = outcomeText(p.fan_card?.detail?.outcome, lang);
+  if (outcome) return outcome;
+  const payload = p.payload as (Packet["payload"] & { source?: string }) | undefined;
+  if (Array.isArray(payload?.score)) return heading("score", lang);
+  if (payload?.source === "code") return heading("stats", lang);
+  if (payload?.intel?.shot_speed_kmh != null || payload?.intel?.shot_path) return heading("shot", lang);
+  return heading("live", lang);
 }
 
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
@@ -269,10 +401,20 @@ type ViewerProps = {
 };
 
 export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
-  const [persona, setPersona] = useState<Persona>(preset?.persona ?? "fan");
-  const [access, setAccess] = useState<Access>(preset?.access ?? "none");
-  const [lang, setLang] = useState<Lang>(preset?.lang ?? "en");
-  const [allegiance, setAllegiance] = useState<Allegiance>(preset?.allegiance ?? "neutral");
+  // A preset (the multiviewer) fixes the settings; otherwise they come from the URL, so a refresh keeps them.
+  const [initial] = useState<ViewerPreset>(() => preset ?? settingsFromQuery(window.location.search));
+  const [persona, setPersona] = useState<Persona>(initial.persona ?? "fan");
+  const [access, setAccess] = useState<Access>(initial.access ?? "none");
+  const [lang, setLang] = useState<Lang>(initial.lang ?? "en");
+  const [allegiance, setAllegiance] = useState<Allegiance>(initial.allegiance ?? "neutral");
+  useEffect(() => {
+    if (preset) return;
+    try {
+      window.history.replaceState(null, "", `${window.location.pathname}?${queryFor({ persona, access, lang, allegiance })}`);
+    } catch {
+      /* a sandboxed frame: the settings just do not survive a refresh */
+    }
+  }, [preset, persona, access, lang, allegiance]);
 
   // Packets live in a map keyed by cue_id: a re-send under the same id replaces the one on screen.
   const [held, setHeld] = useState<Map<string, Held>>(new Map());
@@ -280,6 +422,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [refused, setRefused] = useState(0);
   const [cues] = useState(() => cueTimer(setCue));
   const [strip, setStrip] = useState<Strip | null>(null);
+  const [standing, setStanding] = useState<MatchStanding | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
@@ -306,6 +449,23 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     }
   });
 
+  // The viewer socket sends no match frame or clock, so the score bug asks where the match stands: at once on
+  // connect (a refresh included), then every 2 s for the clock. No match loaded leaves the bug waiting.
+  useEffect(() => {
+    if (link !== "live") return;
+    let stop = false;
+    const ask = () => fetchStanding()
+      .then((st) => {
+        if (stop) return;
+        setStanding(st);
+        if (st) setStrip((prev) => withStanding(prev, st));
+      })
+      .catch(() => undefined); // keep the last known standing through a failed poll
+    ask();
+    const t = window.setInterval(ask, 2000);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [link, url]);
+
   // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
   // another side or language.
   useEffect(() => {
@@ -324,7 +484,11 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const live = liveAt(held, Date.now());
 
-  const packet = mainSlot(live)?.packet;
+  // Every layer on screen is drawn below. The caption card rides on whichever of them carries it (the goal
+  // routine's lead), not on the newest, so the scorer's lower third arriving with it no longer hides the card.
+  const shown = onScreen(live);
+  const packet = shown.find((h) => h.packet.fan_card)?.packet ?? mainSlot(live)?.packet;
+  const fullScreenUp = shown.some((h) => layerOf(h.packet.layer) === "full_screen");
 
   const register: IntelRegister = persona;
   const nameOf = nameLookup(packet);
@@ -373,14 +537,20 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         </div>
       </header>
 
-      {/* Persistent live strip: score and clock stay put, cards come and go (Oct 22 decision). */}
-      <div className="live-strip">
-        <span className="live-dot" aria-hidden="true" />
-        <span className="live-word">{heading("live", lang)}</span>
-        <b className="live-score">{strip?.score ?? "–"}</b>
-      </div>
-
-      <div className="pitch">
+      <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
+        {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
+        <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid slice"
+             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
+          <PitchLines />
+          {strip?.shot && (
+            <BallPath key={strip.shot.points.join(";")} points={strip.shot.points} animate
+                      label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
+          )}
+        </svg>
+        {/* Graded like a camera feed: a vignette gives the frame a centre; a full screen dims the whole frame. */}
+        <div className="vignette" aria-hidden="true" />
+        {fullScreenUp && <div className="scrim" aria-hidden="true" />}
+        <ScoreBug standing={standing} lang={lang} />
         {/* Beat one: code-built, no generated text, so it needs no approval and lands on the strike. */}
         {cue && (
           <div
@@ -393,19 +563,17 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           </div>
         )}
 
-        {/* Beat two: generated caption, only ever inside an approved packet. */}
-        {packet && (
-          <div className={`overlay ${packet.layer}`}>
-            {!packet.verified && <span className="badge override">Unverified</span>}
-            {packet.fallback && <span className="badge fallback">Template</span>}
-            {packet.lang !== lang && <span className="badge lang">in English</span>}
-            {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
-            <p className="line">{packet.line}</p>
-            <IntelChips metrics={packet.payload?.intel as MomentMetrics | undefined} name={nameOf} register={register} />
-          </div>
-        )}
+        {/* Beat two: generated captions, only ever inside approved packets, each layer in its own place. */}
+        {shown.map(({ packet: p }) => {
+          const layer = layerOf(p.layer);
+          return (
+            <div key={p.cue_id} className={`overlay layer-${layer}`} style={rectStyle(LAYER_RECTS[layer])}>
+              <Graphic p={p} layer={layer} lang={lang} register={register} />
+            </div>
+          );
+        })}
 
-        {!packet && !cue && (
+        {shown.length === 0 && !cue && (
           <p className="viewer-idle">
             {link === "live"
               ? "Waiting for the next approved graphic."
@@ -426,8 +594,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       )}
 
       <ul className="history">
-        {/* Everything else still up; the main slot is not always the newest, so filter rather than slice. */}
-        {live.filter((h) => h.packet !== packet).map((h) => (
+        {/* Still live but not on screen: an older graphic on a busy layer, or a panel waiting under a full screen. */}
+        {live.filter((h) => !shown.includes(h)).map((h) => (
           <li key={h.packet.cue_id}>{h.packet.line}</li>
         ))}
       </ul>

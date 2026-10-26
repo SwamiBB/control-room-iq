@@ -42,65 +42,292 @@
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.65;
+  color: #b4bccb;
 }
 
-.viewer-controls select {
+/* Readable on the dark panel and on a screen recording: a lighter field, a visible edge, full-strength
+   text, and a dark native list (color-scheme) so the open dropdown is legible too. */
+.viewer .viewer-controls select {
   min-width: 0;
   max-width: 100%;
+  color-scheme: dark;
+  font: 500 14px/1.3 system-ui, sans-serif;
+  color: #f3f5f9;
+  background: #262d3a;
+  border: 1px solid #5b6577;
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.viewer .viewer-controls select:hover { border-color: #8a94a8; }
+.viewer .viewer-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.viewer .viewer-controls option { color: #f3f5f9; background: #1b212b; }
+
+/* ---- The feed --------------------------------------------------------------
+   Broadcast treatment (the "Broadcast feed" look in the viewer-directions mock): a graded pitch, a score bug,
+   and graphics furniture with a kicker / main / detail hierarchy. Every size is in container units of the
+   frame, so the same graphics scale down into the multiviewer's frames with no separate CSS. */
+
+.viewer {
+  --cond: "Barlow Condensed", "Bahnschrift Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --home: #2f6fe0;
+  --away: #d4a017;
+  --live: #e0362c;
+  --good: #2fbf71;
+  --furniture: rgba(12, 16, 22, 0.93);
+  container-type: inline-size; /* the caption card, under the frame, scales with the viewer's width */
 }
 
-/* Persistent live strip: stays put while cards come and go (Oct 22 decision). */
-.live-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-left: 3px solid var(--side-color);
-  background: rgba(127, 127, 127, 0.1);
-  border-radius: 3px;
-  font-variant-numeric: tabular-nums;
-}
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #c62828; flex: none; }
-.live-word { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
-.live-score { margin-left: auto; font-size: 17px; font-weight: 600; }
-
-/* The facts under the picture: labels translated, values as the stats engine wrote them. */
-.caption-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 4px 14px;
-  margin: 0;
-  padding: 10px 12px;
-  font-size: 13.5px;
-  border: 1px solid rgba(127, 127, 127, 0.3);
-  border-left: 3px solid var(--side-color);
-  border-radius: 4px;
-}
-
-.viewer-note { margin: 0; font-size: 12px; opacity: 0.6; }
-.caption-card > div { display: contents; }
-.caption-card dt {
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  white-space: nowrap;
-}
-.caption-card dd { margin: 0; min-width: 0; }
-
-/* A second screen, not a stadium screen: keep the card area to broadcast proportions so the
-   controls, the live strip and the caption all stay in one view without scrolling. */
+/* A second screen, not a stadium screen: broadcast proportions, so the controls, the feed and the caption
+   card stay in one view without scrolling. */
 .viewer .pitch {
   position: relative;
   overflow: hidden;
   aspect-ratio: 16 / 9;
   max-height: 46vh;
   min-height: 200px;
+  container-type: inline-size;
+  border-radius: 5px;
+  border: 1px solid #262f3a;
+  /* Graded like a camera sees it: dark and desaturated, never neon. */
+  background: linear-gradient(135deg, #14361f, #0d2415);
+}
+
+/* The markings faint, as a camera sees them; the latest shot path on top, behind the graphics. */
+.viewer-pitch { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.viewer-pitch .lines { stroke: rgba(255, 255, 255, 0.16); stroke-width: 0.3; }
+.viewer-pitch .lines .spot { fill: rgba(255, 255, 255, 0.16); }
+.viewer-pitch .lines .goal { fill: rgba(255, 255, 255, 0.08); stroke: rgba(255, 255, 255, 0.16); }
+
+/* The frame has a centre. */
+.viewer .pitch > .vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 38%, transparent 42%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* A full-screen graphic dims the whole frame; the lower third and the ticker stay up on top of it. */
+.viewer .pitch > .scrim { position: absolute; inset: 0; pointer-events: none; background: rgba(8, 11, 15, 0.78); }
+.viewer .pitch.full-screen-up .ball-path { visibility: hidden; }
+
+/* ---- Score bug: top left, always there ---- */
+.score-bug {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: stretch;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  font-family: var(--cond);
+  font-size: 1.8cqw;
+  line-height: 1;
+  color: #fff;
+  white-space: nowrap;
+}
+.score-bug > span { display: flex; align-items: center; padding: 0.4em 0.5em; background: var(--furniture); }
+.score-bug .team { gap: 0.4em; font-weight: 600; letter-spacing: 0.04em; }
+.score-bug .chip { width: 0.16em; height: 0.75em; border-radius: 1px; display: block; }
+.score-bug .chip.home { background: var(--home); }
+.score-bug .chip.away { background: var(--away); }
+.score-bug .score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+.score-bug .clock {
+  gap: 0.35em;
+  background: var(--live);
+  font-weight: 600;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+}
+.score-bug .clock::before {
+  content: "";
+  width: 0.36em;
+  height: 0.36em;
+  border-radius: 50%;
+  background: #fff;
+  animation: tally 1.8s ease-in-out infinite;
+}
+.score-bug .clock.waiting { background: var(--furniture); font-family: system-ui, sans-serif; font-weight: 500; }
+.score-bug .clock.waiting::before { background: var(--live); }
+@keyframes tally { 50% { opacity: 0.25; } }
+
+/* ---- Graphics furniture: kicker / main / detail ---- */
+/* The overlay is only the layer's region (layout.ts); .gfx is the object drawn in it, sized to content. */
+.viewer .pitch > .overlay {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  overflow: hidden;
+  color: #e8ecf1;
+  pointer-events: none;
+  animation: overlay-in 240ms ease-out;
+  /* Only a region: none of the shared .overlay box (styles.css) belongs on it. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+.overlay .gfx { display: flex; min-width: 0; max-width: 100%; max-height: 100%; box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5); }
+.overlay .body {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  gap: 0.45cqw;
+  min-width: 0;
+  padding: 1.2cqw 1.6cqw;
+  background: var(--furniture);
 }
+.overlay .kick {
+  display: flex;
+  align-items: center;
+  gap: 0.8cqw;
+  font: 600 1.45cqw/1 var(--cond);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fb0c2;
+}
+.overlay .main { font: 600 2.6cqw/1.16 var(--cond); letter-spacing: 0.01em; color: #fff; }
+.overlay .detail .intel-chips { margin: 0; padding: 0; gap: 0.4cqw 1.4cqw; font-size: 1.45cqw; }
+/* Detail reads as data, not as chips: mono, amber, no pill. */
+.overlay .detail .chip {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: var(--mono);
+  color: var(--away);
+}
+.overlay .detail .chip * { color: inherit; }
+.overlay .badges { display: inline-flex; gap: 0.5cqw; }
+.overlay .badge { font: 600 1cqw/1 var(--cond); padding: 0.2em 0.45em; margin: 0; letter-spacing: 0.1em; }
+.overlay .badge.fallback { color: #9aa5b4; }
+.overlay .badge.lang { color: #8fb3ff; }
+.overlay .badge.override { color: #f59e6b; }
+
+/* Lower third: a band at bottom left, a coloured spine down its left edge. */
+.overlay.layer-lower_third { align-items: flex-end; }
+.overlay.layer-lower_third .spine { width: 0.45cqw; min-width: 3px; flex: none; background: var(--side-color, var(--home)); }
+
+/* Ticker: the full-width strip at the very bottom, a solid tag block and the line beside it. */
+.overlay.layer-ticker .gfx {
+  width: 100%;
+  height: 100%;
+  align-items: stretch;
+  background: rgba(10, 13, 18, 0.95);
+  border-top: 2px solid var(--home);
+  box-shadow: none;
+}
+.overlay.layer-ticker .tag {
+  display: flex;
+  align-items: center;
+  padding: 0 1.4cqw;
+  background: var(--home);
+  color: #fff;
+  font: 700 1.7cqw/1 var(--cond);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.overlay.layer-ticker .main {
+  display: flex;
+  align-items: center;
+  padding: 0 1.4cqw;
+  min-width: 0;
+  font: 500 2cqw/1 system-ui, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.overlay.layer-ticker .badges { align-self: center; padding-right: 1.2cqw; }
+
+/* Full screen: the frame is dimmed behind it (.scrim); large condensed type, centred. */
+.overlay.layer-full_screen { align-items: center; justify-content: center; text-align: center; }
+.overlay.layer-full_screen .gfx { box-shadow: none; }
+.overlay.layer-full_screen .body { background: none; align-items: center; gap: 1cqw; }
+.overlay.layer-full_screen .kick { font-size: 2cqw; letter-spacing: 0.2em; color: var(--live); font-weight: 700; }
+.overlay.layer-full_screen .main { font-size: 4.6cqw; font-weight: 700; line-height: 1.05; }
+.overlay.layer-full_screen .detail .intel-chips { justify-content: center; font-size: 1.8cqw; }
+
+/* Side panels and the pitch label: the same furniture, from the top of their region. */
+.overlay.layer-stat_panel, .overlay.layer-heatmap { align-items: flex-start; }
+.overlay.layer-pitch_overlay { justify-content: center; align-items: flex-start; }
+.overlay.layer-player_tag { align-items: center; justify-content: flex-end; }
+.overlay.layer-player_tag .main { font-size: 2.2cqw; }
+
+/* The deaf caption band: the caption card's look (below), never a lower third's. */
+.overlay.layer-caption { justify-content: center; align-items: flex-start; }
+.overlay.layer-caption .body {
+  background: rgba(12, 16, 22, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 3px solid var(--good);
+  border-radius: 3px;
+}
+.overlay.layer-caption .kick { color: var(--good); }
+.overlay.layer-caption .main { font: 500 1.9cqw/1.3 system-ui, sans-serif; }
+
+@keyframes overlay-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .viewer .pitch > .overlay, .score-bug .clock::before { animation: none; }
+}
+
+/* Nothing up: a quiet line at the bottom, inside the frame. */
+.viewer .pitch > .viewer-idle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3%;
+  margin: 0;
+  text-align: center;
+  color: #9fb0c2;
+  font-size: clamp(11px, 1.5cqw, 14px);
+}
+
+/* ---- The caption card, under the picture: the accessibility path ----
+   A different object from every graphic: its own border, a green left edge, body type rather than condensed,
+   and type that scales with the viewer (so it is legible in the multiviewer too). High contrast throughout. */
+.caption-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6cqw 2cqw;
+  margin: 0;
+  padding: 1.6cqw 2cqw;
+  font: 500 clamp(13px, 2.3cqw, 18px)/1.35 system-ui, sans-serif;
+  color: #f1f4f8;
+  background: #0e1319;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: 4px solid var(--good);
+  border-radius: 4px;
+}
+.viewer[data-lang="hi"] .caption-card { font-family: "Noto Sans Devanagari", "Nirmala UI", "Mangal", system-ui, sans-serif; }
+.caption-card::before {
+  content: attr(data-kicker);
+  grid-column: 1 / -1;
+  font-weight: 700;
+  font-size: 0.72em;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--good);
+}
+.caption-card > div { display: contents; }
+.caption-card dt {
+  font-size: 0.78em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a9b6c6;
+  white-space: nowrap;
+  align-self: baseline;
+}
+.caption-card dd { margin: 0; min-width: 0; }
+.caption-card dt { font-size: max(11.5px, 0.8em); }
+/* Devanagari has no capitals and needs size more than spacing to stay legible. */
+.viewer[data-lang="hi"] .caption-card dt,
+.viewer[data-lang="hi"] .caption-card::before { text-transform: none; letter-spacing: 0; font-size: max(13px, 0.92em); }
+
+.viewer-note { margin: 0; font-size: 12px; opacity: 0.6; }
 
 .viewer {
   max-width: 560px;
@@ -163,11 +390,7 @@
   }
 }
 
-/* ---- Beat two: the approved caption ---------------------------------------- */
-
-.viewer .overlay .line {
-  margin: 4px 0 0;
-}
+/* ---- Badges on a graphic ---- */
 
 .badge {
   display: inline-block;

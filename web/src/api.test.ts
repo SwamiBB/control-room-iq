@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  canStartReplay, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, decisionHelp, fetchStanding, matchMinute, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -155,6 +155,23 @@ describe("startReplay", () => {
   });
 });
 
+describe("replay speeds", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("offers real time, labelled as such, beside the demo compressions", () => {
+    expect(REPLAY_SPEEDS[0]).toBe(1);
+    expect(speedLabel(1)).toBe("Real time · 1×");
+    expect(COMPRESSED_SPEEDS.map(speedLabel)).toEqual(["10×", "20×", "30×", "50×"]);
+  });
+
+  it("sends 1 for real time", async () => {
+    const fetch = vi.fn(async (_url: string, _init: any) => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetch);
+    await startReplay("window", 1);
+    expect(JSON.parse(String(fetch.mock.calls[0][1].body)).speed).toBe(1);
+  });
+});
+
 describe("code-built items are not template fallbacks", () => {
   // As the API sends a goal routine's items: the follow-ups have no meta, so routing is the default "template".
   const noMeta = { routing: "template", model_served: null, latency_ms: null };
@@ -206,5 +223,51 @@ describe("console state the socket does not re-send (#52)", () => {
     expect(canStartReplay(true, false, false)).toBe(true); // opened after the end: match, no finish seen
     expect(canStartReplay(true, false, true)).toBe(false); // mid-replay
     expect(canStartReplay(true, false, null)).toBe(false); // not known yet
+  });
+});
+
+describe("fetchStanding", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async (_url: string) => ({ ok: true, json: async () => body })));
+
+  it("reads the match and the score from GET /state", async () => {
+    answer({ match_id: "m-ref-042", play_ms: 2_520_000, period: 1, t_ms: 2_474_000,
+             home: { team: "har", goals: 1 }, away: { team: "nfu", goals: 0 } });
+    expect(await fetchStanding()).toEqual({
+      matchId: "m-ref-042", playMs: 2_520_000, home: 1, away: 0, homeTeam: "har", awayTeam: "nfu", period: 1, clockMs: 2_474_000,
+    });
+  });
+
+  it("is null when the API has no match loaded", async () => {
+    answer(null);
+    expect(await fetchStanding()).toBeNull();
+  });
+});
+
+describe("decisionHelp (what Held and Expired mean)", () => {
+  it("explains the timer's hold, the operator's hold, expiry and supersession", () => {
+    expect(decisionHelp("held", "sla-timer")).toMatch(/within 20 seconds.*off air/);
+    expect(decisionHelp("sla_held")).toMatch(/^Held by the timer/);
+    expect(decisionHelp("held", "operator")).toMatch(/^Held: kept off air by the operator/);
+    expect(decisionHelp("expired", "expiry-rule")).toMatch(/without airing/);
+    expect(decisionHelp("expired", "supersession")).toMatch(/^Superseded/);
+  });
+
+  it("leaves the plain words alone", () => {
+    expect(decisionHelp("approved", "operator")).toBeUndefined();
+    expect(decisionHelp("rejected", "operator")).toBeUndefined();
+  });
+});
+
+describe("matchMinute (the score bug's clock)", () => {
+  it("counts the minute being played, from the first half's kick-off", () => {
+    expect(matchMinute(1, 2_474_000)).toBe("42'");
+    expect(matchMinute(1, 0)).toBe("1'");
+    expect(matchMinute(2, 600_000)).toBe("56'");
+  });
+
+  it("says nothing without a clock", () => {
+    expect(matchMinute(1, undefined)).toBeNull();
   });
 });

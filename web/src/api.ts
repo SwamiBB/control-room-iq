@@ -68,6 +68,7 @@ export type MomentMsg = {
   moment: {
     moment_id: string; t_ms: number; play_ms?: number; period: number; kind: string;
     importance: number; summary: string; beat?: "chance" | "result" | "none";
+    team?: string | null; player?: string | null; event_ids?: string[];
     metrics?: MomentMetrics | null;
   };
   explanation: { headline: string; why_it_matters: string; pattern: string; cites: string[]; confidence: number };
@@ -203,9 +204,16 @@ export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
  */
 export type ReplayScope = "window" | "full";
 
-/** What the console offers for the dead air between decisions. */
-export const REPLAY_SPEEDS = [10, 20, 30, 50] as const;
+/**
+ * What the console offers for the dead air between decisions. 1x is not a slow option: it is the only speed a
+ * live feed has. The rest compress the replay for a demo.
+ */
+export const REPLAY_SPEEDS = [1, 10, 20, 30, 50] as const;
 export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
+export const REAL_TIME: ReplaySpeed = 1;
+export const COMPRESSED_SPEEDS = REPLAY_SPEEDS.filter((s) => s !== REAL_TIME);
+
+export const speedLabel = (s: number) => (s === REAL_TIME ? "Real time · 1×" : `${s}×`);
 
 export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 20,
                             file = "data/reference/match-042.jsonl") =>
@@ -227,6 +235,37 @@ export async function fetchReplayStatus(): Promise<{ running: boolean; speed: nu
   const body: { speed?: number | null } = await get("/healthz");
   const speed = typeof body.speed === "number" ? body.speed : null;
   return { running: speed != null, speed };
+}
+
+/** Where the match stands, from GET /state: null when the API has no match loaded. */
+export type MatchStanding = {
+  matchId: string; playMs: number; home: number; away: number;
+  /** Team ids as the stats engine has them ("har"); the bug shows them upper-cased, as the short names are. */
+  homeTeam?: string; awayTeam?: string;
+  /** The match clock: the period, and time within it. */
+  period?: number; clockMs?: number;
+};
+
+/** "42'": the minute being played, counted from the first half's kick-off (41:14 is the 42nd minute). */
+export function matchMinute(period: number | undefined, clockMs: number | undefined): string | null {
+  if (clockMs == null || !Number.isFinite(clockMs)) return null;
+  return `${Math.floor(clockMs / 60_000) + (period === 2 ? 45 : 0) + 1}'`;
+}
+
+/**
+ * GET /state on connect, so a screen that joins mid-match knows the score without waiting for a graphic.
+ * It is the stats engine's own count, not generated text, so it needs no approval to show.
+ */
+export async function fetchStanding(): Promise<MatchStanding | null> {
+  const s = await get("/state");
+  if (!s || typeof s.match_id !== "string" || !s.home || !s.away) return null;
+  return {
+    matchId: s.match_id, playMs: Number(s.play_ms) || 0, home: Number(s.home.goals) || 0, away: Number(s.away.goals) || 0,
+    homeTeam: typeof s.home.team === "string" ? s.home.team : undefined,
+    awayTeam: typeof s.away.team === "string" ? s.away.team : undefined,
+    period: Number(s.period) || undefined,
+    clockMs: Number.isFinite(Number(s.t_ms)) ? Number(s.t_ms) : undefined,
+  };
 }
 
 /** GET /deliveries is one flat audit list for the match; the console keeps it per proposal. */
@@ -372,6 +411,26 @@ export const STATUS_WORDS: Record<string, string> = {
   expired: "Expired",
   sla_held: "Held by the timer",
 };
+
+/** What "held" and "expired" mean, in gallery language: these two words carry the gate's timing story. */
+export const DECISION_HELP = {
+  held: "Held: kept off air by the operator for now. It stays on the desk and can still be fired, until the moment "
+    + "has passed and it expires.",
+  timer: "Held by the timer: nobody fired or dropped it within 20 seconds, so the gate kept it off air rather than "
+    + "let anything air without a human decision. It stays on the desk and can still be fired.",
+  expired: "Expired: it was held until the moment had passed (at least a minute of play and a minute on the desk), "
+    + "so it left the desk without airing. Nothing goes to air late.",
+  superseded: "Superseded: a goal on the same move took over, so this card left the desk without airing.",
+} as const;
+
+/** The explanation for a decision's label, or undefined for the words that need none (Fired, Dropped). */
+export function decisionHelp(status: string, actor?: string | null): string | undefined {
+  if (actor === "sla-timer" || status === "sla_held") return DECISION_HELP.timer;
+  if (actor === "supersession") return DECISION_HELP.superseded;
+  if (actor === "expiry-rule" || status === "expired") return DECISION_HELP.expired;
+  if (status === "held") return DECISION_HELP.held;
+  return undefined;
+}
 
 /** Decision-log wording: the actor matters as much as the action. */
 export function decisionLabel(status: string, actor?: string | null): string {

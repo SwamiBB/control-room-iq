@@ -22,12 +22,13 @@
 }
 :root[data-theme="dark"] .pitch-view svg { background: #163b27; }
 
-.pitch-view .lines {
+/* Markings, here and on the viewer's pitch (PitchLines). */
+.lines {
   stroke: rgba(255, 255, 255, 0.55);
   stroke-width: 0.35;
 }
-.pitch-view .lines .spot { fill: rgba(255, 255, 255, 0.55); stroke: none; }
-.pitch-view .lines .goal { fill: rgba(255, 255, 255, 0.28); stroke: rgba(255, 255, 255, 0.55); }
+.lines .spot { fill: rgba(255, 255, 255, 0.55); stroke: none; }
+.lines .goal { fill: rgba(255, 255, 255, 0.28); stroke: rgba(255, 255, 255, 0.55); }
 
 /* The third the pressure is coming from, while it is rising. */
 .pitch-view .tint { fill: rgba(255, 214, 140, 0.13); }
@@ -79,3 +80,35 @@
 .pitch-view .key.blocked::before { background: #9aa3b7; }
 .pitch-view .key.off::before { background: #b9bfcc; }
 .pitch-view .note { margin-left: auto; opacity: 0.8; }
+
+/* Where the ball went (BallPath): struck to finished, drawn from the data's own points. */
+.ball-path .trail { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ball-path.past .trail { stroke: rgba(255, 255, 255, 0.3); stroke-width: 0.3; }
+.ball-path.latest .trail { stroke: #ffe6a8; stroke-width: 0.6; }
+.ball-path marker path { fill: #ffe6a8; }
+.ball-path .origin { fill: #ffe6a8; stroke: rgba(0, 0, 0, 0.5); stroke-width: 0.25; }
+.ball-path .path-label {
+  font: 600 2.6px system-ui, sans-serif;
+  fill: #fff;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 0.7px;
+  stroke-linejoin: round;
+}
+
+/* The latest one draws in once, origin to end; the arrowhead lands as the line arrives. */
+.ball-path.animate .trail {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: ball-draw 0.9s ease-out 0.15s forwards;
+}
+.ball-path.animate marker path { opacity: 0; animation: ball-arrive 0.2s linear 1s forwards; }
+.ball-path.animate .path-label { opacity: 0; animation: ball-arrive 0.3s linear 0.2s forwards; }
+
+@keyframes ball-draw { to { stroke-dashoffset: 0; } }
+@keyframes ball-arrive { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ball-path.animate .trail { animation: none; stroke-dashoffset: 0; }
+  .ball-path.animate marker path, .ball-path.animate .path-label { animation: none; opacity: 1; }
+}
