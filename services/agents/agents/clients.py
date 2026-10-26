@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 @cache
+def _credential():
+    """One credential for every client, so the routers share one token (and one `az` call locally)."""
+    from azure.identity import DefaultAzureCredential
+
+    return DefaultAzureCredential()
+
+
+@cache
 def chat_client(deployment: str | None = None):
     """One client per deployment: on Azure the deployment is part of the request URL."""
     if settings.offline:
@@ -26,11 +34,10 @@ def chat_client(deployment: str | None = None):
         # Chat Completions, not OpenAIChatClient: that one calls the Responses API, which model-router rejects
         # with 400 "The requested operation is unsupported" (#10).
         from agent_framework.openai import OpenAIChatCompletionClient
-        from azure.identity import DefaultAzureCredential
 
         return OpenAIChatCompletionClient(
             azure_endpoint=settings.azure_openai_endpoint or settings.foundry_project_endpoint,
-            credential=DefaultAzureCredential(),
+            credential=_credential(),
             model=deployment or settings.model_router,
         )
     except Exception:  # noqa: BLE001 - the API must still serve the console; these agents fall back to templates

@@ -23,6 +23,21 @@ def _languages() -> tuple[str, ...]:
     return tuple(x for x in wanted if x in supported) or ("en",)
 
 
+# What the reasoning models behind the routers accept; gpt-5.1 and later reject "minimal".
+REASONING_EFFORTS = ("none", "low", "medium", "high")
+
+
+def _reasoning_effort() -> str:
+    """AGENT_REASONING_EFFORT, checked once here: a value the models reject would fail every call with a 400 and
+    quietly turn every card into a template. Empty means send none."""
+    value = os.environ.get("AGENT_REASONING_EFFORT", "low").strip().lower()
+    if value and value not in REASONING_EFFORTS:
+        logging.getLogger(__name__).warning("AGENT_REASONING_EFFORT=%r is not supported (%s); sending none",
+                                            value, ", ".join(REASONING_EFFORTS))
+        return ""
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     foundry_project_endpoint: str = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
@@ -36,7 +51,7 @@ class Settings:
     # Passed to the routers, which hand it to the reasoning models they pick. "low" kept every agent under the 8 s
     # timeout in the Oct 26 demo-window runs, with the writing unchanged; the default effort timed out half the
     # explainer calls (#39). Empty sends no reasoning_effort.
-    reasoning_effort: str = os.environ.get("AGENT_REASONING_EFFORT", "low")
+    reasoning_effort: str = _reasoning_effort()
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
     languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.

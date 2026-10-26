@@ -33,7 +33,8 @@ def test_pipeline_builds_online(monkeypatch):
     assert all(isinstance(a, Agent) for a in (p.explainer, p.narrator, p.personalizer, p.producer, p.localizer))
     assert p.producer.default_options["response_format"] is ProducerDecision
     assert "response_format" not in p.narrator.default_options
-    assert all(getattr(p, n).default_options["reasoning_effort"] == "low" for n in config.AGENT_ROUTING)
+    for n in config.AGENT_ROUTING:  # whatever the developer's .env says, as long as it is passed through
+        assert getattr(p, n).default_options.get("reasoning_effort") == (config.settings.reasoning_effort or None)
 
 
 def test_each_agent_calls_its_routing_modes_deployment(monkeypatch):
@@ -41,8 +42,30 @@ def test_each_agent_calls_its_routing_modes_deployment(monkeypatch):
     monkeypatch.setattr(clients, "chat_client", _online_client)
     p = MomentPipeline()
     assert {n: getattr(p, n).client.model for n in config.AGENT_ROUTING} == {
-        "explainer": "router-quality", "producer": "router-quality", "narrator": "router-balanced",
-        "personalizer": "router-cost", "localizer": "router-cost"}
+        n: config.deployment_for(n) for n in config.AGENT_ROUTING}
+    assert config.AGENT_ROUTING == {"explainer": "quality", "producer": "quality", "narrator": "balanced",
+                                    "personalizer": "cost", "localizer": "cost"}
+
+
+def test_a_reasoning_effort_the_models_reject_is_not_sent(monkeypatch, caplog):
+    for value, sent in (("LOW", "low"), ("none", "none"), ("", ""), ("minimal", ""), ("lo", "")):
+        monkeypatch.setenv("AGENT_REASONING_EFFORT", value)
+        with caplog.at_level(logging.WARNING):
+            assert config._reasoning_effort() == sent
+    assert "'minimal' is not supported" in caplog.text
+
+
+def test_all_routers_share_one_credential(monkeypatch):
+    monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
+                                                             azure_openai_endpoint="https://example.openai.azure.com/"))
+    clients.chat_client.cache_clear()
+    clients._credential.cache_clear()
+    try:
+        a, b = clients.chat_client("router-quality"), clients.chat_client("router-cost")
+        assert a is not b and clients._credential() is clients._credential()
+    finally:
+        clients.chat_client.cache_clear()
+        clients._credential.cache_clear()
 
 
 def test_chat_client_builds_with_real_settings(monkeypatch):
