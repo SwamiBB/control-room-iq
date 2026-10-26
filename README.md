@@ -136,19 +136,16 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 
 | Piece | How it is used | Status |
 | --- | --- | --- |
-| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | [In progress]; until then a fired graphic airs at once |
+| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
-| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer); the served model is recorded on every trace span | [In progress] |
-| Foundry Agent Service | The five agents registered so they can be inspected in the portal | [In progress] |
-| Foundry evaluations | Faithfulness, relevance and fluency per language, plus the planted-falsehood set | [In progress] |
-| Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built (feed); [deploy] |
-| Azure Container Apps | Ingest, API and web | [deploy] |
-| Azure Cosmos DB (serverless) | Match state and the decision log | [deploy] |
-| Azure Logic Apps | The 20-second hold in Azure (in-process timer locally) | [In progress] |
-| Application Insights + OpenTelemetry | Traces per agent call | [deploy] |
-| Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push | Built (CI); [deploy] |
-
-Update the Status column as each piece lands; leave out anything that does not ship.
+| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer); the served model is recorded on every proposal | Built |
+| Foundry Agent Service | The five agents registered so they can be inspected in the portal | Landing shortly |
+| Foundry evaluations | Faithfulness, relevance and fluency per language, plus the planted-falsehood set | Landing shortly |
+| Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
+| Azure Container Apps | Ingest, API and web | Built |
+| Azure Cosmos DB (serverless) | Match state and the decision log | Built |
+| Application Insights + OpenTelemetry | Resource provisioned and wired to the apps; OpenTelemetry instrumentation lands with the evaluation runner | Resource built; traces landing shortly |
+| Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 
 ## Quick start (local, no Azure)
 
