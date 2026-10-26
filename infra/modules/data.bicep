@@ -9,7 +9,8 @@ resource ehns 'Microsoft.EventHub/namespaces@2024-01-01' = {
   location: location
   tags: tags
   sku: { name: 'Standard', tier: 'Standard', capacity: 1 }
-  properties: { isAutoInflateEnabled: true, maximumThroughputUnits: 4, minimumTlsVersion: '1.2' }
+  // Entra ID only, like Cosmos and Foundry: every client signs in with a credential, none uses a SAS key.
+  properties: { isAutoInflateEnabled: true, maximumThroughputUnits: 4, minimumTlsVersion: '1.2', disableLocalAuth: true }
 }
 
 var hubs = [
@@ -43,6 +44,9 @@ resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   properties: {
     databaseAccountOfferType: 'Standard'
     locations: [ { locationName: location, failoverPriority: 0 } ]
+    // Azure turns this on for new accounts; declaring it stops every provision from switching it off. With one
+    // region it has nothing to fail over to either way.
+    enableAutomaticFailover: true
     capabilities: [ { name: 'EnableServerless' } ]
     disableLocalAuth: true
     minimalTlsVersion: 'Tls12'

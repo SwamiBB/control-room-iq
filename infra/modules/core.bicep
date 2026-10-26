@@ -52,7 +52,8 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
-  properties: { allowBlobPublicAccess: false, minimumTlsVersion: 'TLS1_2' }
+  // Entra ID only: the checkpoint store (#37) uses the managed identity's Storage Blob Data Contributor role.
+  properties: { allowBlobPublicAccess: false, minimumTlsVersion: 'TLS1_2', allowSharedKeyAccess: false }
 }
 
 output identityId string = identity.id
