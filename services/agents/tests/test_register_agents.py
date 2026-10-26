@@ -17,8 +17,10 @@ class FakeAgents:
         self.created = []
 
     def list_versions(self, name, limit=None, order=None):
+        from azure.core.exceptions import ResourceNotFoundError
+
         if name not in self.existing:
-            raise RuntimeError(f"Agent {name} not found")
+            raise ResourceNotFoundError(f"Agent {name} not found")
         return iter([self.existing[name]])
 
     def create_version(self, name, definition=None, description=None, metadata=None):
@@ -49,7 +51,9 @@ def test_new_agents_are_registered_as_prompt_agents():
 
 def test_an_unchanged_agent_is_skipped_and_a_changed_one_gets_a_version():
     first = specs()[0]
-    same = SimpleNamespace(version="3", definition={"model": first.model, "instructions": first.instructions})
+    same = SimpleNamespace(version="3", definition={"model": first.model, "instructions": first.instructions},
+                           description=first.description,
+                           metadata={"project": "control-room-iq", "role": first.role, "routing": first.routing})
     second = specs()[1]
     changed = SimpleNamespace(version="2", definition={"model": second.model, "instructions": "old prompt"})
     client = SimpleNamespace(agents=FakeAgents({first.name: same, second.name: changed}))
@@ -57,6 +61,26 @@ def test_an_unchanged_agent_is_skipped_and_a_changed_one_gets_a_version():
     assert done[first.name] == "unchanged, version 3"
     assert done[second.name].startswith("registered version")
     assert first.name not in [c[0] for c in client.agents.created]
+
+
+def test_a_new_description_is_a_change():
+    first = specs()[0]
+    old = SimpleNamespace(version="1", definition={"model": first.model, "instructions": first.instructions},
+                          description="old words",
+                          metadata={"project": "control-room-iq", "role": first.role, "routing": first.routing})
+    client = SimpleNamespace(agents=FakeAgents({first.name: old}))
+    assert dict(register(client))[first.name].startswith("registered version")
+
+
+def test_an_error_other_than_not_found_is_raised():
+    import pytest
+
+    class Broken(FakeAgents):
+        def list_versions(self, name, limit=None, order=None):
+            raise PermissionError("403: no access to the project")
+
+    with pytest.raises(PermissionError):
+        register(SimpleNamespace(agents=Broken()))
 
 
 def test_dry_run_calls_nothing():

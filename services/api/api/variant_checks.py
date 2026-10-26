@@ -18,8 +18,6 @@ BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8
 DEVANAGARI_MIN_SHARE = 0.3
 
-# Agree with the renderer; deliberately generous so normal es/hi expansion (~25%) fits.
-
 _BANNED = (re.compile(r"\b(referee|ref|odds|bet|betting|bookmakers?|injur(?:y|ed|ies)(?!\s+time))\b", re.I),
            re.compile(r"\b(árbitro|arbitral|apuestas?|cuotas?|lesi[oó]n|lesionad[oa])\b", re.I),
            re.compile(r"रेफरी|सट्टा|चोट"))

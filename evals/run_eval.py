@@ -61,6 +61,7 @@ QUERY = {
     "variant": "Render this English broadcast line for a viewer in {lang}, keeping every number and name exact.",
 }
 LANG_NAME = {"en": "English", "es": "Spanish", "hi": "Hindi"}
+FOUNDRY_TIMEOUT_S = 20 * 60
 
 
 # ---------- 1. what the agents write ----------
@@ -114,11 +115,13 @@ async def generate(meta, moments, pause_s: float) -> list[dict]:
         if res.proposal is not None and not res.proposal.fallback:
             rows.append({**base, "kind": "card", "lang": "en", "query": QUERY["card"], "response": res.proposal.line,
                          "_moment": m, "_proposal": res.proposal})
+        # Versions are written from the card's line when there is a card (#90), else from the narrator's line.
+        source_line = res.proposal.line if res.proposal is not None else res.line
         for v in res.variants:
             if v.lang != "en" and v.persona.value == "fan" and v.access == "none" and v.meta.routing != "template":
                 rows.append({**base, "kind": "variant", "lang": v.lang,
                              "query": QUERY["variant"].format(lang=LANG_NAME[v.lang]),
-                             "context": f"English line: {res.line}\nFacts: {context}", "response": v.text,
+                             "context": f"English line: {source_line}\nFacts: {context}", "response": v.text,
                              "_moment": m, "_proposal": res.proposal, "_variant": v})
     return rows
 
@@ -146,28 +149,45 @@ def code_checks(rows: list[dict], meta) -> dict:
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
 
 
-def plant(text: str) -> str | None:
-    """The same line with its first number changed to one the facts don't contain."""
+def _replace_first_number(text: str, candidates) -> str | None:
+    """The text with its first number replaced by the first candidate that shows differently, else None."""
     match = _NUMBER.search(text)
     if not match:
         return None
-    value = float(match.group())
-    wrong = value + 7 if value >= 1 else value + 0.37
-    wrong_text = f"{wrong:.1f}" if "." in match.group() else str(int(wrong))
-    return text[:match.start()] + wrong_text + text[match.end():]
+    original = float(match.group())
+    decimals = "." in match.group()
+    for value in candidates:
+        shown = f"{value:.1f}" if decimals else str(round(value))
+        if float(shown) != original:
+            return text[:match.start()] + shown + text[match.end():]
+    return None
 
 
 def planted_errors(rows: list[dict], limit: int) -> tuple[list[dict], dict]:
+    """Two kinds of wrong number, alternating, in real lines and cards:
+    - absent: a value the match data doesn't contain. The code check must catch every one.
+    - swapped: a real value from elsewhere in the facts (another team's xG, a different count). The code check
+      accepts any number the data contains, so it can't catch these by design; the groundedness judge has to."""
     planted = []
-    for r in (r for r in rows if r["kind"] in ("line", "card")):
-        wrong = plant(r["response"])
-        if wrong and wrong != r["response"]:
-            planted.append({**r, "response": wrong, "planted": "yes", "original": r["response"]})
-        if len(planted) == limit:
+    for i, r in enumerate(r for r in rows if r["kind"] in ("line", "card")):
+        if len(planted) >= limit:
             break
-    caught = [p for p in planted if unsourced_numbers(p["response"], p["_moment"])]
-    return planted, {"planted": len(planted), "caught_by_code": len(caught),
-                     "missed": [p["response"] for p in planted if p not in caught]}
+        kind = "absent" if i % 2 == 0 else "swapped"
+        m = r["_moment"]
+        if kind == "absent":
+            candidates = [v for v in (77.0, 13.0, 4.4, 9.9, 61.0, 133.0) if unsourced_numbers(f"{v:g}", m)]
+        else:
+            candidates = [float(t) for t in _NUMBER.findall(r["context"]) if 0 < float(t) < 200]
+        wrong = _replace_first_number(r["response"], candidates)
+        if wrong:
+            planted.append({**r, "response": wrong, "planted": kind, "original": r["response"]})
+    report = {}
+    for kind in ("absent", "swapped"):
+        ps = [p for p in planted if p["planted"] == kind]
+        caught = [p for p in ps if unsourced_numbers(p["response"], p["_moment"])]
+        report[kind] = {"planted": len(ps), "caught_by_code": len(caught),
+                        "missed": [p["response"] for p in ps if p not in caught]}
+    return planted, report
 
 
 # ---------- 4. the Foundry evaluation run ----------
@@ -197,11 +217,14 @@ def run_foundry(items: list[dict], judge: str, name: str) -> tuple[list[dict], s
                                                              for r in items]}},
     )
     print(f"  Foundry evaluation {evaluation.id}, run {run.id}: waiting", flush=True)
+    deadline = time.monotonic() + FOUNDRY_TIMEOUT_S
     while run.status not in ("completed", "failed", "canceled"):
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"the Foundry evaluation run was still {run.status} after {FOUNDRY_TIMEOUT_S} s")
         time.sleep(10)
         run = client.evals.runs.retrieve(run.id, eval_id=evaluation.id)
     if run.status != "completed":
-        sys.exit(f"Foundry evaluation run {run.status}: {getattr(run, 'error', None)}")
+        raise RuntimeError(f"the Foundry evaluation run {run.status}: {getattr(run, 'error', None)}")
     scored = []
     for out in client.evals.runs.output_items.list(run.id, eval_id=evaluation.id):
         item = (getattr(out, "datasource_item", None) or {})
@@ -215,7 +238,8 @@ def summarize(scored: list[dict]) -> dict:
     """Mean score per evaluator, by output kind and language, real rows and planted rows apart."""
     table = defaultdict(lambda: defaultdict(list))
     for s in scored:
-        group = "planted" if s.get("planted") == "yes" else f"{s.get('kind')}/{s.get('lang')}"
+        planted = s.get("planted")
+        group = f"planted ({planted})" if planted not in (None, "no") else f"{s.get('kind')}/{s.get('lang')}"
         for name, score in (s.get("scores") or {}).items():
             if isinstance(score, (int, float)):
                 table[group][name].append(float(score))
@@ -245,6 +269,8 @@ def write_report(summary: dict, checks: dict, planted: dict, meta: dict) -> None
                      for n in names]
             lines.append(f"| {group} | {' | '.join(cells)} |")
         lines += ["", "The full run, with every output and score, is in the Foundry project under Evaluations."]
+    elif meta.get("foundry_error"):
+        lines.append(f"_The Foundry evaluation didn't complete: {meta['foundry_error']}_")
     else:
         lines.append("_No Foundry evaluation in this run (--no-foundry)._")
     lines += [
@@ -254,13 +280,19 @@ def write_report(summary: dict, checks: dict, planted: dict, meta: dict) -> None
         f"- Spanish and Hindi versions that pass every check: **{checks['variants_passed']} of "
         f"{checks['variants_checked']}**; failures by check: {checks['variant_failures'] or 'none'}. A version "
         "that fails is replaced by the template line in that language.",
-        "", "## Planted errors", "",
-        f"- Real lines with one number changed: **{planted['caught_by_code']} of {planted['planted']} caught** by the "
-        "code check." + (f" Missed: {planted['missed']}" if planted["missed"] else ""),
+        "", "## Planted errors (real lines with one number changed)", "",
+        f"- **A number the match data doesn't contain:** {planted['absent']['caught_by_code']} of "
+        f"{planted['absent']['planted']} caught by the code check."
+        + (f" Missed: {planted['absent']['missed']}" if planted["absent"]["missed"] else ""),
+        f"- **A real number from the wrong place** (another team's xG, a different count): "
+        f"{planted['swapped']['caught_by_code']} of {planted['swapped']['planted']} caught by the code check, which "
+        "accepts any number the data contains; this is the case the groundedness judge is for.",
     ]
-    if "planted" in summary and "groundedness" in summary["planted"]:
-        lines.append(f"- Groundedness on the planted lines: **{summary['planted']['groundedness']['mean']:.2f}**, "
-                     "for comparison with the real lines above.")
+    for kind in ("absent", "swapped"):
+        group = summary.get(f"planted ({kind})", {})
+        if "groundedness" in group:
+            lines.append(f"- Groundedness on the planted ({kind}) lines: **{group['groundedness']['mean']:.2f}**, "
+                         "against the real lines above.")
     (RESULTS / "latest.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -287,12 +319,19 @@ def main(argv: list[str] | None = None) -> int:
     run_meta = {"when": when, "match": args.match.name, "moments": len(moments), "rows": len(rows),
                 "effort": settings.reasoning_effort or "default", "judge": args.judge}
     summary = {}
+    write_report(summary, checks, planted, run_meta)  # the code checks are kept even if the Foundry run fails
     if not args.no_foundry:
-        scored, report_url = run_foundry(rows + planted_rows, args.judge, f"crq-eval-{when[:10]}")
+        try:
+            scored, report_url = run_foundry(rows + planted_rows, args.judge, f"crq-eval-{when[:10]}")
+        except Exception as ex:  # noqa: BLE001 - report it alongside the results we already have
+            run_meta["foundry_error"] = f"{type(ex).__name__}: {ex}"
+            write_report(summary, checks, planted, run_meta)
+            print((RESULTS / "latest.md").read_text(encoding="utf-8"))
+            return 1
         summary = summarize(scored)
         # Printed, never written: the portal URL names the Azure resources, and the results go in the public repo.
         print(f"Foundry report (not saved): {report_url}")
-    write_report(summary, checks, planted, run_meta)
+        write_report(summary, checks, planted, run_meta)
     print((RESULTS / "latest.md").read_text(encoding="utf-8"))
     return 0
 

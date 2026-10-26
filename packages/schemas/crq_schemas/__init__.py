@@ -486,8 +486,9 @@ class OverlayLayer(StrEnum):
     PITCH_OVERLAY = "pitch_overlay"
 
 
-# The longest text each layer can show. Every version of an aired line (any persona, access or language) must fit
-# its graphic's layer: the agents write to it, and the API's delivery check holds them to it.
+# The longest text each layer can show, agreed with the renderer. Every version of an aired line (any persona,
+# access or language) must fit its graphic's layer: the agents write to it, and the API's delivery check holds them
+# to it. Deliberately generous, so normal Spanish and Hindi expansion (about 25%) fits.
 LAYER_MAX_CHARS: dict[OverlayLayer, int] = {
     OverlayLayer.LOWER_THIRD: 90, OverlayLayer.STAT_PANEL: 90, OverlayLayer.HEATMAP: 90, OverlayLayer.TICKER: 140,
     OverlayLayer.FULL_SCREEN: 120, OverlayLayer.CAPTION: 160, OverlayLayer.PLAYER_TAG: 40,

@@ -94,3 +94,25 @@ def test_each_viewer_group_is_audited_once_with_its_reasons():
     assert entry["approval_id"] == hub.decisions[-1].entry_id
     assert console.of_type("deliveries")[0]["deliveries"] == [entry]
     assert TestClient(app).get("/deliveries").json() == [entry]
+
+
+def test_a_graphic_fired_before_its_versions_is_upgraded_when_they_arrive():
+    """#90: the card reaches the desk before the translations; one fired in between gets the viewer's own version
+    once it exists, under the same cue_id, and only for the viewers whose version passes."""
+    import asyncio
+
+    from api.main import _upgrade_aired
+
+    es, hi = _viewer("es"), _viewer("hi")
+    _approve([])  # fired with no versions yet: the Spanish viewer gets the template line
+    assert _seen(es).line == template_line(_moment(), "es", META)
+    first_cue = _seen(es).cue_id
+
+    hub.results["mo-1"] = {"variants": [_variant("es", "Gran ocasión para Ade Pike, xG 0,41, parada")]}
+    hub.clock.play_ms = 0  # the graphic is still on screen
+    asyncio.run(_upgrade_aired(_moment()))
+
+    upgraded = OverlayPacket.model_validate(es.of_type("overlay")[-1]["item"])
+    assert (upgraded.cue_id, upgraded.line, upgraded.lang) == (first_cue, "Gran ocasión para Ade Pike, xG 0,41, parada",
+                                                               "es")
+    assert len(hi.of_type("overlay")) == 1  # no Hindi version arrived: the Hindi viewer isn't sent anything again

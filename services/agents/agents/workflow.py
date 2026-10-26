@@ -410,7 +410,7 @@ class MomentPipeline:
             await on_card(MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=proposal,
                                        failures=list(failures), intel=moment_intel, notes=list(notes)))
         # Every version is written from the line that airs, to fit its graphic. With no card (the producer chose
-        # none), the narrator's line is the reference, at the longest layer's length.
+        # none), the narrator's line is the reference and no length is imposed: nothing airs from this moment.
         source_line = proposal.line if proposal is not None else line
         max_chars = LAYER_MAX_CHARS.get(proposal.layer) if proposal is not None else None
         variants, variant_errors = await _variants(source_line, max_chars)

@@ -51,19 +51,26 @@ def specs() -> list[AgentSpec]:
 
 
 def _current(client, name: str):
-    """The latest version of an agent, or None when it isn't registered yet."""
+    """The latest version of an agent, or None when it isn't registered yet. Any other error is raised."""
+    from azure.core.exceptions import ResourceNotFoundError
+
     try:
         return next(iter(client.agents.list_versions(name, limit=1, order="desc")), None)
-    except Exception as ex:  # noqa: BLE001 - a missing agent comes back as an error from the service
-        if "not found" in str(ex).lower() or getattr(ex, "status_code", None) == 404:
-            return None
-        raise
+    except ResourceNotFoundError:
+        return None
+
+
+def _metadata(spec: AgentSpec) -> dict[str, str]:
+    return {"project": "control-room-iq", "role": spec.role, "routing": spec.routing}
 
 
 def _unchanged(version, spec: AgentSpec) -> bool:
+    """Same model, instructions, description and metadata: nothing worth a new version."""
     definition = getattr(version, "definition", None) or {}
     get = definition.get if hasattr(definition, "get") else lambda k: getattr(definition, k, None)
-    return get("model") == spec.model and get("instructions") == spec.instructions
+    return (get("model") == spec.model and get("instructions") == spec.instructions
+            and getattr(version, "description", None) == spec.description
+            and dict(getattr(version, "metadata", None) or {}) == _metadata(spec))
 
 
 def register(client, dry_run: bool = False) -> list[tuple[str, str]]:
@@ -83,7 +90,7 @@ def register(client, dry_run: bool = False) -> list[tuple[str, str]]:
             spec.name,
             definition=PromptAgentDefinition(model=spec.model, instructions=spec.instructions),
             description=spec.description,
-            metadata={"project": "control-room-iq", "role": spec.role, "routing": spec.routing},
+            metadata=_metadata(spec),
         )
         done.append((spec.name, f"registered version {created.version} on {spec.model} ({spec.routing})"))
     return done
