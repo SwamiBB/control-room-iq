@@ -178,10 +178,10 @@ Operational metrics at `GET /metrics`: turnaround, error rate, operator workload
 
 ## 9. Deployment posture
 
-The deployed demo is a public, judge-accessible proof of concept. Its resource group name
-(`crq-rg-poc-eastus2-01`) carries the `-poc-` tag. The network posture reflects that scope. The
-application-layer controls described above (sections 1–8) run identically regardless of the deployment
-posture — they are structural, not perimeter-based.
+The deployed demo is a public, judge-accessible proof of concept, provisioned to a dedicated
+POC-tagged resource group. The network posture reflects that scope. The application-layer controls
+described above (sections 1–8) run identically regardless of the deployment posture — they are
+structural, not perimeter-based.
 
 ### What the deployed environment enforces
 
@@ -189,9 +189,9 @@ posture — they are structural, not perimeter-based.
   `allowSharedKeyAccess: false` on Storage; `adminUserEnabled: false` on ACR. There is no SAS key,
   account key, or admin password to leak. Every data-plane call requires an Entra ID principal with the
   matching RBAC role, held by the workload managed identity.
-- **The API is not internet-reachable.** `ca-crq-api-*` runs with `ingress.external: false` inside the
-  Container Apps environment; the nginx `web` container is the single public ingress and proxies
-  specific paths. `ingest` has no ingress at all.
+- **The API is not internet-reachable.** The API container app runs with `ingress.external: false`
+  inside the Container Apps environment; the nginx web container is the single public ingress and
+  proxies specific paths. The ingest container has no ingress at all.
 - **Storage hardened to Trivy's floor.** Infrastructure encryption required (AZU-0061), 7-day delete
   retention on blobs and containers (AZU-0056), diagnostic settings forward every read, write and delete
   to Log Analytics (AZU-0057).
