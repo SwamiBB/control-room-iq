@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { WS } from "../api";
+import { WS, fetchStanding, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
 import { PitchLines } from "../components/PitchView";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
+import { LAYER_RECTS, layerOf, onScreen, rectStyle } from "../layout";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
@@ -237,6 +238,40 @@ export function nextStrip(prev: Strip | null, packet: Packet): Strip {
   };
 }
 
+/**
+ * The strip after GET /state on connect: the score as the stats engine has it, so a refreshed screen shows it
+ * at once rather than "–" until the next scored graphic. A packet's own framing for this run already on the
+ * strip is kept ("winning 1–0" beats a neutral "1–0"); another match, or a rerun, starts over from the count.
+ */
+export function withStanding(prev: Strip | null, s: MatchStanding): Strip {
+  const same = prev !== null && prev.matchId === s.matchId && s.playMs > prev.latestMs - RERUN_MS;
+  if (same && prev.score) return { ...prev, latestMs: Math.max(prev.latestMs, s.playMs) };
+  return {
+    matchId: s.matchId,
+    latestMs: Math.max(same ? prev.latestMs : s.playMs, s.playMs),
+    score: `${s.home}–${s.away}`,
+    ...(same && prev.shot ? { shot: prev.shot } : {}),
+  };
+}
+
+/** The standalone viewer's choices from its URL, so a refresh brings back the same viewer. Unknown values are ignored. */
+export function settingsFromQuery(search: string): ViewerPreset {
+  const q = new URLSearchParams(search);
+  const pick = <K extends string>(key: string, allowed: Record<K, string>): K | undefined => {
+    const v = q.get(key);
+    return v !== null && v in allowed ? (v as K) : undefined;
+  };
+  return {
+    persona: pick("persona", PERSONAS),
+    access: pick("access", ACCESS),
+    lang: pick("lang", LANGS),
+    allegiance: pick("allegiance", SIDES),
+  };
+}
+
+export const queryFor = (s: Required<ViewerPreset>) =>
+  new URLSearchParams({ persona: s.persona, access: s.access, lang: s.lang, allegiance: s.allegiance }).toString();
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -286,10 +321,20 @@ type ViewerProps = {
 };
 
 export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
-  const [persona, setPersona] = useState<Persona>(preset?.persona ?? "fan");
-  const [access, setAccess] = useState<Access>(preset?.access ?? "none");
-  const [lang, setLang] = useState<Lang>(preset?.lang ?? "en");
-  const [allegiance, setAllegiance] = useState<Allegiance>(preset?.allegiance ?? "neutral");
+  // A preset (the multiviewer) fixes the settings; otherwise they come from the URL, so a refresh keeps them.
+  const [initial] = useState<ViewerPreset>(() => preset ?? settingsFromQuery(window.location.search));
+  const [persona, setPersona] = useState<Persona>(initial.persona ?? "fan");
+  const [access, setAccess] = useState<Access>(initial.access ?? "none");
+  const [lang, setLang] = useState<Lang>(initial.lang ?? "en");
+  const [allegiance, setAllegiance] = useState<Allegiance>(initial.allegiance ?? "neutral");
+  useEffect(() => {
+    if (preset) return;
+    try {
+      window.history.replaceState(null, "", `${window.location.pathname}?${queryFor({ persona, access, lang, allegiance })}`);
+    } catch {
+      /* a sandboxed frame: the settings just do not survive a refresh */
+    }
+  }, [preset, persona, access, lang, allegiance]);
 
   // Packets live in a map keyed by cue_id: a re-send under the same id replaces the one on screen.
   const [held, setHeld] = useState<Map<string, Held>>(new Map());
@@ -321,6 +366,12 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       }
       if (m.type === "fan_cue") cues.show(m.cue as Cue);
     }
+  }, () => {
+    // The viewer socket sends no match frame, so ask where the match stands on every connect, a refresh
+    // included. No match loaded leaves the strip waiting.
+    fetchStanding()
+      .then((s) => { if (s) setStrip((prev) => withStanding(prev, s)); })
+      .catch(() => undefined); // the next scored graphic fills it anyway
   });
 
   // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
@@ -341,7 +392,11 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const live = liveAt(held, Date.now());
 
-  const packet = mainSlot(live)?.packet;
+  // Every layer on screen is drawn below. The caption card rides on whichever of them carries it (the goal
+  // routine's lead), not on the newest, so the scorer's lower third arriving with it no longer hides the card.
+  const shown = onScreen(live);
+  const packet = shown.find((h) => h.packet.fan_card)?.packet ?? mainSlot(live)?.packet;
+  const fullScreenUp = shown.some((h) => layerOf(h.packet.layer) === "full_screen");
 
   const register: IntelRegister = persona;
   const nameOf = nameLookup(packet);
@@ -394,10 +449,12 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       <div className="live-strip">
         <span className="live-dot" aria-hidden="true" />
         <span className="live-word">{heading("live", lang)}</span>
-        <b className="live-score">{strip?.score ?? "–"}</b>
+        {strip?.score
+          ? <b className="live-score">{strip.score}</b>
+          : <span className="live-score waiting">{heading("waiting", lang)}</span>}
       </div>
 
-      <div className="pitch">
+      <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
         {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
         <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid meet"
              role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
@@ -419,19 +476,28 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           </div>
         )}
 
-        {/* Beat two: generated caption, only ever inside an approved packet. */}
-        {packet && (
-          <div className={`overlay ${packet.layer}`}>
-            {!packet.verified && <span className="badge override">Unverified</span>}
-            {packet.fallback && <span className="badge fallback">Template</span>}
-            {packet.lang !== lang && <span className="badge lang">in English</span>}
-            {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
-            <p className="line">{packet.line}</p>
-            <IntelChips metrics={packet.payload?.intel as MomentMetrics | undefined} name={nameOf} register={register} />
-          </div>
-        )}
+        {/* Beat two: generated captions, only ever inside approved packets, each layer in its own place. */}
+        {shown.map(({ packet: p }) => {
+          const layer = layerOf(p.layer);
+          return (
+            <div key={p.cue_id} className={`overlay layer-${layer}`} style={rectStyle(LAYER_RECTS[layer])}>
+              {(!p.verified || p.fallback || p.lang !== lang) && (
+                <div className="badges">
+                  {!p.verified && <span className="badge override">Unverified</span>}
+                  {p.fallback && <span className="badge fallback">Template</span>}
+                  {p.lang !== lang && <span className="badge lang">in English</span>}
+                </div>
+              )}
+              {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
+              <p className="line">{p.line}</p>
+              {layer !== "ticker" && layer !== "player_tag" && (
+                <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+              )}
+            </div>
+          );
+        })}
 
-        {!packet && !cue && (
+        {shown.length === 0 && !cue && (
           <p className="viewer-idle">
             {link === "live"
               ? "Waiting for the next approved graphic."
@@ -452,8 +518,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       )}
 
       <ul className="history">
-        {/* Everything else still up; the main slot is not always the newest, so filter rather than slice. */}
-        {live.filter((h) => h.packet !== packet).map((h) => (
+        {/* Still live but not on screen: an older graphic on a busy layer, or a panel waiting under a full screen. */}
+        {live.filter((h) => !shown.includes(h)).map((h) => (
           <li key={h.packet.cue_id}>{h.packet.line}</li>
         ))}
       </ul>

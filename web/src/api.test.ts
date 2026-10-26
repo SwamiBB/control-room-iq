@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  canStartReplay, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, decisionHelp, fetchStanding, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -223,5 +223,36 @@ describe("console state the socket does not re-send (#52)", () => {
     expect(canStartReplay(true, false, false)).toBe(true); // opened after the end: match, no finish seen
     expect(canStartReplay(true, false, true)).toBe(false); // mid-replay
     expect(canStartReplay(true, false, null)).toBe(false); // not known yet
+  });
+});
+
+describe("fetchStanding", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const answer = (body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async (_url: string) => ({ ok: true, json: async () => body })));
+
+  it("reads the match and the score from GET /state", async () => {
+    answer({ match_id: "m-ref-042", play_ms: 2_520_000, home: { goals: 1 }, away: { goals: 0 } });
+    expect(await fetchStanding()).toEqual({ matchId: "m-ref-042", playMs: 2_520_000, home: 1, away: 0 });
+  });
+
+  it("is null when the API has no match loaded", async () => {
+    answer(null);
+    expect(await fetchStanding()).toBeNull();
+  });
+});
+
+describe("decisionHelp (what Held and Expired mean)", () => {
+  it("explains the timer's hold, the operator's hold, expiry and supersession", () => {
+    expect(decisionHelp("held", "sla-timer")).toMatch(/within 20 seconds.*off air/);
+    expect(decisionHelp("sla_held")).toMatch(/^Held by the timer/);
+    expect(decisionHelp("held", "operator")).toMatch(/^Held: kept off air by the operator/);
+    expect(decisionHelp("expired", "expiry-rule")).toMatch(/without airing/);
+    expect(decisionHelp("expired", "supersession")).toMatch(/^Superseded/);
+  });
+
+  it("leaves the plain words alone", () => {
+    expect(decisionHelp("approved", "operator")).toBeUndefined();
+    expect(decisionHelp("rejected", "operator")).toBeUndefined();
   });
 });

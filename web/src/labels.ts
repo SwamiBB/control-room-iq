@@ -47,6 +47,7 @@ export const HEADINGS: Record<string, T> = {
   chance: { en: "Chance", es: "Ocasión", hi: "मौका" },
   score: { en: "Score", es: "Marcador", hi: "स्कोर" },
   live: { en: "Live", es: "En vivo", hi: "लाइव" },
+  waiting: { en: "Waiting for the match", es: "Esperando el partido", hi: "मैच का इंतज़ार" },
 };
 
 export const heading = (key: keyof typeof HEADINGS | string, lang: Lang): string =>

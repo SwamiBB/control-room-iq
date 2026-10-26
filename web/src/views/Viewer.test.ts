@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, scoreText, shotOf, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -279,5 +279,37 @@ describe("the latest shot on the viewer's pitch", () => {
     const kept = nextStrip(nextStrip(null, shot), { ...approved, cue_id: "c-next", t_in_ms: 2_490_000 });
     expect(kept.shot?.points).toEqual([[94, 51], [100, 50]]);
     expect(nextStrip(kept, { ...approved, match_id: "m-2" }).shot).toBeUndefined();
+  });
+});
+
+describe("withStanding (the score on connect, from GET /state)", () => {
+  const standing = { matchId: "m-1", playMs: 2_500_000, home: 1, away: 0 };
+
+  it("gives a refreshed screen the score at once", () => {
+    expect(withStanding(null, standing)).toMatchObject({ matchId: "m-1", score: "1–0", latestMs: 2_500_000 });
+  });
+
+  it("keeps a packet's own framing for this run", () => {
+    const framed = { matchId: "m-1", latestMs: 2_490_000, score: "winning 1–0", color: "#0b3d91" };
+    expect(withStanding(framed, standing)).toMatchObject({ score: "winning 1–0", color: "#0b3d91" });
+  });
+
+  it("starts over from the count for another match or a rerun", () => {
+    const old = { matchId: "m-1", latestMs: 2_750_000, score: "1–0" };
+    expect(withStanding(old, { ...standing, playMs: 2_461_000, home: 0 }).score).toBe("0–0");
+    expect(withStanding(old, { ...standing, matchId: "m-2", home: 2 }).score).toBe("2–0");
+  });
+});
+
+describe("viewer settings in the URL", () => {
+  it("round-trips, so a refresh brings back the same viewer", () => {
+    const s = { persona: "newcomer", access: "deaf", lang: "es", allegiance: "home" } as const;
+    expect(settingsFromQuery(`?${queryFor(s)}`)).toEqual(s);
+  });
+
+  it("ignores values it does not know", () => {
+    expect(settingsFromQuery("?persona=coach&lang=fr&access=deaf")).toEqual({
+      persona: undefined, access: "deaf", lang: undefined, allegiance: undefined,
+    });
   });
 });

@@ -237,6 +237,19 @@ export async function fetchReplayStatus(): Promise<{ running: boolean; speed: nu
   return { running: speed != null, speed };
 }
 
+/** Where the match stands, from GET /state: null when the API has no match loaded. */
+export type MatchStanding = { matchId: string; playMs: number; home: number; away: number };
+
+/**
+ * GET /state on connect, so a screen that joins mid-match knows the score without waiting for a graphic.
+ * It is the stats engine's own count, not generated text, so it needs no approval to show.
+ */
+export async function fetchStanding(): Promise<MatchStanding | null> {
+  const s = await get("/state");
+  if (!s || typeof s.match_id !== "string" || !s.home || !s.away) return null;
+  return { matchId: s.match_id, playMs: Number(s.play_ms) || 0, home: Number(s.home.goals) || 0, away: Number(s.away.goals) || 0 };
+}
+
 /** GET /deliveries is one flat audit list for the match; the console keeps it per proposal. */
 export function groupDeliveries(list: DeliveryAudit[]): Record<string, DeliveryAudit[]> {
   const out: Record<string, DeliveryAudit[]> = {};
@@ -380,6 +393,26 @@ export const STATUS_WORDS: Record<string, string> = {
   expired: "Expired",
   sla_held: "Held by the timer",
 };
+
+/** What "held" and "expired" mean, in gallery language: these two words carry the gate's timing story. */
+export const DECISION_HELP = {
+  held: "Held: kept off air by the operator for now. It stays on the desk and can still be fired, until the moment "
+    + "has passed and it expires.",
+  timer: "Held by the timer: nobody fired or dropped it within 20 seconds, so the gate kept it off air rather than "
+    + "let anything air without a human decision. It stays on the desk and can still be fired.",
+  expired: "Expired: it was held until the moment had passed (at least a minute of play and a minute on the desk), "
+    + "so it left the desk without airing. Nothing goes to air late.",
+  superseded: "Superseded: a goal on the same move took over, so this card left the desk without airing.",
+} as const;
+
+/** The explanation for a decision's label, or undefined for the words that need none (Fired, Dropped). */
+export function decisionHelp(status: string, actor?: string | null): string | undefined {
+  if (actor === "sla-timer" || status === "sla_held") return DECISION_HELP.timer;
+  if (actor === "supersession") return DECISION_HELP.superseded;
+  if (actor === "expiry-rule" || status === "expired") return DECISION_HELP.expired;
+  if (status === "held") return DECISION_HELP.held;
+  return undefined;
+}
 
 /** Decision-log wording: the actor matters as much as the action. */
 export function decisionLabel(status: string, actor?: string | null): string {
