@@ -14,10 +14,10 @@ from crq_schemas import Explanation  # noqa: E402
 from openai.lib._pydantic import to_strict_json_schema  # noqa: E402
 
 
-def _online_client():
+def _online_client(deployment=None):
     # Placeholder endpoint and token provider: building the client sends no request.
     return OpenAIChatCompletionClient(azure_endpoint="https://example.openai.azure.com/",
-                                      credential=lambda: "test-token", model="model-router")
+                                      credential=lambda: "test-token", model=deployment or "model-router")
 
 
 def test_make_agent_online_sets_structured_output(monkeypatch):
@@ -33,6 +33,16 @@ def test_pipeline_builds_online(monkeypatch):
     assert all(isinstance(a, Agent) for a in (p.explainer, p.narrator, p.personalizer, p.producer, p.localizer))
     assert p.producer.default_options["response_format"] is ProducerDecision
     assert "response_format" not in p.narrator.default_options
+    assert all(getattr(p, n).default_options["reasoning_effort"] == "low" for n in config.AGENT_ROUTING)
+
+
+def test_each_agent_calls_its_routing_modes_deployment(monkeypatch):
+    # The routing mode is a deployment setting, so each agent needs a client for its own router (#47).
+    monkeypatch.setattr(clients, "chat_client", _online_client)
+    p = MomentPipeline()
+    assert {n: getattr(p, n).client.model for n in config.AGENT_ROUTING} == {
+        "explainer": "router-quality", "producer": "router-quality", "narrator": "router-balanced",
+        "personalizer": "router-cost", "localizer": "router-cost"}
 
 
 def test_chat_client_builds_with_real_settings(monkeypatch):

@@ -50,6 +50,23 @@ resource fallback 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-p
   }
 }
 
+// One model-router deployment per routing mode: the routing mode is a deployment setting (#47). Agents pick theirs
+// through AGENT_ROUTING in services/agents/agents/config.py. Every call sends about 11K input tokens, and up to three
+// moments run at once, so each gets 100K tokens/min. batchSize(1) keeps the account to one operation at a time.
+var routingModes = [ 'quality', 'balanced', 'cost' ]
+
+@batchSize(1)
+resource routers 'Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview' = [for mode in routingModes: {
+  parent: foundry
+  name: 'router-${mode}'
+  dependsOn: [ fallback ]
+  sku: { name: 'GlobalStandard', capacity: 100 }
+  properties: {
+    model: { format: 'OpenAI', name: 'model-router', version: '2025-11-18' }
+    routing: { mode: mode }
+  }
+}]
+
 resource speech 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: 'spch-${app}-${suffix}'
   location: location

@@ -47,7 +47,7 @@ from crq_schemas import (
 from pydantic import BaseModel, Field
 
 from .clients import make_agent
-from .config import settings
+from .config import AGENT_ROUTING, settings
 from .match_intel import NameOf, intel_context, intel_for, intel_payload, intel_short
 
 logger = logging.getLogger(__name__)
@@ -223,10 +223,11 @@ def wants_proposal(m: Moment) -> bool:
     return m.kind in ALWAYS_PROPOSE or m.importance >= MIN_PROPOSAL_IMPORTANCE
 
 
-def model_meta(info: dict) -> AgentMeta:
-    """Run details for a model-written output. Every agent calls the one model-router deployment (its default
-    balanced mode) until the per-agent router deployments land (handoff item 3)."""
-    return AgentMeta(routing="balanced", model_served=info.get("model_served"), latency_ms=info.get("latency_ms"))
+def model_meta(info: dict, agent: str) -> AgentMeta:
+    """Run details for a model-written output: the agent's routing mode (its router deployment, #47), the model
+    the router served, and the latency."""
+    return AgentMeta(routing=AGENT_ROUTING.get(agent, "balanced"), model_served=info.get("model_served"),
+                     latency_ms=info.get("latency_ms"))
 
 
 # The longest slot the producer may give each layer (the prompt's ranges; ticker and heatmap by analogy). Viewers
@@ -322,7 +323,7 @@ class MomentPipeline:
         if out is None:
             expl = fallback_explanation(m)
         else:
-            expl = Explanation(moment_id=m.moment_id, **out.model_dump(), meta=model_meta(info))
+            expl = Explanation(moment_id=m.moment_id, **out.model_dump(), meta=model_meta(info, "explainer"))
         if err:
             failures.append(err)
         line, err = await _run(self.narrator, {"moment": moment_json, "explanation": expl.model_dump(),
@@ -341,7 +342,7 @@ class MomentPipeline:
                                                      "requests": wanted},
                                  None, lambda: fallback_variants(m, line, en_requests), info1)
             english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests),
-                                          m.moment_id, model_meta(info1))
+                                          m.moment_id, model_meta(info1, "personalizer"))
             first: dict[tuple, NarrativeVariant] = {}
             for v in english:
                 if v.lang == BASE_LANG:
@@ -358,7 +359,7 @@ class MomentPipeline:
             raw, e2 = await _run(self.localizer, {"line": line, "variants": source, "moment": moment_json,
                                                   "intel": intel, "names": _names(meta), "targets": want}, None, list,
                                  info2)
-            localized, e2 = _parse_variants(raw, e2, "localizer", list, m.moment_id, model_meta(info2))
+            localized, e2 = _parse_variants(raw, e2, "localizer", list, m.moment_id, model_meta(info2, "localizer"))
             kept = keep_localized(localized, english, targets)
             if self.localizer is not None and not e2 and len(kept) < len(targets):
                 e2 = f"localizer: {len(kept)} of {len(targets)} versions; the rest get the template line"
@@ -384,7 +385,7 @@ class MomentPipeline:
                 return None, None
             if decision.t_end_ms <= decision.t_start_ms:
                 return fallback_proposal(m, expl, line), "producer: t_end_ms is not after t_start_ms; template used"
-            return proposal_from(decision, m, model_meta(info3))
+            return proposal_from(decision, m, model_meta(info3, "producer"))
 
         (variants, variant_errors), (proposal, e3) = await asyncio.gather(_variants(), _proposal())
         proposal = with_intel(proposal, m, _name_of(meta))

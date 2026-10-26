@@ -31,6 +31,10 @@ class Settings:
     model_router: str = os.environ.get("MODEL_ROUTER_DEPLOYMENT", "model-router")
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "8"))
+    # Passed to the routers, which hand it to the reasoning models they pick. "low" kept every agent under the 8 s
+    # timeout in the Oct 26 demo-window runs, with the writing unchanged; the default effort timed out half the
+    # explainer calls (#39). Empty sends no reasoning_effort.
+    reasoning_effort: str = os.environ.get("AGENT_REASONING_EFFORT", "low")
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
     languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.
