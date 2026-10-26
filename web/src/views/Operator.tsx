@@ -15,6 +15,7 @@ import MetricsPanel from "../components/MetricsPanel";
 import { chime, primeChime } from "../chime";
 import { Resync } from "../resync";
 import { stableOrder } from "../runningOrder";
+import { agentsWriting, runPhase, RUN_PHASE_TEXT } from "../runStatus";
 import { loadSettings, newArrivals, saveSettings, shortcutFor, type OperatorSettings } from "../settings";
 import { useLiveSocket } from "../useLiveSocket";
 import type { MomentMetrics } from "../intel";
@@ -68,6 +69,12 @@ export default function Operator() {
   const [running, setRunning] = useState<boolean | null>(null);
   const [scope, setScope] = useState<ReplayScope>("window");
   const [pace, setPace] = useState<ReplaySpeed>(20);
+  // The run this console started: from the click until its first state, and the speed it asked for.
+  const [starting, setStarting] = useState(false);
+  const [runPace, setRunPace] = useState<number | null>(null);
+  const lastStateAt = useRef<number | null>(null);
+  const writingSince = useRef<number | null>(null);
+  const matchAt = useRef<number | null>(null);
   const [logError, setLogError] = useState<string | null>(null);
   const [settings, setSettings] = useState<OperatorSettings>(() => loadSettings(browserStore()));
   const changeSettings = (next: OperatorSettings) => {
@@ -168,11 +175,17 @@ export default function Operator() {
         if (newArrivals(seen.current, [m.proposal]).length > 0 && settings.alert) chime();
       }
       if (m.type === "moment") setMoments((x) => [m, ...x].slice(0, 30));
-      if (m.type === "state") { setState(m.state); if (m.clock) setClk(m.clock); }
+      if (m.type === "state") {
+        setState(m.state);
+        if (m.clock) setClk(m.clock);
+        lastStateAt.current = Date.now();
+        setStarting(false);
+      }
       if (m.type === "match") {
         // A fresh match clears the desk: last run's cards, log and deliveries belong to that match. The desk's
         // own match re-sent on connect keeps it, and the chips the match already has are fetched back.
         resync.match(m.meta?.match_id, meta?.match_id);
+        matchAt.current = Date.now();
         setMeta(m.meta);
         loadDeliveries();
       }
@@ -181,7 +194,10 @@ export default function Operator() {
       if (m.type === "replay") {
         setSpeed(typeof m.speed === "number" ? m.speed : null);
         setRunning(!m.finished);
-        if (m.finished) setEnded({ error: m.error ?? null });
+        if (m.finished) {
+          setEnded({ error: m.error ?? null });
+          setStarting(false);
+        }
       }
     }
   }, () => {
@@ -328,13 +344,28 @@ export default function Operator() {
   // A goal routine's stats and ticker are built in code, not a fallback, so they do not count.
   const fallbackCount = open.filter(isTemplateFallback).length;
 
+  // The run status rests on the API slowing the match while agents write: see agentsWriting() in runStatus.ts
+  // before narrowing _awaiting_decision() in the API, or this stops saying "writing" without any error.
+  const waiting = open.filter((p) => p.status === "proposed").length;
+  if (agentsWriting(speed, runPace, waiting)) writingSince.current ??= Date.now();
+  else writingSince.current = null;
+  const phase = runPhase({
+    starting, running, lastStateAt: lastStateAt.current, writingSince: writingSince.current, now: Date.now(),
+  });
+
   return (
     <div className="gallery">
       <header className="gallery-head">
         <div>
           <h1>Graphics operator</h1>
           {meta && <p className="match">{meta.home.name} v {meta.away.name} · {meta.venue}</p>}
-          {canStartReplay(Boolean(meta), Boolean(ended), running) && (
+          {phase && (
+            <p className="run-status" role="status">
+              <span className="spinner" aria-hidden="true" />
+              {RUN_PHASE_TEXT[phase]}
+            </p>
+          )}
+          {!starting && canStartReplay(Boolean(meta), Boolean(ended), running) && (
             <p className="replay-start">
               <select
                 aria-label="How much of the match to replay"
@@ -360,8 +391,20 @@ export default function Operator() {
                 className="primary"
                 disabled={busy.replay}
                 onClick={() => run("replay", "start the replay", async () => {
-                  setEnded(null);
-                  await startReplay(scope, pace);
+                  // The status says what is happening from the click until the run's first state arrives.
+                  const clickedAt = Date.now();
+                  lastStateAt.current = null;
+                  setRunPace(pace);
+                  setStarting(true);
+                  try {
+                    await startReplay(scope, pace);
+                  } catch (err) {
+                    setStarting(false); // nothing started: the last run's desk stays as it was
+                    throw err;
+                  }
+                  // The last run's cards, log and clock go as soon as the API accepts, not with its match frame,
+                  // which can be seconds behind. A match frame that beat this response has cleared them already.
+                  if ((matchAt.current ?? 0) < clickedAt) clearDesk();
                   setRunning(true);
                 })}
               >
@@ -428,6 +471,8 @@ export default function Operator() {
             <p className="empty">
               {link !== "live"
                 ? "Not connected to the API, so nothing can arrive."
+                : starting
+                  ? RUN_PHASE_TEXT.warming
                 : !meta
                   ? "Connected, but no match is loaded. Press Start replay."
                   : "Match running. No graphics proposed yet — the agents raise these at moments, not continuously."}

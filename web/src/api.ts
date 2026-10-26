@@ -191,8 +191,13 @@ export async function decidePackage(packageId: string, action: "approve" | "hold
  * (#60) and it never becomes a card. Everything before 41:00 is folded into match state by the
  * API without proposing anything, so the desk joins a match already in progress rather than waiting forty
  * minutes for one, which is also the path a console takes connecting to a live feed mid-match.
+ *
+ * It runs to 46:30, not 46:00. The second big chance is at 45:58, and the replay stops reading the match at
+ * the window's end, then waits for that moment's agents: ending at 46:00 left the clock stopped for as long as
+ * they took. Nothing between 46:00 and 46:30 makes a card, so the extra half minute only keeps the match
+ * moving while the last card is written and decided.
  */
-export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_760_000 };
+export const DEMO_WINDOW = { from_play_ms: 2_460_000, to_play_ms: 2_790_000 };
 
 /**
  * 20x through the dead air by default, real time for as long as anyone owes an answer.

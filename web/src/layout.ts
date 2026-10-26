@@ -16,11 +16,12 @@ export type Rect = { top: number; left: number; width: number; height: number };
 
 export const LAYER_RECTS: Record<Layer, Rect> = {
   caption: { top: 3, left: 30, width: 40, height: 10 }, // deaf captions: a band at the top, clear of the score bug
-  full_screen: { top: 15, left: 14, width: 72, height: 50 }, // centred
-  heatmap: { top: 15, left: 3, width: 31, height: 50 }, // a side panel, left
-  stat_panel: { top: 15, left: 66, width: 31, height: 50 }, // a side panel, right
+  full_screen: { top: 15, left: 14, width: 72, height: 47 }, // centred
+  heatmap: { top: 15, left: 3, width: 31, height: 47 }, // a side panel, left
+  stat_panel: { top: 15, left: 66, width: 31, height: 47 }, // a side panel, right
   pitch_overlay: { top: 15, left: 36, width: 28, height: 12 }, // a label on the pitch, top centre
-  lower_third: { top: 68, left: 3, width: 60, height: 18 }, // the band at bottom left, above the ticker
+  // The band at bottom left, above the ticker: tall enough for a kicker and two lines of Hindi.
+  lower_third: { top: 64, left: 3, width: 60, height: 22 },
   player_tag: { top: 70, left: 66, width: 31, height: 10 }, // name and number, bottom right
   ticker: { top: 89, left: 0, width: 100, height: 11 }, // the full-width strip at the very bottom
 };

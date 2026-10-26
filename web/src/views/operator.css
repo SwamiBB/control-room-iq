@@ -27,6 +27,19 @@
 .replay-ended { opacity: 0.7; }
 .replay-ended.error { opacity: 1; }
 
+/* While the match looks stuck but is not: warming up, agents writing, the last card being finished. */
+.run-status { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 13px; color: #9ec5ff; }
+.run-status .spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: run-spin 0.9s linear infinite;
+}
+@keyframes run-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .run-status .spinner { animation: none; } }
+
 .scoreboard { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
 /* Keeps the score on the right, beside Settings, rather than centred between the title and the menu. */
 .gallery-head .scoreboard { margin-left: auto; }
