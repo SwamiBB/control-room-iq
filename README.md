@@ -24,7 +24,7 @@ All match data is synthetic. Clubs, players and venues are fictional.
 ## For enterprise reviewers
 
 The Best Enterprise Solution category rewards *"reliability, transparency, and controls required for
-production."* Three claims, each enforced in code — see [docs/JUDGES.md](docs/JUDGES.md) for the full map
+production."* Three claims, each enforced in code — see [docs/ENTERPRISE-OVERVIEW.md](docs/ENTERPRISE-OVERVIEW.md) for the full map
 and [SECURITY.md](SECURITY.md) for the full posture.
 
 - **The gate is in the schema, not in a setting.** `OverlayPacket` requires `approval_id`, `approved_by`
