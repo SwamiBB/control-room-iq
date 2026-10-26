@@ -42,13 +42,25 @@
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.65;
+  color: #b4bccb;
 }
 
-.viewer-controls select {
+/* Readable on the dark panel and on a screen recording: a lighter field, a visible edge, full-strength
+   text, and a dark native list (color-scheme) so the open dropdown is legible too. */
+.viewer .viewer-controls select {
   min-width: 0;
   max-width: 100%;
+  color-scheme: dark;
+  font: 500 14px/1.3 system-ui, sans-serif;
+  color: #f3f5f9;
+  background: #262d3a;
+  border: 1px solid #5b6577;
+  border-radius: 5px;
+  padding: 6px 8px;
 }
+.viewer .viewer-controls select:hover { border-color: #8a94a8; }
+.viewer .viewer-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.viewer .viewer-controls option { color: #f3f5f9; background: #1b212b; }
 
 /* Persistent live strip: stays put while cards come and go (Oct 22 decision). */
 .live-strip {
