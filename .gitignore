@@ -15,4 +15,4 @@ data/view-*.html
 web/node_modules/
 web/dist/
 *.tsbuildinfo
-.trivy-arm/
+.trivy-scan/
