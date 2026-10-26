@@ -95,6 +95,7 @@ class StateFolder:
     tracking: TrackingDistances | None = None  # found automatically for reference matches; see tracking_distance.py
     use_tracking: bool = True
     _crossed: list[ThresholdIndicator] = field(default_factory=list)  # crossed on the event being applied
+    _strike_speed: ThresholdIndicator | None = None  # shot speed crossed at the strike; its result shows it, uncounted
     _player_passes: dict[str, list[float]] = field(default_factory=dict)  # player -> [passes, metres, difficulty]
     _team_passes: dict[str, list[float]] = field(default_factory=dict)  # team -> [passes, metres, difficulty]
     _pass_to: dict[str, tuple[PassQuality, str | None]] = field(default_factory=dict)  # receiver -> (pass, phase_id)
@@ -176,7 +177,12 @@ class StateFolder:
                                                 f"{self._name(ev.player)} hits {spd:g} km/h"))
         elif ev.type == EventType.SHOT_TAKEN and ev.team:
             xg = float(ev.attrs.get("xg") or 0)
+            speed = ev.attrs.get("speed_kmh")
+            self._strike_speed = None
             if xg >= BIG_CHANCE_XG:  # the chance beat: the strike, before anyone knows the outcome
+                if speed and speed >= SHOT_SPEED_KMH:  # the badge goes out with the strike, not a second later (#43)
+                    self._strike_speed = self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH,
+                                                     "km/h")
                 moments.append(self._moment(ev, MomentKind.BIG_CHANCE, 0.6 + xg / 3,
                                             f"{self._name(ev.player)} shoots, a big chance (xG {xg})", beat="chance"))
         elif ev.type == EventType.SHOT and ts and ps:
@@ -192,8 +198,13 @@ class StateFolder:
             if speed:
                 ps.max_shot_speed_kmh = max(ps.max_shot_speed_kmh, speed)
                 ts.max_shot_speed_kmh = max(ts.max_shot_speed_kmh, speed)
-                if speed >= SHOT_SPEED_KMH:
-                    self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH, "km/h")
+            strike, self._strike_speed = self._strike_speed, None
+            if strike is not None and strike.player != ev.player:
+                strike = None
+            if strike is not None:  # crossed at the strike: the result card shows it too, but it isn't counted again
+                self._crossed.append(strike)
+            elif speed and speed >= SHOT_SPEED_KMH:
+                self._cross("shot_speed", ev, ev.player, ev.team, speed, SHOT_SPEED_KMH, "km/h")
             self._ledger_add(ev, xg)
             self._update_windows()
             if s.current_phase and s.current_phase.phase_id == ev.phase_id:
@@ -442,10 +453,13 @@ class StateFolder:
     def _moment(self, ev: MatchEvent, kind: MomentKind, importance: float, summary: str,
                 beat: str = "none") -> Moment:
         self._moment_n += 1
+        # a badge carried from another event (a fast strike's, on its result) cites that event too
+        carried = [t.event_id for t in self._crossed if t.event_id and t.event_id != ev.event_id]
+        event_ids = [ev.event_id, *dict.fromkeys(carried)]
         return Moment(moment_id=f"{self.meta.match_id}-mo{self._moment_n:04d}", match_id=self.meta.match_id,
                       play_ms=self.state.play_ms, t_ms=ev.t_ms, period=ev.period, kind=kind, beat=beat,  # type: ignore[arg-type]
                       importance=round(min(1.0, importance), 2), team=ev.team, player=ev.player,
-                      event_ids=[ev.event_id], summary=summary, state=self.state.model_copy(deep=True),
+                      event_ids=event_ids, summary=summary, state=self.state.model_copy(deep=True),
                       metrics=self._metrics(ev, kind))
 
     def _name(self, pid: str | None) -> str:

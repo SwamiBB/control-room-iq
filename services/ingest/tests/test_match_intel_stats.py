@@ -98,8 +98,8 @@ def test_hero_scene_carries_its_key_pass_and_shot_speed(ref):
     assert hero.metrics.shot_speed_kmh and hero.metrics.player_distance_km > 1
     goal = next(m for m in moments if m.kind == MomentKind.GOAL)
     assert goal.metrics.shot_speed_kmh and goal.metrics.key_pass is None, "a rebound has no pass that set it up"
-    fast = [m for m in moments if m.beat == "result" and m.metrics and m.metrics.shot_speed_kmh
-            and m.metrics.shot_speed_kmh >= SHOT_SPEED_KMH]  # the crossing is recorded on the result
+    fast = [m for m in moments if m.beat in ("chance", "result") and m.metrics and m.metrics.shot_speed_kmh
+            and m.metrics.shot_speed_kmh >= SHOT_SPEED_KMH]  # both beats: the live overlay and the card (#43, #65)
     assert all(any(t.kind == "shot_speed" for t in m.metrics.thresholds) for m in fast)
 
 

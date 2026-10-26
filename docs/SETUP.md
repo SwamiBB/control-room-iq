@@ -26,7 +26,8 @@ azd auth login
 azd env new dev
 azd env set AZURE_LOCATION eastus2
 azd up                                  # provisions infra/main.bicep and deploys api, ingest, web
-azd env get-values | Out-File .env      # endpoints for local runs; set CRQ_OFFLINE=0
+azd env get-values | Out-File -Encoding utf8 .env   # endpoints for local runs (UTF-8: PowerShell 5.1 writes UTF-16 otherwise); set CRQ_OFFLINE=0
+# Git Bash: azd env get-values > .env
 python -m simulator.cli replay data/match.jsonl --speed 20 --eventhub
 ```
 
