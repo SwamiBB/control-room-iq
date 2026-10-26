@@ -179,7 +179,10 @@ class Hub:
             group = (prefs.persona, prefs.access, prefs.lang)
             d = chosen.setdefault(group, choose_delivery(plan, prefs))
             framing = perspective(self.match_state, prefs, self.meta) if self.match_state else None
-            item = with_perspective(apply_delivery(packet, d), framing).model_dump(mode="json")
+            delivered = with_perspective(apply_delivery(packet, d), framing)
+            if prefs.access != "deaf":  # the caption card is the deaf-access path, like the strike cue (#54)
+                delivered = delivered.model_copy(update={"fan_card": None})
+            item = delivered.model_dump(mode="json")
             try:
                 await ws.send_json({"type": "overlay", "item": item})
             except Exception:  # noqa: BLE001

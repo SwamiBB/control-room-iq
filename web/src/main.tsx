@@ -29,9 +29,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/operator" element={<ErrorBoundary name="Operator console"><Operator /></ErrorBoundary>} />
-        <Route path="/viewer" element={<ErrorBoundary name="Viewer"><Viewer /></ErrorBoundary>} />
-        <Route path="/multiview" element={<ErrorBoundary name="Multiviewer"><Multiview /></ErrorBoundary>} />
+        {/* Keyed per route: the boundaries sit in the same place, so without a key a caught error on one page
+            would follow the operator to the next. */}
+        <Route path="/operator" element={<ErrorBoundary key="operator" name="Operator console"><Operator /></ErrorBoundary>} />
+        <Route path="/viewer" element={<ErrorBoundary key="viewer" name="Viewer"><Viewer /></ErrorBoundary>} />
+        <Route path="/multiview" element={<ErrorBoundary key="multiview" name="Multiviewer"><Multiview /></ErrorBoundary>} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

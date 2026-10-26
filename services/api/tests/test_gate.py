@@ -104,6 +104,24 @@ def test_fan_card_travels_inside_the_approved_packet():
     assert packet.fan_card == card
 
 
+def test_only_deaf_access_viewers_get_the_caption_card():
+    card = FanCard(card_id="fc-1", match_id="m", moment_id="mo-1", play_ms=600_000, caption="Shot saved, low left")
+    deaf, hearing = _viewer(access="deaf"), _viewer()
+    pid = _seed(fan_card=card.model_dump(mode="json"))
+    TestClient(app).post(f"/proposals/{pid}/approve")
+    (to_deaf,), (to_hearing,) = _aired(deaf), _aired(hearing)
+    assert to_deaf.fan_card == card
+    assert to_hearing.fan_card is None and to_hearing.line == to_deaf.line
+
+
+def test_an_override_of_a_template_line_is_not_badged_as_the_template():
+    viewer = _viewer()
+    pid = _seed(proposal(fallback=True))
+    TestClient(app).post(f"/proposals/{pid}/override", json={"actor": "op", "override_line": "Operator line"})
+    (packet,) = _aired(viewer)
+    assert packet.line == "Operator line" and packet.fallback is False
+
+
 def test_hold_and_reject_publish_nothing():
     viewer = _viewer()
     c = TestClient(app)

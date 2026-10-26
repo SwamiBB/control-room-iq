@@ -70,7 +70,8 @@ def build_packet(p: OverlayProposal, approval: DecisionLogEntry, clock: PlayCloc
                          t_in_ms=t_in, t_out_ms=t_out, period=period, clock_ms=clock_ms,
                          priority=p.priority, replaces=p.replaces, min_hold_ms=p.min_hold_ms,
                          line=p.override_line or p.line, payload=p.payload, verified=_is_verified(p),
-                         fallback=p.fallback, evidence=[e.event_id for e in p.evidence],
+                         # An override is the operator's own line, not the template's, whoever wrote the original.
+                         fallback=p.fallback and not p.override_line, evidence=[e.event_id for e in p.evidence],
                          source_proposal_id=p.proposal_id, approval_id=approval.entry_id,
                          approved_by=approval.actor, approved_at=approval.at)
 
