@@ -23,17 +23,9 @@ import "./operator.css";
 
 const OPEN: Proposal["status"][] = ["proposed", "held"];
 const OVERRIDE_MAX = 280; // the API's limit on override_line, for firing and for the preview alike
-const ACT_WORDS = {
-  approve: "fire the graphic",
-  hold: "hold the graphic",
-  reject: "drop the graphic",
-  override: "fire the override",
-} as const;
-const PACKAGE_WORDS = {
-  approve: "fire the goal routine",
-  hold: "hold the goal routine",
-  reject: "drop the goal routine",
-} as const;
+/** What the banner says was being tried, for one graphic or a whole goal routine: "fire the goal routine". */
+const VERBS = { approve: "fire", hold: "hold", reject: "drop", override: "fire the override" } as const;
+const actWords = (a: keyof typeof VERBS, noun = "the graphic") => (a === "override" ? VERBS.override : `${VERBS[a]} ${noun}`);
 const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
@@ -230,15 +222,20 @@ export default function Operator() {
   }, []);
 
   const act = (id: string, a: "approve" | "hold" | "override" | "reject") =>
-    run(id, ACT_WORDS[a], async () => {
+    run(id, actWords(a), async () => {
       const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
       setProposals((x) => ({ ...x, [p.proposal_id]: p }));
       if (a === "override") setOverride((o) => ({ ...o, [id]: "" }));
       refreshDecisions();
     });
 
+  // A routine's buttons wait while any of its items is being decided on its own, as the items' buttons wait for
+  // Fire all: either way round, a second click would race the first into a 409.
+  const routineBusy = (g: Group) =>
+    Boolean(g.packageId && (busy[g.packageId] || g.items.some((p) => busy[p.proposal_id])));
+
   const actPackage = (packageId: string, a: "approve" | "hold" | "reject") =>
-    run(packageId, PACKAGE_WORDS[a], async () => {
+    run(packageId, actWords(a, "the goal routine"), async () => {
       const items = await decidePackage(packageId, a);
       setProposals((x) => {
         const next = { ...x };
@@ -298,7 +295,7 @@ export default function Operator() {
     const g = topRef.current;
     if (!g) return;
     if (g.packageId) {
-      if (!busy[g.packageId]) actPackage(g.packageId, a);
+      if (!routineBusy(g)) actPackage(g.packageId, a);
       return;
     }
     const p = g.items[0];
@@ -397,7 +394,7 @@ export default function Operator() {
                   setRunPace(pace);
                   setStarting(true);
                   try {
-                    await startReplay(scope, pace);
+                    await startReplay({ scope, speed: pace });
                   } catch (err) {
                     setStarting(false); // nothing started: the last run's desk stays as it was
                     throw err;
@@ -496,11 +493,11 @@ export default function Operator() {
                   <span className="muted">{g.items.length} graphics, one click</span>
                   <PackageCountdown lead={g.items[0]} warned={Boolean(warnings[g.items[0].proposal_id])} />
                   <div className="routine-actions">
-                    <button className="fire" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "approve")}>
+                    <button className="fire" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
                       Fire all {g.items.length}
                     </button>
-                    <button disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
-                    <button className="drop" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "reject")}>Drop</button>
+                    <button disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
+                    <button className="drop" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "reject")}>Drop</button>
                   </div>
                 </div>
               )}
