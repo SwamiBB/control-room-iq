@@ -64,6 +64,8 @@
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #c62828; flex: none; }
 .live-word { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
 .live-score { margin-left: auto; font-size: 17px; font-weight: 600; }
+/* No score yet: say so, rather than a bare dash that reads as broken. */
+.live-score.waiting { font-weight: 400; font-size: 12px; opacity: 0.7; }
 
 /* The facts under the picture: labels translated, values as the stats engine wrote them. */
 .caption-card {

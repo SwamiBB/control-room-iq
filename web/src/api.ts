@@ -237,6 +237,19 @@ export async function fetchReplayStatus(): Promise<{ running: boolean; speed: nu
   return { running: speed != null, speed };
 }
 
+/** Where the match stands, from GET /state: null when the API has no match loaded. */
+export type MatchStanding = { matchId: string; playMs: number; home: number; away: number };
+
+/**
+ * GET /state on connect, so a screen that joins mid-match knows the score without waiting for a graphic.
+ * It is the stats engine's own count, not generated text, so it needs no approval to show.
+ */
+export async function fetchStanding(): Promise<MatchStanding | null> {
+  const s = await get("/state");
+  if (!s || typeof s.match_id !== "string" || !s.home || !s.away) return null;
+  return { matchId: s.match_id, playMs: Number(s.play_ms) || 0, home: Number(s.home.goals) || 0, away: Number(s.away.goals) || 0 };
+}
+
 /** GET /deliveries is one flat audit list for the match; the console keeps it per proposal. */
 export function groupDeliveries(list: DeliveryAudit[]): Record<string, DeliveryAudit[]> {
   const out: Record<string, DeliveryAudit[]> = {};
