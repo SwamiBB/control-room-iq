@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Literal, get_args
 
 from crq_schemas import (
-    LAYER_MAX_CHARS,
     Access,
     AgentMeta,
     Alternative,
@@ -45,6 +44,7 @@ from crq_schemas import (
     OverlayLayer,
     OverlayProposal,
     Persona,
+    max_chars_for,
 )
 from pydantic import BaseModel, Field
 
@@ -409,11 +409,11 @@ class MomentPipeline:
         if on_card is not None:
             await on_card(MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=proposal,
                                        failures=list(failures), intel=moment_intel, notes=list(notes)))
-        # Every version is written from the line that airs, to fit its graphic. With no card (the producer chose
-        # none), the narrator's line is the reference and no length is imposed: nothing airs from this moment.
-        source_line = proposal.line if proposal is not None else line
-        max_chars = LAYER_MAX_CHARS.get(proposal.layer) if proposal is not None else None
-        variants, variant_errors = await _variants(source_line, max_chars)
+        if proposal is None:  # no card, so nothing airs from this moment: no versions to write
+            return MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=None,
+                                failures=failures, intel=moment_intel, notes=notes)
+        # Every version is written from the line that airs, to fit its graphic.
+        variants, variant_errors = await _variants(proposal.line, max_chars_for(proposal.layer, proposal.line))
         failures += [e for e in variant_errors if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
                             failures=failures, intel=moment_intel, notes=notes)

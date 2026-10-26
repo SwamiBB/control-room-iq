@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from crq_schemas import LAYER_MAX_CHARS, MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal
+from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal, max_chars_for
 from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
 
 BASE_LANG = "en"  # language of the proposal line the operator approves
@@ -77,7 +77,7 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
     cited = frozenset(m.event_ids) | {e.event_id for e in p.evidence} if m else frozenset()
     return CheckContext(base_line=p.line, allowed_numbers=tuple(float(a) for a in allowed),
                         required_players=tuple(named), other_players=tuple(others), cited=frozenset(cited),
-                        max_chars=LAYER_MAX_CHARS.get(p.layer, 90))
+                        max_chars=max_chars_for(p.layer, p.line))
 
 
 # ---------- checks ----------

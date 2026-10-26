@@ -52,3 +52,26 @@ def test_a_goal_that_arrived_first_keeps_the_card_off_the_desk(monkeypatch):
     asyncio.run(_handle_moment(m))
     assert "p-late" not in hub.proposals
     assert main.GOAL_TOOK_OVER in hub.results[m.moment_id]["notes"]
+
+
+def test_an_error_queueing_the_card_fails_the_moment_rather_than_skipping_the_translations(monkeypatch):
+    m = moment()
+    translated = []
+
+    async def broken_queue(_p, _m):
+        raise ValueError("the goal package could not be built")
+
+    async def process(_m, on_card=None, **_kwargs):
+        await on_card(_result(m, proposal("p-x")))
+        translated.append(True)
+        return _result(m, proposal("p-x"))
+
+    monkeypatch.setattr(main, "_queue_card", broken_queue)
+    monkeypatch.setattr(main.pipeline, "process", process)
+    try:
+        asyncio.run(_handle_moment(m))
+    except ValueError as e:
+        assert "goal package" in str(e)  # the real error, not "versions failed after the card"
+    else:
+        raise AssertionError("a queueing error must not be swallowed")
+    assert translated == []

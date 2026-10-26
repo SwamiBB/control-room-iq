@@ -172,17 +172,12 @@ class Hub:
             except Exception:  # noqa: BLE001
                 self.operators.discard(ws)
 
-    async def broadcast_viewers(self, packet: OverlayPacket, plan: DeliveryPlan,
-                                only_variants: bool = False) -> list[dict]:
-        """Sends each viewer their delivery; returns one audit entry per viewer group, not per socket.
-
-        `only_variants` re-sends just to the viewers whose own version now passes (an upgrade, #90)."""
+    async def broadcast_viewers(self, packet: OverlayPacket, plan: DeliveryPlan) -> list[dict]:
+        """Sends each viewer their delivery; returns one audit entry per viewer group, not per socket."""
         chosen: dict[tuple, Delivery] = {}
         for ws, prefs in list(self.viewers.items()):
             group = (prefs.persona, prefs.access, prefs.lang)
             d = chosen.setdefault(group, choose_delivery(plan, prefs))
-            if only_variants and d.source != "variant":
-                continue
             framing = perspective(self.match_state, prefs, self.meta) if self.match_state else None
             delivered = with_perspective(apply_delivery(packet, d), framing)
             if prefs.access != "deaf":  # the caption card is the deaf-access path, like the strike cue (#54)
@@ -192,7 +187,7 @@ class Hub:
                 await ws.send_json({"type": "overlay", "item": item})
             except Exception:  # noqa: BLE001
                 self.viewers.pop(ws, None)
-        return [d.audit(packet) for d in chosen.values() if not only_variants or d.source == "variant"]
+        return [d.audit(packet) for d in chosen.values()]
 
     async def broadcast_fan_cue(self, cue: FanCue) -> None:
         for ws, prefs in list(self.viewers.items()):
@@ -736,12 +731,14 @@ def _taken_by_goal(m: Moment) -> bool:
 
 
 async def _handle_moment(m: Moment) -> None:
+    called = False
     queued = False
     dropped = False  # the goal on this move took the card over
 
     async def on_card(card: MomentResult) -> None:
         """The card goes on the desk as soon as the producer writes it; the translations follow (#90)."""
-        nonlocal queued, dropped
+        nonlocal called, queued, dropped
+        called = True
         hub.moments[m.moment_id] = m
         # A record before the versions exist, so a preview or a fire in the meantime has the line, the deaf fan's
         # card and the templates; a viewer's own version falls back until the translations arrive.
@@ -751,11 +748,13 @@ async def _handle_moment(m: Moment) -> None:
         if _taken_by_goal(m):  # the goal on this move arrived while the agents were writing
             dropped = True
             return
-        queued = True
         await _queue_card(card.proposal, m)
+        queued = True  # only once it is on the desk: a queueing error fails the moment as a whole
 
     try:
         res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
+        if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
+            await on_card(res)
     except Exception:
         if not queued:
             raise  # nothing reached the desk: the moment fails as a whole, as before
@@ -773,33 +772,8 @@ async def _handle_moment(m: Moment) -> None:
     hub.results[m.moment_id] = _result_record(res)
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
-    if queued:
-        await _upgrade_aired(m)  # fired before its versions existed: send viewers their own version now
-        return  # already on the desk (a goal arriving later supersedes it there)
-    if not res.proposal:
-        return
-    # A pipeline without the early hand-over (tests, older stand-ins): queue now. Checked again, since the goal can
-    # arrive during the broadcast above; the moment has gone out, so the reason is kept and logged.
-    if _taken_by_goal(m):
-        hub.results[m.moment_id]["notes"] = [*hub.results[m.moment_id]["notes"], GOAL_TOOK_OVER]
-        logger.info("moment %s: card dropped, the goal on the same move arrived first", m.moment_id)
-        return
-    await _queue_card(res.proposal, m)
-
-
-async def _upgrade_aired(m: Moment) -> None:
-    """Graphics of this moment that aired before its versions were written went out as templates or the English
-    line. Re-send each one still on screen, under its cue_id (the viewer replaces it), to the viewers whose own
-    version now passes the checks. Nothing changes for anyone else (#90)."""
-    for packet in [pk for pk in hub.packets if pk.t_out_ms > hub.clock.play_ms]:
-        p = hub.proposals.get(packet.source_proposal_id)
-        if p is None or p.moment_id != m.moment_id or p.override_line or is_code_built(p):
-            continue
-        audits = await hub.broadcast_viewers(packet, _delivery_plan(p), only_variants=True)
-        if audits:
-            hub.deliveries += audits
-            await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id,
-                                           "deliveries": audits})
+    # A graphic fired before the versions existed keeps the text it aired with (a template in the viewer's
+    # language, or the English line): on-air text is never swapped mid-read. Later fires carry the versions.
 
 
 async def _queue_card(proposal: OverlayProposal, m: Moment) -> None:

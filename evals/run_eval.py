@@ -150,14 +150,23 @@ _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
 
 
 def _replace_first_number(text: str, candidates) -> str | None:
-    """The text with its first number replaced by the first candidate that shows differently, else None."""
+    """The text with its first number replaced by the first candidate that shows differently, else None.
+
+    A candidate must keep the number's form (a count for a count, one decimal for an xG) without rounding: rounding
+    would turn a real number into an absent one, or an absent one into a real one, and mislabel the plant."""
     match = _NUMBER.search(text)
     if not match:
         return None
     original = float(match.group())
     decimals = "." in match.group()
     for value in candidates:
-        shown = f"{value:.1f}" if decimals else str(round(value))
+        if decimals:  # up to two places, as the data gives xG ("1.37"), never fewer than one ("77.0")
+            shown = f"{value:.2f}".rstrip("0")
+            shown += "0" if shown.endswith(".") else ""
+        else:
+            shown = str(round(value))
+        if float(shown) != value:
+            continue
         if float(shown) != original:
             return text[:match.start()] + shown + text[match.end():]
     return None

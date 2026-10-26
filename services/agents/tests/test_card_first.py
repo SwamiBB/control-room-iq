@@ -7,8 +7,8 @@ os.environ["CRQ_OFFLINE"] = "1"
 import asyncio  # noqa: E402
 import json  # noqa: E402
 
-from agents.workflow import LAYER_MAX_CHARS, MomentPipeline, fallback_explanation  # noqa: E402
-from crq_schemas import MatchState, Moment, MomentKind, OverlayLayer, Persona, TeamStats  # noqa: E402
+from agents.workflow import MomentPipeline, fallback_explanation  # noqa: E402
+from crq_schemas import LAYER_MAX_CHARS, MatchState, Moment, MomentKind, OverlayLayer, Persona, TeamStats  # noqa: E402
 
 REQUESTS = [(Persona.FAN, "none", "en", {}), (Persona.FAN, "none", "es", {})]
 CARD_LINE = "Kai Reed denied from close range"
@@ -75,7 +75,7 @@ def test_versions_are_written_from_the_card_line_within_its_layer():
         assert sent["max_chars"] == LAYER_MAX_CHARS[OverlayLayer.LOWER_THIRD]
 
 
-def test_without_a_card_the_narrator_line_is_the_source_and_there_is_no_limit():
+def test_without_a_card_no_versions_are_written():
     log: list = []
     p = _pipeline(log)
     p.producer.reply = json.dumps({"propose": False, "layer": "lower_third", "t_start_ms": 1, "t_end_ms": 2,
@@ -86,7 +86,19 @@ def test_without_a_card_the_narrator_line_is_the_source_and_there_is_no_limit():
     async def on_card(card):
         handed.append(card)
 
-    asyncio.run(p.process(_moment(), requests=REQUESTS, on_card=on_card))
+    res = asyncio.run(p.process(_moment(), requests=REQUESTS, on_card=on_card))
     assert handed[0].proposal is None
-    assert p.personalizer.inputs[0]["line"].startswith("Kai Reed sees his shot")
-    assert p.personalizer.inputs[0]["max_chars"] is None
+    assert log == ["explainer", "narrator", "producer"]  # nothing airs, so nothing is translated
+    assert res.variants == [] and res.proposal is None
+
+
+def test_a_fallback_card_over_its_layer_limit_sets_the_limit():
+    log: list = []
+    p = _pipeline(log)
+    long_line = "Kai Reed sees his shot from close range saved after a long, long spell of sustained home pressure"
+    assert len(long_line) > LAYER_MAX_CHARS[OverlayLayer.LOWER_THIRD]
+    p.narrator.reply = long_line
+    p.producer.reply = "not json"  # the producer fails: the template card carries the narrator's line
+    res = asyncio.run(p.process(_moment(), requests=REQUESTS))
+    assert res.proposal is not None and res.proposal.fallback and res.proposal.line == long_line
+    assert p.personalizer.inputs[0]["max_chars"] == len(long_line)  # a version need not be shorter than its source

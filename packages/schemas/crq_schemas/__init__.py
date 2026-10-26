@@ -496,6 +496,13 @@ LAYER_MAX_CHARS: dict[OverlayLayer, int] = {
 }
 
 
+def max_chars_for(layer: OverlayLayer, line: str) -> int:
+    """The longest a version of `line` may be on `layer`. A card line already over the layer's limit (a template
+    fallback carries the narrator's full sentence) sets the limit itself: a version need not be shorter than the
+    line it translates, and could not keep every name and number otherwise."""
+    return max(LAYER_MAX_CHARS.get(layer, 90), len(line))
+
+
 class ProposalStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"

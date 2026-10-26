@@ -11,10 +11,10 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator |
 | Live demo (deaf Spanish viewer) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/viewer?persona=newcomer&access=deaf&lang=es&allegiance=neutral |
 | Video (under 2 minutes) | [link] |
-| Tests in CI | 540 passing (376 Python + 164 TypeScript) |
+| Tests in CI | 541 passing (377 Python + 164 TypeScript) |
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
-| Foundry evaluation | Groundedness 4.3 (cards) · 3.6 (on-air lines) · 4.1 ES · 4.2 HI; relevance 4.8–5.0; 50 outputs from 10 moments, 1–5 scale ([details](evals/results/latest.md)) |
-| Planted falsehoods | 10 planted wrong numbers: 7 caught by the code check before air; the groundedness judge scored all 10 at 2.0 |
+| Foundry evaluation | Groundedness 4.4 (cards) · 3.8 (on-air lines) · 4.2 ES · 4.0 HI; relevance 4.6–5.0; violence 0–1.2 of 7; 50 outputs from 10 moments, 1–5 scale. Fluency is 2.5–3.3 by design: cards are broadcast fragments, not sentences ([details](evals/results/latest.md)) |
+| Planted falsehoods | 10 real lines with one number changed. A number the match data doesn't contain: 5 of 5 caught by the code check before air. A real number from the wrong place: the code check can't tell; the groundedness judge scores it 2.0 (real lines 3.8–4.6) |
 | From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
 
 All match data is synthetic. Clubs, players and venues are fictional.
