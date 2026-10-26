@@ -64,5 +64,4 @@ output FOUNDRY_PROJECT_ENDPOINT string = ai.outputs.projectEndpoint
 output AZURE_OPENAI_ENDPOINT string = ai.outputs.openAiEndpoint
 output EVENTHUB_NAMESPACE string = data.outputs.eventHubNamespaceFqdn
 output COSMOS_ENDPOINT string = data.outputs.cosmosEndpoint
-output API_URL string = apps.outputs.apiUrl
 output WEB_URL string = apps.outputs.webUrl

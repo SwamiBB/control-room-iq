@@ -1,0 +1,58 @@
+# The web app's server (#14). It serves the built console and viewer, and proxies the API's paths to the API
+# app, which has no public address of its own. ${API_UPSTREAM} is filled in from the environment when the
+# container starts (nginx image templates), e.g. https://<api app>.internal.<environment domain>.
+#
+# The proxied paths are the ones the Vite dev server proxies (web/vite.config.ts): keep the two lists the same,
+# so the app behaves the same in dev and hosted, with every call same-origin.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # The stock config leaves compression off: the bundle and the polled JSON go out compressed.
+    gzip on;
+    gzip_types application/javascript text/css application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # Live sockets: operator desk, viewer and overlay feed.
+    location /ws/ {
+        proxy_pass ${API_UPSTREAM};
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    # REST. /viewer-groups is listed whole, so it never catches the /viewer page.
+    location ~ ^/(proposals|packages|matches|state|decisions|metrics|viewer-groups|schedule|recap|deliveries|healthz)(/|\.|$) {
+        proxy_pass ${API_UPSTREAM};
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Container Apps ends TLS before nginx, so pass on the browser's scheme rather than nginx's own (http).
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
+
+    # Built assets have hashed names, so they can be cached for good.
+    location /assets/ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # Single-page app: /operator, /viewer and /multiview load index.html, on a refresh too.
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}

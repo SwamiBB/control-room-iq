@@ -1,2 +1,6 @@
-node_modules/
-dist/
+# The web image's build context is web/ (azure.yaml), so the root .dockerignore doesn't apply here.
+# npm ci installs Linux packages inside the image; a Windows node_modules copied over them breaks vite build.
+node_modules
+dist
+*.tsbuildinfo
+.env*
