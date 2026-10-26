@@ -15,7 +15,7 @@ export type Layer =
 export type Rect = { top: number; left: number; width: number; height: number };
 
 export const LAYER_RECTS: Record<Layer, Rect> = {
-  caption: { top: 3, left: 18, width: 64, height: 10 }, // deaf captions: a band at the top, clear of the graphics
+  caption: { top: 3, left: 30, width: 40, height: 10 }, // deaf captions: a band at the top, clear of the score bug
   full_screen: { top: 15, left: 14, width: 72, height: 50 }, // centred
   heatmap: { top: 15, left: 3, width: 31, height: 50 }, // a side panel, left
   stat_panel: { top: 15, left: 66, width: 31, height: 50 }, // a side panel, right
@@ -24,6 +24,12 @@ export const LAYER_RECTS: Record<Layer, Rect> = {
   player_tag: { top: 70, left: 66, width: 31, height: 10 }, // name and number, bottom right
   ticker: { top: 89, left: 0, width: 100, height: 11 }, // the full-width strip at the very bottom
 };
+
+/**
+ * The score bug: always on screen, top left, so no layer may overlap it. It is furniture, not a layer: the
+ * stats engine's score and clock, not an approved graphic.
+ */
+export const BUG_RECT: Rect = { top: 3, left: 3, width: 26, height: 9 };
 
 /** Layers that wait under a full-screen graphic rather than share the frame with it. */
 export const UNDER_FULL_SCREEN: readonly Layer[] = ["heatmap", "stat_panel", "pitch_overlay"];

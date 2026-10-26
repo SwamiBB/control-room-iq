@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { pathD, place, type PathPoint } from "./pitchGeometry";
+import { W, pathD, place, type PathPoint } from "./pitchGeometry";
 
 /**
  * Where the ball went, as an ordered list of points: drawn through them in order, the origin marked, an
@@ -22,8 +22,9 @@ export default function BallPath({ points, mirror = false, label, emphasis = "la
   const d = pathD(points, mirror);
   if (!d) return null;
   const start = place(points[0][0], points[0][1], mirror);
-  // Above the origin unless that would leave the pitch.
+  // Above the origin unless that would leave the pitch, and anchored inward near either goal so it stays on it.
   const labelY = start.cy > 6 ? start.cy - 2.6 : start.cy + 4.4;
+  const anchor = start.cx > W * 0.8 ? "end" : start.cx < W * 0.2 ? "start" : "middle";
 
   return (
     <g className={`ball-path ${emphasis} ${animate ? "animate" : ""}`}>
@@ -40,7 +41,7 @@ export default function BallPath({ points, mirror = false, label, emphasis = "la
       </path>
       {emphasis === "latest" && <circle className="origin" cx={start.cx} cy={start.cy} r={0.9} />}
       {emphasis === "latest" && label && (
-        <text className="path-label" x={start.cx} y={labelY} textAnchor="middle">{label}</text>
+        <text className="path-label" x={start.cx} y={labelY} textAnchor={anchor}>{label}</text>
       )}
     </g>
   );

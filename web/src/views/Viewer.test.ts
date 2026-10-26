@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, kickerFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -311,5 +311,23 @@ describe("viewer settings in the URL", () => {
     expect(settingsFromQuery("?persona=coach&lang=fr&access=deaf")).toEqual({
       persona: undefined, access: "deaf", lang: undefined, allegiance: undefined,
     });
+  });
+});
+
+describe("kickerFor (the line above a graphic, from data the packet carries)", () => {
+  it("says what happened, from the caption card's outcome, in the viewer's language", () => {
+    const goal = { ...lead, fan_card: { ...card, detail: { outcome: "goal" } } };
+    expect(kickerFor(goal, "en")).toBe("Goal");
+    expect(kickerFor(goal, "es")).toBe("Gol");
+  });
+
+  it("marks the goal ticker as the score and the scorer's lower third as the stats", () => {
+    expect(kickerFor({ ...ticker, payload: { score: [1, 0] } }, "en")).toBe("Score");
+    expect(kickerFor({ ...approved, payload: { source: "code" } as Packet["payload"] }, "en")).toBe("Stats");
+  });
+
+  it("falls back to a shot, then to Live", () => {
+    expect(kickerFor({ ...approved, payload: { intel: { shot_speed_kmh: 88.1 } } }, "en")).toBe("Shot");
+    expect(kickerFor(approved, "hi")).toBe("लाइव");
   });
 });
