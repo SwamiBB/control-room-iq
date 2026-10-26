@@ -8,7 +8,8 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 
 | | |
 | --- | --- |
-| Live demo | [URL — pre-loaded replay, no login] |
+| Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator |
+| Live demo (deaf Spanish viewer) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/viewer?persona=newcomer&access=deaf&lang=es&allegiance=neutral |
 | Video (under 2 minutes) | [link] |
 | Tests in CI | 528 passing (364 Python + 164 TypeScript) |
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
