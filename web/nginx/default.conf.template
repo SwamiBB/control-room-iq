@@ -11,7 +11,7 @@ map $http_upgrade $connection_upgrade {
 }
 
 server {
-    listen 80;
+    listen 8080; # unprivileged image: no ports below 1024
     server_name _;
     root /usr/share/nginx/html;
 

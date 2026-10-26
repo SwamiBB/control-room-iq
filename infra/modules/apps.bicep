@@ -10,6 +10,13 @@ param eventHubNamespaceFqdn string
 param cosmosEndpoint string
 param foundryProjectEndpoint string
 param openAiEndpoint string
+// The images azd deployed last (SERVICE_*_IMAGE_NAME), so a provision keeps the running apps instead of resetting
+// them to the placeholder. Empty on the very first provision, before anything is built.
+param apiImageName string = ''
+param ingestImageName string = ''
+param webImageName string = ''
+
+var placeholderImage = 'mcr.microsoft.com/k8se/quickstart:latest'
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'caenv-${app}-${suffix}'
@@ -54,7 +61,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'api'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest' // replaced by azd deploy
+        image: empty(apiImageName) ? placeholderImage : apiImageName
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
@@ -75,7 +82,7 @@ resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'ingest'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        image: empty(ingestImageName) ? placeholderImage : ingestImageName
         env: commonEnv
         resources: { cpu: json('0.5'), memory: '1Gi' }
       } ]
@@ -94,13 +101,13 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: cae.id
     configuration: {
-      ingress: { external: true, targetPort: 80 }
+      ingress: { external: true, targetPort: 8080 } // the unprivileged nginx image's port
       registries: [ { server: acrLoginServer, identity: identityId } ]
     }
     template: {
       containers: [ {
         name: 'web'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        image: empty(webImageName) ? placeholderImage : webImageName
         // The web image's nginx proxies the API paths here (#14); the API has no public address of its own.
         env: [ { name: 'API_UPSTREAM', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
         resources: { cpu: json('0.25'), memory: '0.5Gi' }
