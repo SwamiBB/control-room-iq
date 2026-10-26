@@ -53,7 +53,7 @@ manager.
 | **Content filters** | Variants that mention referee, betting or injury are blocked before firing |
 | **No secrets in source** | Managed identity + OIDC; `.env.example` is checklist-only |
 | **Supply chain scanning** | CodeQL, Trivy and Dependabot on every PR; every GitHub action pinned to a full commit SHA |
-| **Full audit trail** | Append-only decision log, downloadable as `/decisions.csv`; one OpenTelemetry trace per `moment_id` |
+| **Full audit trail** | Append-only decision log, downloadable as `/decisions.csv`; one OpenTelemetry trace per moment, with each decision and airing linked back to it |
 | **Synthetic data only** | No scraped commentary, no third-party match data, no pre-trained football models |
 | **Degrade, never stall** | Offline mode runs the entire pipeline with no Azure dependency |
 
@@ -149,11 +149,14 @@ Every decision — approve, override, hold, SLA hold, reject, undo — writes to
 container. The full log is downloadable at `GET /decisions.csv` and includes actor, timestamp and the
 proposal snapshot.
 
-Every agent call writes an `EvaluationRecord` with the prompt version, cites resolved, number-check
-result, variant-check result, faithfulness, routed model, latency and fallback reason (if any).
-
-One **OpenTelemetry trace per `moment_id`** carries `crq.agent`, `crq.routing`, `crq.model_served`,
-tokens, prompt version and fallback status, and flows to Application Insights plus Foundry tracing.
+One **OpenTelemetry trace per moment** (`crq.moment`) holds a `crq.agent <role>` span per agent call:
+routing mode, the model the router chose (`crq.model_served`), latency, and whether it fell back to the
+template and why. Inside each, Agent Framework's own GenAI spans record tokens in and out and the request.
+Each decision (`crq.decision`: action, actor, seconds on the desk) and each airing (`crq.air`: what every
+viewer group got, and why not its own version) is a span linked back to the moment's trace. Traces go to
+Application Insights, which is connected to the Foundry project (Observability > Traces), with Entra ID
+only. On the demo, spans also carry the prompt and response text (`CRQ_TRACE_CONTENT`), because all match
+data is synthetic; a deployment with real viewer data turns that off.
 
 Operational metrics at `GET /metrics`: turnaround, error rate, operator workload.
 
@@ -185,7 +188,8 @@ structural, not perimeter-based.
 
 ### What the deployed environment enforces
 
-- **No local-auth credentials anywhere.** `disableLocalAuth: true` on Cosmos DB and Event Hubs;
+- **No local-auth credentials anywhere.** `disableLocalAuth: true` on Cosmos DB, Event Hubs and
+  Application Insights;
   `allowSharedKeyAccess: false` on Storage; `adminUserEnabled: false` on ACR. There is no SAS key,
   account key, or admin password to leak. Every data-plane call requires an Entra ID principal with the
   matching RBAC role, held by the workload managed identity.
@@ -198,7 +202,8 @@ structural, not perimeter-based.
 - **TLS 1.2 minimum** on Cosmos, Event Hubs and Storage.
 - **Synthetic data only.** The system has no PII, no customer data, and no real match data to
   exfiltrate.
-- **Full observability.** Application Insights carries one OpenTelemetry trace per `moment_id`; blob
+- **Full observability.** Application Insights carries one OpenTelemetry trace per moment, also shown
+  in Foundry's Traces view; blob
   operations and container app logs land in Log Analytics.
 
 ### What is deferred to production hardening

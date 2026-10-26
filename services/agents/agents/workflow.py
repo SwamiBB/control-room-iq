@@ -51,6 +51,7 @@ from pydantic import BaseModel, Field
 from .clients import make_agent
 from .config import AGENT_ROUTING, settings
 from .match_intel import NameOf, intel_context, intel_for, intel_payload, intel_short
+from .telemetry import tracer
 
 logger = logging.getLogger(__name__)
 
@@ -287,15 +288,32 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
 # ---------- agents ----------
 
 async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
-    """`info`, when given, receives the call's latency_ms and the model the router served."""
+    """`info`, when given, receives the call's latency_ms and the model the router served.
+
+    Each call is a `crq.agent <role>` span in the moment's trace: its routing mode, the model the router chose, and
+    whether it fell back to the template and why. Agent Framework's own spans (tokens, the request) nest inside."""
     if agent is None:
         return fallback(), None
+    role = getattr(agent, "name", "agent")
+    seen: dict = {} if info is None else info
+    with tracer.start_as_current_span(f"crq.agent {role}", attributes={
+            "crq.agent": role, "crq.routing": AGENT_ROUTING.get(role, "balanced")}) as span:
+        result, error = await _call(agent, payload, model, fallback, seen)
+        span.set_attribute("crq.fallback", error is not None)
+        if error:
+            span.set_attribute("crq.fallback_reason", error)
+        for key in ("model_served", "latency_ms"):
+            if seen.get(key) is not None:
+                span.set_attribute(f"crq.{key}", seen[key])
+        return result, error
+
+
+async def _call(agent, payload: dict, model, fallback, info: dict):
     try:
         started = time.perf_counter()
         res = await asyncio.wait_for(agent.run(json.dumps(payload, default=str)), timeout=settings.agent_timeout_s)
-        if info is not None:
-            info["latency_ms"] = round((time.perf_counter() - started) * 1000)
-            info["model_served"] = getattr(getattr(res, "raw_representation", None), "model", None)
+        info["latency_ms"] = round((time.perf_counter() - started) * 1000)
+        info["model_served"] = getattr(getattr(res, "raw_representation", None), "model", None)
         text = getattr(res, "text", None) or str(res)
         return (model.model_validate_json(text) if model else text.strip()), None
     except Exception as ex:  # noqa: BLE001 - any failure falls back; recorded for the decision log

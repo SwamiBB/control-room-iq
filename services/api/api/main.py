@@ -20,7 +20,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, get_args
 
+from agents import telemetry
 from agents.config import settings
+from agents.telemetry import tracer
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     Access,
@@ -43,6 +45,8 @@ from crq_schemas import (
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ingest.stats import StateFolder
+from opentelemetry import trace
+from opentelemetry.trace import Link, SpanContext
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
@@ -94,6 +98,7 @@ async def lifespan(_: FastAPI):
         await sink.close()
 
 
+telemetry.configure("crq-api")  # before the app exists, so its requests are traced too
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
@@ -135,6 +140,7 @@ class Hub:
         self.moment_tasks: set[asyncio.Task] = set()  # agent pipelines running beside the replay (#51)
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
         self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
+        self.moment_traces: dict[str, SpanContext] = {}  # moment_id -> its trace, which decisions and airings link to
         self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
         self.tracking_index: int | None = None  # the frame last sent
         self.tracking_sent_at = 0.0  # time.monotonic() of that send
@@ -242,7 +248,20 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
                              action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
                              package_id=p.package_id)
     hub.decisions.append(entry)
+    seconds_on_desk = (entry.at - p.proposed_at).total_seconds() if p.proposed_at else None
+    with tracer.start_as_current_span("crq.decision", links=_links(p.moment_id), attributes={
+            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.action": action.value,
+            "crq.actor": d.actor, "crq.layer": p.layer.value, **({"crq.package_id": p.package_id} if p.package_id
+                                                                  else {}),
+            **({"crq.seconds_on_desk": round(seconds_on_desk, 2)} if seconds_on_desk is not None else {})}):
+        pass
     return entry
+
+
+def _links(moment_id: str) -> list[Link]:
+    """A decision or an airing happens later, in its own trace: a link takes it back to the moment's agents."""
+    ctx = hub.moment_traces.get(moment_id)
+    return [Link(ctx)] if ctx else []
 
 
 def _fan_card(p: OverlayProposal) -> FanCard | None:
@@ -266,6 +285,18 @@ def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
 
 
 async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
+    with tracer.start_as_current_span("crq.air", links=_links(p.moment_id), attributes={
+            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
+            "crq.approval_id": approval.entry_id}) as span:
+        audits = await _send(p, approval)
+        for source in ("variant", "template", "base", "override"):
+            span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
+        for a in audits:  # what each viewer group got, and why not its own version
+            span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
+                                         "crq.source": a["source"], "crq.failures": a["failures"]})
+
+
+async def _send(p: OverlayProposal, approval: DecisionLogEntry) -> list[dict]:
     packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
     hub.packets.append(packet)
     await hub.feed.publish("packet", packet)
@@ -273,6 +304,7 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
     hub.deliveries += audits
     await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id, "deliveries": audits})
     p.status = ProposalStatus.AIRED
+    return audits
 
 
 async def _expire_stale() -> list[OverlayProposal]:
@@ -696,10 +728,16 @@ async def _start_moment(m: Moment) -> None:
 
 async def _run_moment(m: Moment) -> None:
     async with hub.moment_slots:
-        try:
-            await _handle_moment(m)
-        except Exception:  # noqa: BLE001 - one moment's failure must not stop the match
-            logger.exception("moment %s failed", m.moment_id)
+        # One trace per moment: the agents' spans nest inside; its decisions and airings link back to it.
+        with tracer.start_as_current_span("crq.moment", attributes={
+                "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
+                "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
+            hub.moment_traces[m.moment_id] = span.get_span_context()
+            try:
+                await _handle_moment(m)
+            except Exception as ex:  # noqa: BLE001 - one moment's failure must not stop the match
+                span.record_exception(ex)
+                logger.exception("moment %s failed", m.moment_id)
 
 
 async def _drain_moments() -> None:
@@ -750,6 +788,9 @@ async def _handle_moment(m: Moment) -> None:
             return
         await _queue_card(card.proposal, m)
         queued = True  # only once it is on the desk: a queueing error fails the moment as a whole
+        trace.get_current_span().add_event("card on the desk", {
+            "crq.proposal_id": card.proposal.proposal_id, "crq.layer": card.proposal.layer.value,
+            "crq.template": card.proposal.fallback})
 
     try:
         res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
@@ -770,6 +811,10 @@ async def _handle_moment(m: Moment) -> None:
         res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
+    span = trace.get_current_span()
+    span.set_attribute("crq.card", bool(queued))
+    span.set_attribute("crq.versions", len(res.variants))
+    span.set_attribute("crq.failures", len(res.failures))
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     # A graphic fired before the versions existed keeps the text it aired with (a template in the viewer's

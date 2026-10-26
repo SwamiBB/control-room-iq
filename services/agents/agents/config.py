@@ -61,6 +61,15 @@ class Settings:
 
 settings = Settings()
 
+# Each agent's name in Foundry Agent Service (register_agents.py) and its id on every trace span, so a trace
+# and the catalogue entry it ran as carry the same name.
+REGISTERED_PREFIX = "crq-"
+
+
+def registered_name(role: str) -> str:
+    return REGISTERED_PREFIX + role
+
+
 # Routing mode per agent: one model-router deployment per mode (see `router_*` above).
 AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", "narrator": "balanced",
                                  "personalizer": "cost", "localizer": "cost"}

@@ -3,6 +3,8 @@ param suffix string
 param location string
 param tags object
 param identityPrincipalId string
+param appInsightsId string
+param appInsightsConnectionString string
 
 // Microsoft Foundry resource (AIServices kind) with a project, a fallback model and one model router per routing mode.
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
@@ -73,6 +75,42 @@ resource aiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '53ca6127-db72-4b80-b1b0-d745d6d5456d')
     principalId: identityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource appi 'Microsoft.Insights/components@2020-02-02' existing = {
+  name: last(split(appInsightsId, '/'))
+}
+
+// Connects the project to Application Insights so traces show under Observability > Traces. The project signs in
+// with its own managed identity, since the resource takes Entra ID only. A project allows one AppInsights connection.
+resource appiConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-09-01' = {
+  parent: project
+  name: 'appinsights'
+  properties: {
+    category: 'AppInsights'
+    target: appInsightsId
+    // Accepted by the service but not yet in the Bicep type definitions.
+    #disable-next-line BCP036
+    authType: 'ProjectManagedIdentity'
+    isSharedToAll: false
+    metadata: {
+      ApiType: 'Azure'
+      ResourceId: appInsightsId
+      ApplicationInsightsConnectionString: appInsightsConnectionString
+    }
+  }
+}
+
+// Monitoring Metrics Publisher for the project's identity, as the portal grants when you pick "Project managed
+// identity", so server-side traces can be ingested.
+resource projectAppiPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, project.id, 'metricspub')
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')
+    principalId: project.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
