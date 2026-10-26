@@ -1,2 +1,8 @@
 # Patches must keep their exact bytes; CRLF conversion makes `git am` reject them.
 *.patch -text
+
+# Files read inside Linux containers keep LF, whatever the checkout platform (core.autocrlf on Windows).
+Dockerfile            text eol=lf
+*.template            text eol=lf
+*.conf                text eol=lf
+*.sh                  text eol=lf
