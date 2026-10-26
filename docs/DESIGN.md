@@ -246,7 +246,7 @@ same agents are registered by name so they can be inspected, evaluated, and trac
 
 ### 5.3 Timeouts and fallbacks
 
-`AGENT_TIMEOUT_S` (default 8 s) wraps every call. On timeout or any exception the step returns a
+`AGENT_TIMEOUT_S` (default 12 s) wraps every call. On timeout or any exception the step returns a
 template result and appends a failure string to `MomentResult.failures`:
 
 | Step | Fallback |

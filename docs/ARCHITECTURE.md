@@ -112,8 +112,10 @@ sequenceDiagram
 ```
 
 Latency budget from event to proposal on the console: ingest < 200 ms, explainer ≤ 4 s, narrator ≤ 2 s,
-(personalizer → localizer) ∥ producer ≤ 6 s, total ≤ 12 s; the 8-second agent timeout plus fallbacks caps the worst
-case at about 20 s (the localizer is a second call after the personalizer). Overlay timing uses the match clock, so proposal latency shifts when a graphic is
+(personalizer → localizer) ∥ producer ≤ 6 s, total ≤ 12 s. Measured on the demo window (Oct 26, three routers at low
+reasoning effort): 12.4 s best, 15.3 s average, 20.4 s worst. The 12-second agent timeout plus fallbacks caps the worst
+case at four timeouts in a row, about 48 s (explainer, narrator, personalizer, localizer; the producer runs beside the
+last two). Overlay timing uses the match clock, so proposal latency shifts when a graphic is
 proposed, not when it is scheduled to air.
 
 ## 4. Data
@@ -185,7 +187,7 @@ Environments: `dev` (sandbox, the demo) only. Naming `crq-<env>-<resource>`, tag
 
 | Quality | Target | How |
 | --- | --- | --- |
-| Responsiveness | Proposal on console ≤ 10 s after the event; overlay timing exact on the match clock | Async pipeline, concurrent agents, 8 s timeouts, match-clock scheduling |
+| Responsiveness | Proposal on console ≤ 10 s after the event; overlay timing exact on the match clock | Async pipeline, concurrent agents, 12 s timeouts, match-clock scheduling |
 | Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, KEDA scaling, checkpointed consumers |
 | Explainability | Every line traceable to events; faithfulness measured | Cited event IDs, state snapshots per moment, Foundry evaluation per narrative |
 | Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, Logic App auto-hold |
