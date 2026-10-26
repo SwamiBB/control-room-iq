@@ -45,6 +45,10 @@ jobs:
           done
           docker run --rm -e CRQ_OFFLINE=1 --entrypoint python crq-api -c "import api.main; from pathlib import Path; assert Path('data/reference/match-042.jsonl').exists()"
           docker run --rm -e CRQ_OFFLINE=1 --entrypoint python crq-ingest -c "import ingest.consumer"
+          # pip is removed after the build (its bundled libraries carry CVEs); the apps must not need it.
+          for img in crq-api crq-ingest; do
+            docker run --rm --entrypoint python "$img" -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pip') is not None)"
+          done
       - name: API image serves health and the bundled replay
         run: |
           docker run -d --name api -e CRQ_OFFLINE=1 -p 8000:8000 crq-api

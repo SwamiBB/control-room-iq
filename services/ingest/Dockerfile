@@ -5,7 +5,9 @@ RUN pip install --no-cache-dir --upgrade pip "setuptools>=83"
 COPY pyproject.toml README.md ./
 COPY packages ./packages
 COPY services ./services
-RUN pip install --no-cache-dir -e .
+# pip is only needed to build the image. It bundles its own older urllib3, msgpack and pkg_resources (Trivy), so
+# remove it from the runtime image.
+RUN pip install --no-cache-dir -e . && pip uninstall -y pip
 # After the install, so new reference data doesn't rebuild the dependency layer. Ingest reads only the tracking
 # files (StateFolder's distances); the match files are for the API's replay (#13).
 COPY data/reference/tracking-*.jsonl.gz ./data/reference/
