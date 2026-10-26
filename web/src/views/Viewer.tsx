@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
@@ -319,6 +319,18 @@ export function withStanding(prev: Strip | null, s: MatchStanding): Strip {
   };
 }
 
+/**
+ * Has a new run started since the last standing? The viewer socket sends no match frame, so the poll of GET
+ * /state is how this screen finds out: the match gone (the API is loading the next run), another match, or play
+ * time gone back at all (Run again of the same match). Within a run the stats engine's play time only moves on,
+ * so unlike a packet's time, which a late arrival can put behind, any step back is a new run.
+ */
+export function isRestart(prev: MatchStanding | null, next: MatchStanding | null): boolean {
+  if (!prev) return false;
+  if (!next) return true;
+  return next.matchId !== prev.matchId || next.playMs < prev.playMs;
+}
+
 /** The standalone viewer's choices from its URL, so a refresh brings back the same viewer. Unknown values are ignored. */
 export function settingsFromQuery(search: string): ViewerPreset {
   const q = new URLSearchParams(search);
@@ -451,12 +463,23 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   // The viewer socket sends no match frame or clock, so the score bug asks where the match stands: at once on
   // connect (a refresh included), then every 2 s for the clock. No match loaded leaves the bug waiting.
+  // A new run takes the last run's graphics and shot down at once, rather than leaving them up until they expire.
+  const lastStanding = useRef<MatchStanding | null>(null);
+  const [warming, setWarming] = useState(false);
   useEffect(() => {
     if (link !== "live") return;
     let stop = false;
     const ask = () => fetchStanding()
       .then((st) => {
         if (stop) return;
+        if (isRestart(lastStanding.current, st)) {
+          setHeld(new Map());
+          cues.clear();
+          setStrip(null);
+          setWarming(true);
+        }
+        if (st) setWarming(false);
+        lastStanding.current = st;
         setStanding(st);
         if (st) setStrip((prev) => withStanding(prev, st));
       })
@@ -464,7 +487,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     ask();
     const t = window.setInterval(ask, 2000);
     return () => { stop = true; window.clearInterval(t); };
-  }, [link, url]);
+  }, [link, url, cues]);
 
   // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
   // another side or language.
@@ -576,7 +599,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         {shown.length === 0 && !cue && (
           <p className="viewer-idle">
             {link === "live"
-              ? "Waiting for the next approved graphic."
+              ? warming ? "Warming up: the next run is loading." : "Waiting for the next approved graphic."
               : link === "connecting"
                 ? "Connecting…"
                 : "Lost the feed. Reconnecting automatically."}

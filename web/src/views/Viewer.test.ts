@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, kickerFor, cueTimer, holdMs, isApproved, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { captionCardFor, kickerFor, cueTimer, holdMs, isApproved, isRestart, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -329,5 +329,26 @@ describe("kickerFor (the line above a graphic, from data the packet carries)", (
   it("falls back to a shot, then to Live", () => {
     expect(kickerFor({ ...approved, payload: { intel: { shot_speed_kmh: 88.1 } } }, "en")).toBe("Shot");
     expect(kickerFor(approved, "hi")).toBe("लाइव");
+  });
+});
+
+describe("isRestart (a new run, seen from the GET /state poll)", () => {
+  const was = { matchId: "m-1", playMs: 2_790_000, home: 1, away: 0 };
+
+  it("is a new run when the match goes away while the API loads the next one", () => {
+    expect(isRestart(was, null)).toBe(true);
+  });
+
+  it("is a new run on another match, or on play time gone back at all", () => {
+    expect(isRestart(was, { ...was, matchId: "m-2" })).toBe(true);
+    expect(isRestart(was, { ...was, playMs: 2_461_000, home: 0 })).toBe(true);
+    expect(isRestart(was, { ...was, playMs: 2_789_000 })).toBe(true); // a short window run again
+  });
+
+  it("is not the same run moving on, nor a first look", () => {
+    expect(isRestart(was, { ...was, playMs: 2_792_000 })).toBe(false);
+    expect(isRestart(was, was)).toBe(false); // the clock between events
+    expect(isRestart(null, was)).toBe(false);
+    expect(isRestart(null, null)).toBe(false);
   });
 });
