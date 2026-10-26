@@ -218,10 +218,15 @@
 .overlay .badge.lang { color: #8fb3ff; }
 .overlay .badge.override { color: #f59e6b; }
 
-/* Devanagari's marks sit above and below the line, so it needs the line height; and it has no capitals, so a
-   letter-spaced kicker only pulls its syllables apart ("गो ल"). */
+/* Devanagari's marks sit above and below the line, so it needs the line height; and it has no capitals, so any
+   letter-spaced label only pulls its syllables apart ("गो ल", #75): the kickers, the ticker's tag ("स्कोर"),
+   the badges and the strike cue's word all set it in Hindi. */
 .viewer[data-lang="hi"] .overlay .main { line-height: 1.35; }
-.viewer[data-lang="hi"] .overlay .kick { line-height: 1.35; letter-spacing: 0; text-transform: none; }
+.viewer[data-lang="hi"] .overlay .kick { line-height: 1.35; }
+.viewer[data-lang="hi"] :is(.overlay .kick, .overlay .badge, .overlay.layer-ticker .tag, .cue-word) {
+  letter-spacing: 0;
+  text-transform: none;
+}
 
 /* Lower third: a band at bottom left, a coloured spine down its left edge. Its region holds two lines of the
    main text, Hindi included; a longer line ends in an ellipsis rather than being sliced through. */

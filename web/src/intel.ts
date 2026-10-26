@@ -3,6 +3,8 @@
 // number; this file only types and formats them. Mirrors crq_schemas v0.2 (ThresholdIndicator, PassQuality,
 // MomentMetrics) and the agents' `payload.intel` block.
 
+import { chipWord, type Lang } from "./labels";
+
 export type MetricKind = "top_speed" | "sprint" | "distance" | "pass_difficulty" | "pass_distance" | "ball_speed" | "shot_speed";
 export type DifficultyLabel = "routine" | "testing" | "hard" | "very_hard";
 
@@ -71,34 +73,41 @@ export const thresholdLabel = (t: ThresholdIndicator) => {
 
 export type Chip = { key: string; label: string; value: string; tone?: "alert" | "hot" | "info" };
 
-/** Chips for one moment or graphic, in the viewer's register. Numbers are shown exactly as the stats engine sent them. */
-export function intelChips(m: MomentMetrics | null | undefined, name: NameOf, register: IntelRegister = "analyst"): Chip[] {
+/**
+ * Chips for one moment or graphic, in the viewer's register and language. Numbers are shown exactly as the stats
+ * engine sent them; only the fixed words around them are translated (labels.ts), never names.
+ */
+export function intelChips(m: MomentMetrics | null | undefined, name: NameOf, register: IntelRegister = "analyst",
+                           lang: Lang = "en"): Chip[] {
   if (!m) return [];
+  const w = (key: string, who = "") => chipWord(key, lang, who);
+  const kind = (k: MetricKind) => w(`kind.${k}`);
   const chips: Chip[] = [];
   const quoted = new Set((m.thresholds ?? []).map((t) => t.value));
   for (const [i, t] of (m.thresholds ?? []).entries()) {
-    const who = t.player ? name(t.player) : "Ball";
+    const who = t.player ? name(t.player) : w("ball");
+    const unit = t.unit === "rating" ? "" : ` ${t.unit}`;
     chips.push(register === "newcomer"
-      ? { key: `t${i}`, label: who, value: t.kind === "top_speed" || t.kind === "sprint" ? "One of the fastest runs" : thresholdKind(t.kind), tone: "alert" }
-      : { key: `t${i}`, label: `${thresholdKind(t.kind)} · ${who}`, value: register === "fan" ? `${t.unit === "rating" ? t.value.toFixed(2) : Math.round(t.value)}${t.unit === "rating" ? "" : ` ${t.unit}`}` : thresholdLabel(t), tone: "alert" });
+      ? { key: `t${i}`, label: who, value: t.kind === "top_speed" || t.kind === "sprint" ? w("fastest_run") : kind(t.kind), tone: "alert" }
+      : { key: `t${i}`, label: `${kind(t.kind)} · ${who}`, value: register === "fan" ? `${t.unit === "rating" ? t.value.toFixed(2) : Math.round(t.value)}${unit}` : t.label ?? `${num(t.value)}${unit} (${w("threshold")} ${num(t.threshold)}${unit})`, tone: "alert" });
   }
   const kp = m.key_pass;
   if (kp) {
     const label = passLabel(kp);
-    if (register === "newcomer") chips.push({ key: "pass", label: `Pass by ${name(kp.player)}`, value: `${DIFFICULTY_TEXT[label]} to complete`, tone: label === "routine" ? "info" : "hot" });
-    else if (register === "fan") chips.push({ key: "pass", label: `Pass by ${name(kp.player)}`, value: `${Math.round(kp.distance_m)} m · ${DIFFICULTY_TEXT[label]}`, tone: "hot" });
+    if (register === "newcomer") chips.push({ key: "pass", label: w("pass_by", name(kp.player)), value: w(`to_complete.${label}`), tone: label === "routine" ? "info" : "hot" });
+    else if (register === "fan") chips.push({ key: "pass", label: w("pass_by", name(kp.player)), value: `${Math.round(kp.distance_m)} m · ${w(`difficulty.${label}`)}`, tone: "hot" });
     else {
-      chips.push({ key: "pass", label: `Pass · ${name(kp.player)}${kp.receiver ? ` → ${name(kp.receiver)}` : ""}`, value: metres(kp.distance_m), tone: "info" });
-      chips.push({ key: "diff", label: "Difficulty", value: `${kp.difficulty.toFixed(2)} · ${DIFFICULTY_TEXT[label]}`, tone: label === "very_hard" || label === "hard" ? "hot" : "info" });
-      if (kp.accuracy_pct != null) chips.push({ key: "acc", label: "Passer accuracy", value: pct(kp.accuracy_pct), tone: "info" });
-      if (kp.ball_speed_kmh != null) chips.push({ key: "bsp", label: "Ball speed", value: kmh(kp.ball_speed_kmh), tone: "info" });
+      chips.push({ key: "pass", label: `${w("pass")} · ${name(kp.player)}${kp.receiver ? ` → ${name(kp.receiver)}` : ""}`, value: metres(kp.distance_m), tone: "info" });
+      chips.push({ key: "diff", label: w("difficulty"), value: `${kp.difficulty.toFixed(2)} · ${w(`difficulty.${label}`)}`, tone: label === "very_hard" || label === "hard" ? "hot" : "info" });
+      if (kp.accuracy_pct != null) chips.push({ key: "acc", label: w("passer_accuracy"), value: pct(kp.accuracy_pct), tone: "info" });
+      if (kp.ball_speed_kmh != null) chips.push({ key: "bsp", label: kind("ball_speed"), value: kmh(kp.ball_speed_kmh), tone: "info" });
     }
   }
-  if (m.shot_speed_kmh != null) chips.push({ key: "shot", label: "Shot speed", value: register === "newcomer" ? (m.shot_speed_kmh >= 100 ? "A thunderous strike" : "Struck firmly") : kmh(m.shot_speed_kmh), tone: "hot" });
+  if (m.shot_speed_kmh != null) chips.push({ key: "shot", label: kind("shot_speed"), value: register === "newcomer" ? w(m.shot_speed_kmh >= 100 ? "thunderous" : "struck_firmly") : kmh(m.shot_speed_kmh), tone: "hot" });
   if (register !== "newcomer") {
-    if (m.player_speed_kmh != null && !quoted.has(m.player_speed_kmh)) chips.push({ key: "spd", label: `Speed · ${name(m.player)}`, value: kmh(m.player_speed_kmh), tone: "info" });
+    if (m.player_speed_kmh != null && !quoted.has(m.player_speed_kmh)) chips.push({ key: "spd", label: `${w("speed")} · ${name(m.player)}`, value: kmh(m.player_speed_kmh), tone: "info" });
     if (register === "analyst" && m.player_distance_km != null)
-      chips.push({ key: "dist", label: `Distance · ${name(m.player)}`, value: `${km(m.player_distance_km)}${m.player_sprints ? ` · ${m.player_sprints} sprints` : ""}`, tone: "info" });
+      chips.push({ key: "dist", label: `${w("distance")} · ${name(m.player)}`, value: `${km(m.player_distance_km)}${m.player_sprints ? ` · ${m.player_sprints} ${w("sprints")}` : ""}`, tone: "info" });
   }
   return register === "fan" ? chips.slice(0, 2) : register === "newcomer" ? chips.slice(0, 1) : chips;
 }

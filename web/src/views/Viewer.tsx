@@ -6,7 +6,7 @@ import { PitchLines } from "../components/PitchView";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
 import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
-import { chanceText, heading, outcomeText, zoneText } from "../labels";
+import { HEADINGS, chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
 
@@ -90,6 +90,14 @@ export type Cue = {
 export type Held = { packet: Packet; arrivedAt: number; until: number };
 
 const MIN_ON_SCREEN_MS = 2000;
+/**
+ * The longest any layer stays up, whatever its slot says: the agents' per-layer maximum (MAX_SLOT_MS in
+ * services/agents/agents/workflow.py), and 45 s for the goal routine's code-built ticker. A guard for any
+ * other source of packets, so a bad slot cannot pin a graphic on screen.
+ */
+const MAX_ON_SCREEN_MS: Record<string, number> = {
+  lower_third: 12_000, stat_panel: 20_000, heatmap: 20_000, full_screen: 25_000, ticker: 45_000, default: 45_000,
+};
 
 /**
  * How long a packet stays on screen: its slot, or its caption card's hold if that is longer.
@@ -100,7 +108,8 @@ const MIN_ON_SCREEN_MS = 2000;
  */
 export function holdMs(p: Packet): number {
   const slot = p.t_out_ms - p.t_in_ms;
-  return Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+  const wanted = Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+  return Math.min(wanted, MAX_ON_SCREEN_MS[p.layer] ?? MAX_ON_SCREEN_MS.default);
 }
 
 /** Adds a packet. A re-send under the same cue_id replaces it; a packet supersedes the ids it names. */
@@ -200,9 +209,9 @@ function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: La
 function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: Lang; register: IntelRegister }) {
   const badges = (!p.verified || p.fallback || p.lang !== lang) && (
     <span className="badges">
-      {!p.verified && <span className="badge override">Unverified</span>}
-      {p.fallback && <span className="badge fallback">Template</span>}
-      {p.lang !== lang && <span className="badge lang">in English</span>}
+      {!p.verified && <span className="badge override">{heading("unverified", lang)}</span>}
+      {p.fallback && <span className="badge fallback">{heading("template", lang)}</span>}
+      {p.lang !== lang && <span className="badge lang">{heading("in_english", lang)}</span>}
     </span>
   );
   const kicker = kickerFor(p, lang);
@@ -217,7 +226,8 @@ function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: 
     );
   }
   const detail = layer !== "player_tag" && (
-    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register}
+                lang={lang} />
   );
   // The spine takes the team colour the graphic carries (the scorer's stats do), else the viewer's side.
   const teamColor = (p.payload as { team_color?: unknown } | undefined)?.team_color;
@@ -388,15 +398,8 @@ export function cueTimer(setCue: (c: Cue | null) => void) {
   };
 }
 
-const CUE_WORDS: Record<Cue["kind"], string> = {
-  chance: "Shot",
-  goal: "Goal",
-  whistle: "Whistle",
-  crowd_rising: "Crowd rising",
-  crowd_roar: "Crowd roar",
-  crowd_groan: "Crowd groan",
-  card: "Card",
-};
+/** The strike cue's one word, in the viewer's language. */
+export const cueWord = (kind: string, lang: Lang) => HEADINGS[`cue.${kind}`]?.[lang] ?? heading("cue.play", lang);
 
 export type ViewerPreset = {
   persona?: Persona;
@@ -489,12 +492,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     return () => { stop = true; window.clearInterval(t); };
   }, [link, url, cues]);
 
-  // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
-  // another side or language.
+  // New settings mean a new feed: a cue or graphic from the old one must not outlive it, nor a score worded for
+  // another side or language. A graphic is held for up to 45 s, so a viewer switching from Spanish to Hindi kept
+  // the Spanish line up, badged "in English" (#59). The next graphic comes in the new language.
   useEffect(() => {
     return () => {
       cues.clear();
       setStrip(null);
+      setHeld(new Map());
     };
   }, [persona, access, lang, allegiance, cues]);
 
@@ -582,7 +587,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
             role="status"
             aria-live="assertive"
           >
-            <span className="cue-word">{CUE_WORDS[cue.kind] ?? "Play"}</span>
+            <span className="cue-word">{cueWord(cue.kind, lang)}</span>
           </div>
         )}
 

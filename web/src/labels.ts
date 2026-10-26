@@ -51,7 +51,60 @@ export const HEADINGS: Record<string, T> = {
   stats: { en: "Stats", es: "Estadísticas", hi: "आँकड़े" },
   shot: { en: "Shot", es: "Remate", hi: "शॉट" },
   caption: { en: "Caption", es: "Subtítulo", hi: "कैप्शन" },
+  // Badges on a graphic
+  unverified: { en: "Unverified", es: "Sin verificar", hi: "असत्यापित" },
+  template: { en: "Template", es: "Plantilla", hi: "टेम्पलेट" },
+  in_english: { en: "in English", es: "en inglés", hi: "अंग्रेज़ी में" },
+  // The strike cue's word, by cue kind
+  "cue.chance": { en: "Shot", es: "Remate", hi: "शॉट" },
+  "cue.goal": { en: "Goal", es: "Gol", hi: "गोल" },
+  "cue.whistle": { en: "Whistle", es: "Silbato", hi: "सीटी" },
+  "cue.crowd_rising": { en: "Crowd rising", es: "La grada se levanta", hi: "दर्शक उठ रहे हैं" },
+  "cue.crowd_roar": { en: "Crowd roar", es: "Rugido de la grada", hi: "दर्शकों की गर्जना" },
+  "cue.crowd_groan": { en: "Crowd groan", es: "Lamento de la grada", hi: "दर्शकों की आह" },
+  "cue.card": { en: "Card", es: "Tarjeta", hi: "कार्ड" },
+  "cue.play": { en: "Play", es: "Juego", hi: "खेल" },
 };
+
+/**
+ * The match-intelligence chips' fixed words. `{name}` and `{value}` are filled in by intel.ts; the numbers and
+ * player names themselves are never translated.
+ */
+export const CHIP_WORDS: Record<string, T> = {
+  ball: { en: "Ball", es: "Balón", hi: "गेंद" },
+  pass: { en: "Pass", es: "Pase", hi: "पास" },
+  pass_by: { en: "Pass by {name}", es: "Pase de {name}", hi: "{name} का पास" },
+  difficulty: { en: "Difficulty", es: "Dificultad", hi: "कठिनाई" },
+  passer_accuracy: { en: "Passer accuracy", es: "Precisión del pasador", hi: "पास देने वाले की सटीकता" },
+  speed: { en: "Speed", es: "Velocidad", hi: "गति" },
+  distance: { en: "Distance", es: "Distancia", hi: "दूरी" },
+  sprints: { en: "sprints", es: "sprints", hi: "स्प्रिंट" },
+  threshold: { en: "threshold", es: "umbral", hi: "सीमा" },
+  fastest_run: { en: "One of the fastest runs", es: "Una de las carreras más rápidas", hi: "सबसे तेज़ दौड़ों में से एक" },
+  thunderous: { en: "A thunderous strike", es: "Un disparo potentísimo", hi: "ज़बरदस्त शॉट" },
+  struck_firmly: { en: "Struck firmly", es: "Disparo firme", hi: "दमदार शॉट" },
+  // Pass difficulty, alone and as the newcomer's whole sentence
+  "difficulty.routine": { en: "Routine", es: "Sencillo", hi: "आसान" },
+  "difficulty.testing": { en: "Testing", es: "Exigente", hi: "चुनौतीपूर्ण" },
+  "difficulty.hard": { en: "Hard", es: "Difícil", hi: "कठिन" },
+  "difficulty.very_hard": { en: "Very hard", es: "Muy difícil", hi: "बहुत कठिन" },
+  "to_complete.routine": { en: "Routine to complete", es: "Pase sencillo", hi: "आसान पास" },
+  "to_complete.testing": { en: "Testing to complete", es: "Pase exigente", hi: "चुनौतीपूर्ण पास" },
+  "to_complete.hard": { en: "Hard to complete", es: "Pase difícil", hi: "कठिन पास" },
+  "to_complete.very_hard": { en: "Very hard to complete", es: "Pase muy difícil", hi: "बहुत कठिन पास" },
+  // Threshold kinds
+  "kind.top_speed": { en: "Top speed", es: "Velocidad máxima", hi: "शीर्ष गति" },
+  "kind.sprint": { en: "Sprint", es: "Sprint", hi: "स्प्रिंट" },
+  "kind.distance": { en: "Distance", es: "Distancia", hi: "दूरी" },
+  "kind.pass_difficulty": { en: "Pass difficulty", es: "Dificultad del pase", hi: "पास की कठिनाई" },
+  "kind.pass_distance": { en: "Long pass", es: "Pase largo", hi: "लंबा पास" },
+  "kind.ball_speed": { en: "Ball speed", es: "Velocidad del balón", hi: "गेंद की गति" },
+  "kind.shot_speed": { en: "Shot speed", es: "Velocidad del remate", hi: "शॉट की गति" },
+};
+
+/** A chip word in the viewer's language, with `{name}` filled in. An unknown key passes through as itself. */
+export const chipWord = (key: string, lang: Lang, name = ""): string =>
+  (CHIP_WORDS[key]?.[lang] ?? CHIP_WORDS[key]?.en ?? key).replace("{name}", name);
 
 export const heading = (key: keyof typeof HEADINGS | string, lang: Lang): string =>
   HEADINGS[key]?.[lang] ?? key;
