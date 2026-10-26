@@ -9,6 +9,10 @@ param location string = 'eastus2'
 param instance string = '01'
 param ownerAlias string = 'aicoe'
 param expires string = '2026-11-30'
+// Whether each app exists already; azd fills these from SERVICE_*_RESOURCE_EXISTS (main.parameters.json).
+param apiExists bool = false
+param ingestExists bool = false
+param webExists bool = false
 
 // Naming convention: resource group {app}-rg-{env}-{region}-{instance}, resources {type}-{app}-{env}-{region}-{instance}.
 var app = 'crq'
@@ -55,6 +59,9 @@ module apps 'modules/apps.bicep' = {
     cosmosEndpoint: data.outputs.cosmosEndpoint
     foundryProjectEndpoint: ai.outputs.projectEndpoint
     openAiEndpoint: ai.outputs.openAiEndpoint
+    apiExists: apiExists
+    ingestExists: ingestExists
+    webExists: webExists
   }
 }
 

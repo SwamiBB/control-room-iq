@@ -10,6 +10,26 @@ param eventHubNamespaceFqdn string
 param cosmosEndpoint string
 param foundryProjectEndpoint string
 param openAiEndpoint string
+// Whether each app already exists (azd sets SERVICE_*_RESOURCE_EXISTS). If it does, provisioning keeps the image it
+// is running, read from Azure; otherwise the app starts on the placeholder until the first `azd deploy`.
+param apiExists bool = false
+param ingestExists bool = false
+param webExists bool = false
+
+var placeholderImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+
+module apiImage 'fetch-image.bicep' = {
+  name: 'api-image'
+  params: { name: 'ca-${app}-api-${suffix}', exists: apiExists }
+}
+module ingestImage 'fetch-image.bicep' = {
+  name: 'ingest-image'
+  params: { name: 'ca-${app}-ingest-${suffix}', exists: ingestExists }
+}
+module webImage 'fetch-image.bicep' = {
+  name: 'web-image'
+  params: { name: 'ca-${app}-web-${suffix}', exists: webExists }
+}
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: 'caenv-${app}-${suffix}'
@@ -54,7 +74,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'api'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest' // replaced by azd deploy
+        image: empty(apiImage.outputs.image) ? placeholderImage : apiImage.outputs.image
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
@@ -75,7 +95,7 @@ resource ingest 'Microsoft.App/containerApps@2024-03-01' = {
     template: {
       containers: [ {
         name: 'ingest'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        image: empty(ingestImage.outputs.image) ? placeholderImage : ingestImage.outputs.image
         env: commonEnv
         resources: { cpu: json('0.5'), memory: '1Gi' }
       } ]
@@ -94,13 +114,13 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: cae.id
     configuration: {
-      ingress: { external: true, targetPort: 80 }
+      ingress: { external: true, targetPort: 8080 } // the unprivileged nginx image's port
       registries: [ { server: acrLoginServer, identity: identityId } ]
     }
     template: {
       containers: [ {
         name: 'web'
-        image: 'mcr.microsoft.com/k8se/quickstart:latest'
+        image: empty(webImage.outputs.image) ? placeholderImage : webImage.outputs.image
         // The web image's nginx proxies the API paths here (#14); the API has no public address of its own.
         env: [ { name: 'API_UPSTREAM', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
         resources: { cpu: json('0.25'), memory: '0.5Gi' }

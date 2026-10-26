@@ -53,7 +53,42 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   // Entra ID only: no account keys. Nothing reads or writes blobs yet; #37's checkpoint store will, with the role below.
-  properties: { allowBlobPublicAccess: false, minimumTlsVersion: 'TLS1_2', allowSharedKeyAccess: false }
+  properties: {
+    allowBlobPublicAccess: false
+    minimumTlsVersion: 'TLS1_2'
+    allowSharedKeyAccess: false
+    // A second, infrastructure-level layer of encryption (Trivy AZU-0061). Azure only accepts this when the account
+    // is created: an existing account has to be deleted and provisioned again to get it.
+    encryption: {
+      requireInfrastructureEncryption: true
+      keySource: 'Microsoft.Storage'
+      services: { blob: { enabled: true }, file: { enabled: true } }
+    }
+  }
+}
+
+// Deleted blobs and containers can be restored for 7 days (Trivy AZU-0056).
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: { enabled: true, days: 7 }
+    containerDeleteRetentionPolicy: { enabled: true, days: 7 }
+  }
+}
+
+// Every read, write and delete on blobs goes to the Log Analytics workspace (Trivy AZU-0057).
+resource blobLogs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'blob-logs'
+  scope: blobService
+  properties: {
+    workspaceId: logs.id
+    logs: [
+      { category: 'StorageRead', enabled: true }
+      { category: 'StorageWrite', enabled: true }
+      { category: 'StorageDelete', enabled: true }
+    ]
+  }
 }
 
 // Storage Blob Data Contributor for the workload identity, for #37's ingest checkpoint store (not wired yet: today the
