@@ -633,10 +633,6 @@ function Card({
   const secondsLeft = holdAt ? Math.max(0, Math.ceil((holdAt - now) / 1000)) : null;
   const warning_on = Boolean(warning) || (warnAt != null && now >= warnAt && p.status === "proposed");
   const advice = p.hold_advice?.recommend_hold ? p.hold_advice : null;
-  // Shelf life in play time: when it reached the running order, plus its max delay (never under 60 s).
-  const expiresAt = p.proposed_play_ms != null
-    ? p.proposed_play_ms + Math.max(p.max_delay_ms ?? 0, 60_000)
-    : null;
   const unsourced = p.unsourced_numbers ?? [];
 
   return (
@@ -669,8 +665,10 @@ function Card({
         </div>
       )}
 
-      {p.status === "held" && expiresAt != null && (
-        <div className="sla" title={DECISION_HELP.expired}>Expires at {playClock(expiresAt)}</div>
+      {/* No clock time: a held card expires only once the match has moved past it (play time) AND it has had
+          60 s on the desk (wall time). Above 1x those resolve at different moments, so any one time is a guess. */}
+      {p.status === "held" && (
+        <div className="sla" title={DECISION_HELP.expired}>Expires once the match moves on</div>
       )}
 
       <p className="line">{p.line}</p>
