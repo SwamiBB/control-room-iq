@@ -176,6 +176,49 @@ Operational metrics at `GET /metrics`: turnaround, error rate, operator workload
 - **Local adapters** behind identical repository and event interfaces mean Cosmos or Event Hubs can be
   swapped for in-process alternatives during development.
 
+## 9. Deployment posture
+
+The deployed demo is a public, judge-accessible proof of concept. Its resource group name
+(`crq-rg-poc-eastus2-01`) carries the `-poc-` tag. The network posture reflects that scope. The
+application-layer controls described above (sections 1–8) run identically regardless of the deployment
+posture — they are structural, not perimeter-based.
+
+### What the deployed environment enforces
+
+- **No local-auth credentials anywhere.** `disableLocalAuth: true` on Cosmos DB and Event Hubs;
+  `allowSharedKeyAccess: false` on Storage; `adminUserEnabled: false` on ACR. There is no SAS key,
+  account key, or admin password to leak. Every data-plane call requires an Entra ID principal with the
+  matching RBAC role, held by the workload managed identity.
+- **The API is not internet-reachable.** `ca-crq-api-*` runs with `ingress.external: false` inside the
+  Container Apps environment; the nginx `web` container is the single public ingress and proxies
+  specific paths. `ingest` has no ingress at all.
+- **Storage hardened to Trivy's floor.** Infrastructure encryption required (AZU-0061), 7-day delete
+  retention on blobs and containers (AZU-0056), diagnostic settings forward every read, write and delete
+  to Log Analytics (AZU-0057).
+- **TLS 1.2 minimum** on Cosmos, Event Hubs and Storage.
+- **Synthetic data only.** The system has no PII, no customer data, and no real match data to
+  exfiltrate.
+- **Full observability.** Application Insights carries one OpenTelemetry trace per `moment_id`; blob
+  operations and container app logs land in Log Analytics.
+
+### What is deferred to production hardening
+
+For an enterprise production deployment, the following would be required and are intentionally **not**
+present in this POC:
+
+- **Private endpoints** on Cosmos DB, Event Hubs and Storage, with `publicNetworkAccess: 'Disabled'` on
+  each.
+- **VNet integration** on the Container Apps managed environment.
+- **Azure Front Door + WAF** in front of the public web ingress.
+- **IP allowlist** on data services during provisioning.
+- **Foundry public access disabled**; access via private endpoint only (`publicNetworkAccess` is
+  currently `Enabled` in `infra/modules/ai.bicep`).
+- **Entra ID sign-in** on the operator and viewer apps (the stated next step; see Known limits).
+
+The intended production topology is in [`docs/END-TO-END-ARCHITECTURE.md`](docs/END-TO-END-ARCHITECTURE.md)
+§9. The gap between the POC and production is a configuration delta on the same Bicep modules, not a
+rewrite.
+
 ## Known limits
 
 Honesty on scope is part of the posture. See [README §Limits](README.md#limits) — notably:
