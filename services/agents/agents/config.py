@@ -47,9 +47,9 @@ class Settings:
     # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
     # 12 s lets an occasional slow router pick finish instead of falling back to the template.
     agent_timeout_s: float = float(os.environ.get("AGENT_TIMEOUT_S", "12"))
-    # Passed to the routers, which hand it to the reasoning models they pick. "low" kept every agent under the 8 s
-    # timeout in the Oct 26 demo-window runs, with the writing unchanged; the default effort timed out half the
-    # explainer calls (#39). Empty sends no reasoning_effort.
+    # Passed to the routers, which hand it to the reasoning models they pick. In the Oct 26 demo-window runs "low"
+    # kept every agent call under 8 s with the writing unchanged; the default effort took half the explainer calls
+    # past 8 s (#39). Empty sends no reasoning_effort.
     reasoning_effort: str = _reasoning_effort()
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
     languages: tuple[str, ...] = _languages()

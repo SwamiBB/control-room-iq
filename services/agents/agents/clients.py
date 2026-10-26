@@ -27,28 +27,30 @@ def _credential():
 
 def chat_client(deployment: str | None = None):
     """One client per deployment: on Azure the deployment is part of the request URL. The name is resolved
-    first, so chat_client() and chat_client(<the balanced router>) share one client."""
-    return _client_for(deployment or settings.router_balanced)
-
-
-@cache
-def _client_for(deployment: str):
+    first, so chat_client() and chat_client(<the balanced router>) share one client. A failed build is not
+    cached, so the next agent built for that router tries again."""
     if settings.offline:
         return None
+    deployment = deployment or settings.router_balanced
     try:
-        # Chat Completions, not OpenAIChatClient: that one calls the Responses API, which model-router rejects
-        # with 400 "The requested operation is unsupported" (#10).
-        from agent_framework.openai import OpenAIChatCompletionClient
-
-        return OpenAIChatCompletionClient(
-            azure_endpoint=settings.azure_openai_endpoint or settings.foundry_project_endpoint,
-            credential=_credential(),
-            model=deployment,
-        )
+        return _client_for(deployment)
     except Exception:  # noqa: BLE001 - the API must still serve the console; these agents fall back to templates
         logger.exception("Model client for %s unavailable; its agents will use their template fallbacks",
                          deployment)
         return None
+
+
+@cache
+def _client_for(deployment: str):
+    # Chat Completions, not OpenAIChatClient: that one calls the Responses API, which model-router rejects
+    # with 400 "The requested operation is unsupported" (#10).
+    from agent_framework.openai import OpenAIChatCompletionClient
+
+    return OpenAIChatCompletionClient(
+        azure_endpoint=settings.azure_openai_endpoint or settings.foundry_project_endpoint,
+        credential=_credential(),
+        model=deployment,
+    )
 
 
 def make_agent(name: str, instructions: str, response_format=None):

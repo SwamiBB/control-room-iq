@@ -116,6 +116,11 @@ def test_client_failure_falls_back_to_templates(monkeypatch, caplog):
         with caplog.at_level(logging.ERROR):
             assert clients.make_agent("explainer", "Explain the moment.", Explanation) is None
         assert "template fallback" in caplog.text
+        # The failure is not cached: once the client can be built, that router's next agent gets one.
+        monkeypatch.undo()
+        monkeypatch.setattr(clients, "settings", config.Settings(
+            offline=False, azure_openai_endpoint="https://example.openai.azure.com/"))
+        assert isinstance(clients.chat_client(config.deployment_for("explainer")), OpenAIChatCompletionClient)
     finally:
         clients._client_for.cache_clear()
 

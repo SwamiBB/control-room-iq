@@ -52,11 +52,12 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
-  // Entra ID only: the checkpoint store (#37) uses the managed identity's role below, never an account key.
+  // Entra ID only: no account keys. Nothing reads or writes blobs yet; #37's checkpoint store will, with the role below.
   properties: { allowBlobPublicAccess: false, minimumTlsVersion: 'TLS1_2', allowSharedKeyAccess: false }
 }
 
-// Storage Blob Data Contributor for the workload identity (the ingest checkpoint store, #37)
+// Storage Blob Data Contributor for the workload identity, for #37's ingest checkpoint store (not wired yet: today the
+// consumer checkpoints in memory). Every workload role lives in Bicep.
 resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storage.id, identity.id, 'blobcontrib')
   scope: storage
