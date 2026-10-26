@@ -67,6 +67,8 @@ Three things set it apart:
   waiting, then a caption on the result as soon as the graphics operator fires it, in English, Spanish or
   Hindi.
 
+![The deaf fan's viewer at a 42-minute goal: the four-axis picker (Fan, Deaf — cues and captions, English, Home) above a tracked pitch with all 22 players and the ball, the fired goal caption on screen, and a structured caption card below with shot taker, location, outcome, chance quality and score.](docs/img/deaf-fan-at-goal.png)
+
 ## Judge walkthrough (about three minutes, no login)
 
 1. Open the live demo. The reference match (seed 42, Harbor City v Northfield United) replays from 41:00.
