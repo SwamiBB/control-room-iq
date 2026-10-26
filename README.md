@@ -11,8 +11,8 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Live demo | [URL — pre-loaded replay, no login] |
 | Video (under 2 minutes) | [link] |
 | Tests in CI | [N] passing |
-| Foundry evaluation | [faithfulness x.xx · relevance x.xx · fluency x.xx over N lines in EN / ES / HI] |
-| Planted falsehoods | [N planted, N caught] |
+| Foundry evaluation | Groundedness 4.3 (cards) · 3.6 (on-air lines) · 4.1 ES · 4.2 HI; relevance 4.8–5.0; 50 outputs from 10 moments, 1–5 scale ([details](evals/results/latest.md)) |
+| Planted falsehoods | 10 planted wrong numbers: 7 caught by the code check before air; the groundedness judge scored all 10 at 2.0 |
 | From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
 
 All match data is synthetic. Clubs, players and venues are fictional.
@@ -114,9 +114,9 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | --- | --- | --- |
 | Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | [In progress]; until then a fired graphic airs at once |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
-| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer); the served model is recorded on every trace span | [In progress] |
-| Foundry Agent Service | The five agents registered so they can be inspected in the portal | [In progress] |
-| Foundry evaluations | Faithfulness, relevance and fluency per language, plus the planted-falsehood set | [In progress] |
+| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
+| Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
+| Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`) | Built |
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built (feed); [deploy] |
 | Azure Container Apps | Ingest, API and web | [deploy] |
 | Azure Cosmos DB (serverless) | Match state and the decision log | [deploy] |

@@ -1,0 +1,170 @@
+{
+  "meta": {
+    "when": "2026-10-26 18:59 UTC",
+    "match": "match-042.jsonl",
+    "moments": 10,
+    "rows": 50,
+    "effort": "low",
+    "judge": "gpt-4.1-mini"
+  },
+  "foundry": {
+    "explanation/en": {
+      "groundedness": {
+        "mean": 4.6,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 4.8,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 3.7,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 3.6,
+        "n": 10
+      },
+      "violence": {
+        "mean": 0.0,
+        "n": 10
+      }
+    },
+    "line/en": {
+      "groundedness": {
+        "mean": 3.6,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 5.0,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 4.1,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 3.0,
+        "n": 10
+      },
+      "violence": {
+        "mean": 0.2,
+        "n": 10
+      }
+    },
+    "card/en": {
+      "groundedness": {
+        "mean": 4.3,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 4.8,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 4.0,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 2.7,
+        "n": 10
+      },
+      "violence": {
+        "mean": 0.2,
+        "n": 10
+      }
+    },
+    "variant/es": {
+      "groundedness": {
+        "mean": 4.1,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 5.0,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 4.1,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 3.1,
+        "n": 10
+      },
+      "violence": {
+        "mean": 1.0,
+        "n": 10
+      }
+    },
+    "variant/hi": {
+      "groundedness": {
+        "mean": 4.2,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 5.0,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 4.4,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 3.2,
+        "n": 10
+      },
+      "violence": {
+        "mean": 0.0,
+        "n": 10
+      }
+    },
+    "planted": {
+      "groundedness": {
+        "mean": 2.0,
+        "n": 10
+      },
+      "relevance": {
+        "mean": 5.0,
+        "n": 10
+      },
+      "coherence": {
+        "mean": 4.1,
+        "n": 10
+      },
+      "fluency": {
+        "mean": 2.9,
+        "n": 10
+      },
+      "violence": {
+        "mean": 0.4,
+        "n": 10
+      }
+    }
+  },
+  "code_checks": {
+    "english_lines": 20,
+    "lines_with_unsourced_numbers": 4,
+    "flagged_examples": [
+      "Kai Reed finds the top chance, but nfu-01 saves his 0.38 xG effort as Har’s pressure builds.",
+      "Kai Reed denied on Har’s top chance — 0.38 xG, 98 km/h",
+      "Half-time: har lead nfu 1-0. Finn Oakes scores at 41 minutes after Kai Reed’s saved chance. nfu dominate possession, but har create sustained late pressure. Kai Reed stands out with 1.208 xG.",
+      "har win 1-0. Finn Oakes scores at 41 minutes. nfu hold 54.4% possession but har create more pressure and chances. Finn Oakes stands out with a goal from five shots."
+    ],
+    "variants_checked": 20,
+    "variants_passed": 0,
+    "variant_failures": {
+      "names": 14,
+      "length": 20,
+      "numbers": 6
+    }
+  },
+  "planted": {
+    "planted": 10,
+    "caught_by_code": 7,
+    "missed": [
+      "Leo Hart shoots wide — 0.7 xG, 85.3 km/h",
+      "Nik Gale fires wide — 0.7 xG, 105.9 km/h",
+      "Kai Reed denied on Har’s top chance — 0.8 xG, 98 km/h"
+    ]
+  }
+}
