@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { WS, fetchStanding, type MatchStanding } from "../api";
+import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
 import { PitchLines } from "../components/PitchView";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import type { IntelRegister, MomentMetrics } from "../intel";
-import { LAYER_RECTS, layerOf, onScreen, rectStyle } from "../layout";
+import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
 import { chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import "./viewer.css";
@@ -158,7 +158,7 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
   if (rows.length === 0) return null;
 
   return (
-    <dl className="caption-card">
+    <dl className="caption-card" data-kicker={heading("caption", lang)}>
       {rows.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
@@ -166,6 +166,71 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * The score bug, top left: team codes with a side chip, the score, the clock in the red tally block. It is
+ * the stats engine's own count and clock (GET /state), so it needs no approval, and it is the one thing on
+ * the frame that is always there.
+ */
+function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: Lang }) {
+  const minute = standing ? matchMinute(standing.period, standing.clockMs) : null;
+  const place = { top: `${BUG_RECT.top}%`, left: `${BUG_RECT.left}%`, maxWidth: `${BUG_RECT.width}%` };
+  return (
+    <div className="score-bug" style={place} aria-label={standing ? "Score and match clock" : undefined}>
+      {standing ? (
+        <>
+          <span className="team"><i className="chip home" />{(standing.homeTeam ?? "Home").toUpperCase()}</span>
+          <span className="score">{standing.home}–{standing.away}</span>
+          <span className="team"><i className="chip away" />{(standing.awayTeam ?? "Away").toUpperCase()}</span>
+          <span className="clock">{minute ?? heading("live", lang)}</span>
+        </>
+      ) : (
+        <span className="clock waiting">{heading("waiting", lang)}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One graphic as furniture: kicker, main line, detail. The overlay around it is only the layer's region;
+ * this is the object drawn in it, sized to its content.
+ */
+function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: Lang; register: IntelRegister }) {
+  const badges = (!p.verified || p.fallback || p.lang !== lang) && (
+    <span className="badges">
+      {!p.verified && <span className="badge override">Unverified</span>}
+      {p.fallback && <span className="badge fallback">Template</span>}
+      {p.lang !== lang && <span className="badge lang">in English</span>}
+    </span>
+  );
+  const kicker = kickerFor(p, lang);
+  // The main text is the delivered line, never fan_card.caption (that is the English reference).
+  if (layer === "ticker") {
+    return (
+      <div className="gfx">
+        <span className="tag">{kicker}</span>
+        <span className="main">{p.line}</span>
+        {badges}
+      </div>
+    );
+  }
+  const detail = layer !== "player_tag" && (
+    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+  );
+  // The spine takes the team colour the graphic carries (the scorer's stats do), else the viewer's side.
+  const teamColor = (p.payload as { team_color?: unknown } | undefined)?.team_color;
+  const spine = typeof teamColor === "string" ? { background: teamColor } : undefined;
+  return (
+    <div className="gfx">
+      {layer === "lower_third" && <span className="spine" style={spine} aria-hidden="true" />}
+      <div className="body">
+        <span className="kick">{kicker}{badges}</span>
+        <span className="main">{p.line}</span>
+        {detail && <div className="detail">{detail}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -272,6 +337,21 @@ export function settingsFromQuery(search: string): ViewerPreset {
 export const queryFor = (s: Required<ViewerPreset>) =>
   new URLSearchParams({ persona: s.persona, access: s.access, lang: s.lang, allegiance: s.allegiance }).toString();
 
+/**
+ * The small line above a graphic's main text, from what the packet already carries: what happened (the
+ * caption card's outcome), the score (the goal ticker), the official stats (the scorer's lower third), a
+ * shot, or else the layer's own word. Never generated text.
+ */
+export function kickerFor(p: Packet, lang: Lang): string {
+  const outcome = outcomeText(p.fan_card?.detail?.outcome, lang);
+  if (outcome) return outcome;
+  const payload = p.payload as (Packet["payload"] & { source?: string }) | undefined;
+  if (Array.isArray(payload?.score)) return heading("score", lang);
+  if (payload?.source === "code") return heading("stats", lang);
+  if (payload?.intel?.shot_speed_kmh != null || payload?.intel?.shot_path) return heading("shot", lang);
+  return heading("live", lang);
+}
+
 /** The gate, enforced in the renderer: a packet with no approval cannot be drawn. */
 export function isApproved(p: Packet): boolean {
   return Boolean(p.approval_id && p.approved_by && p.approved_at);
@@ -342,6 +422,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [refused, setRefused] = useState(0);
   const [cues] = useState(() => cueTimer(setCue));
   const [strip, setStrip] = useState<Strip | null>(null);
+  const [standing, setStanding] = useState<MatchStanding | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
@@ -366,13 +447,24 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       }
       if (m.type === "fan_cue") cues.show(m.cue as Cue);
     }
-  }, () => {
-    // The viewer socket sends no match frame, so ask where the match stands on every connect, a refresh
-    // included. No match loaded leaves the strip waiting.
-    fetchStanding()
-      .then((s) => { if (s) setStrip((prev) => withStanding(prev, s)); })
-      .catch(() => undefined); // the next scored graphic fills it anyway
   });
+
+  // The viewer socket sends no match frame or clock, so the score bug asks where the match stands: at once on
+  // connect (a refresh included), then every 2 s for the clock. No match loaded leaves the bug waiting.
+  useEffect(() => {
+    if (link !== "live") return;
+    let stop = false;
+    const ask = () => fetchStanding()
+      .then((st) => {
+        if (stop) return;
+        setStanding(st);
+        if (st) setStrip((prev) => withStanding(prev, st));
+      })
+      .catch(() => undefined); // keep the last known standing through a failed poll
+    ask();
+    const t = window.setInterval(ask, 2000);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [link, url]);
 
   // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
   // another side or language.
@@ -445,18 +537,9 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         </div>
       </header>
 
-      {/* Persistent live strip: score and clock stay put, cards come and go (Oct 22 decision). */}
-      <div className="live-strip">
-        <span className="live-dot" aria-hidden="true" />
-        <span className="live-word">{heading("live", lang)}</span>
-        {strip?.score
-          ? <b className="live-score">{strip.score}</b>
-          : <span className="live-score waiting">{heading("waiting", lang)}</span>}
-      </div>
-
       <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
         {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
-        <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid meet"
+        <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid slice"
              role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
           <PitchLines />
           {strip?.shot && (
@@ -464,6 +547,10 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
                       label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
           )}
         </svg>
+        {/* Graded like a camera feed: a vignette gives the frame a centre; a full screen dims the whole frame. */}
+        <div className="vignette" aria-hidden="true" />
+        {fullScreenUp && <div className="scrim" aria-hidden="true" />}
+        <ScoreBug standing={standing} lang={lang} />
         {/* Beat one: code-built, no generated text, so it needs no approval and lands on the strike. */}
         {cue && (
           <div
@@ -481,18 +568,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           const layer = layerOf(p.layer);
           return (
             <div key={p.cue_id} className={`overlay layer-${layer}`} style={rectStyle(LAYER_RECTS[layer])}>
-              {(!p.verified || p.fallback || p.lang !== lang) && (
-                <div className="badges">
-                  {!p.verified && <span className="badge override">Unverified</span>}
-                  {p.fallback && <span className="badge fallback">Template</span>}
-                  {p.lang !== lang && <span className="badge lang">in English</span>}
-                </div>
-              )}
-              {/* The caption is the delivered line, never fan_card.caption (that is the English reference). */}
-              <p className="line">{p.line}</p>
-              {layer !== "ticker" && layer !== "player_tag" && (
-                <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
-              )}
+              <Graphic p={p} layer={layer} lang={lang} register={register} />
             </div>
           );
         })}

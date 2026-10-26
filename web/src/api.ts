@@ -238,7 +238,19 @@ export async function fetchReplayStatus(): Promise<{ running: boolean; speed: nu
 }
 
 /** Where the match stands, from GET /state: null when the API has no match loaded. */
-export type MatchStanding = { matchId: string; playMs: number; home: number; away: number };
+export type MatchStanding = {
+  matchId: string; playMs: number; home: number; away: number;
+  /** Team ids as the stats engine has them ("har"); the bug shows them upper-cased, as the short names are. */
+  homeTeam?: string; awayTeam?: string;
+  /** The match clock: the period, and time within it. */
+  period?: number; clockMs?: number;
+};
+
+/** "42'": the minute being played, counted from the first half's kick-off (41:14 is the 42nd minute). */
+export function matchMinute(period: number | undefined, clockMs: number | undefined): string | null {
+  if (clockMs == null || !Number.isFinite(clockMs)) return null;
+  return `${Math.floor(clockMs / 60_000) + (period === 2 ? 45 : 0) + 1}'`;
+}
 
 /**
  * GET /state on connect, so a screen that joins mid-match knows the score without waiting for a graphic.
@@ -247,7 +259,13 @@ export type MatchStanding = { matchId: string; playMs: number; home: number; awa
 export async function fetchStanding(): Promise<MatchStanding | null> {
   const s = await get("/state");
   if (!s || typeof s.match_id !== "string" || !s.home || !s.away) return null;
-  return { matchId: s.match_id, playMs: Number(s.play_ms) || 0, home: Number(s.home.goals) || 0, away: Number(s.away.goals) || 0 };
+  return {
+    matchId: s.match_id, playMs: Number(s.play_ms) || 0, home: Number(s.home.goals) || 0, away: Number(s.away.goals) || 0,
+    homeTeam: typeof s.home.team === "string" ? s.home.team : undefined,
+    awayTeam: typeof s.away.team === "string" ? s.away.team : undefined,
+    period: Number(s.period) || undefined,
+    clockMs: Number.isFinite(Number(s.t_ms)) ? Number(s.t_ms) : undefined,
+  };
 }
 
 /** GET /deliveries is one flat audit list for the match; the console keeps it per proposal. */

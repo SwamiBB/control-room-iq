@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LAYERS, LAYER_RECTS, canShareFrame, layerOf, onScreen, overlaps } from "./layout";
+import { BUG_RECT, LAYERS, LAYER_RECTS, canShareFrame, layerOf, onScreen, overlaps } from "./layout";
 
 const h = (cue: string, layer: string) => ({ cue, packet: { layer } });
 
@@ -10,6 +10,10 @@ describe("layer positions", () => {
         if (canShareFrame(a, b)) expect(overlaps(LAYER_RECTS[a], LAYER_RECTS[b]), `${a} and ${b}`).toBe(false);
       }
     }
+  });
+
+  it("never puts a layer over the score bug, which is always on screen", () => {
+    for (const l of LAYERS) expect(overlaps(LAYER_RECTS[l], BUG_RECT), l).toBe(false);
   });
 
   it("keeps every region inside the frame", () => {

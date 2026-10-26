@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  canStartReplay, decisionHelp, fetchStanding, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
+  canStartReplay, decisionHelp, fetchStanding, matchMinute, COMPRESSED_SPEEDS, REPLAY_SPEEDS, speedLabel, fetchDeliveries, fetchReplayStatus, DEMO_WINDOW, decide, decisionLabel, errorMessage, fetchMetrics, fetchPreview, isTemplateFallback, layerName, modelLabel, startReplay, viewLabel,
 } from "./api";
 
 describe("fetchPreview", () => {
@@ -232,8 +232,11 @@ describe("fetchStanding", () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string) => ({ ok: true, json: async () => body })));
 
   it("reads the match and the score from GET /state", async () => {
-    answer({ match_id: "m-ref-042", play_ms: 2_520_000, home: { goals: 1 }, away: { goals: 0 } });
-    expect(await fetchStanding()).toEqual({ matchId: "m-ref-042", playMs: 2_520_000, home: 1, away: 0 });
+    answer({ match_id: "m-ref-042", play_ms: 2_520_000, period: 1, t_ms: 2_474_000,
+             home: { team: "har", goals: 1 }, away: { team: "nfu", goals: 0 } });
+    expect(await fetchStanding()).toEqual({
+      matchId: "m-ref-042", playMs: 2_520_000, home: 1, away: 0, homeTeam: "har", awayTeam: "nfu", period: 1, clockMs: 2_474_000,
+    });
   });
 
   it("is null when the API has no match loaded", async () => {
@@ -254,5 +257,17 @@ describe("decisionHelp (what Held and Expired mean)", () => {
   it("leaves the plain words alone", () => {
     expect(decisionHelp("approved", "operator")).toBeUndefined();
     expect(decisionHelp("rejected", "operator")).toBeUndefined();
+  });
+});
+
+describe("matchMinute (the score bug's clock)", () => {
+  it("counts the minute being played, from the first half's kick-off", () => {
+    expect(matchMinute(1, 2_474_000)).toBe("42'");
+    expect(matchMinute(1, 0)).toBe("1'");
+    expect(matchMinute(2, 600_000)).toBe("56'");
+  });
+
+  it("says nothing without a clock", () => {
+    expect(matchMinute(1, undefined)).toBeNull();
   });
 });
