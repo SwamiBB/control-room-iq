@@ -3,6 +3,8 @@
 **The AI member of the production gallery: Foundry agents propose what goes on screen, a human fires every
 graphic, and the approved moment reaches deaf fans live, in their language.**
 
+![Control Room IQ at minute 41: the graphics operator console on the left (running order, just-fired, decision log, program feed), and three viewer renderings on the right delivering the same approved goal moment in English, Spanish and Hindi.](docs/img/operator-and-viewers.png)
+
 Built for the Microsoft × Premier League *Inside the Game* Developer Hackathon (October 2026).
 Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 
@@ -65,6 +67,8 @@ Three things set it apart:
   waiting, then a caption on the result as soon as the graphics operator fires it, in English, Spanish or
   Hindi.
 
+![The deaf fan's viewer at a 42-minute goal: the four-axis picker (Fan, Deaf — cues and captions, English, Home) above a tracked pitch with all 22 players and the ball, the fired goal caption on screen, and a structured caption card below with shot taker, location, outcome, chance quality and score.](docs/img/deaf-fan-at-goal.png)
+
 ## Judge walkthrough (about three minutes, no login)
 
 1. Open the live demo. The reference match (seed 42, Harbor City v Northfield United) replays from 41:00.
@@ -124,6 +128,8 @@ produced is flagged on the card before the operator fires.
 - **Error rate:** overrides, drops, template fallbacks and which variant checks failed.
 - **Workload:** decisions per 10 minutes of play, timer holds, expired graphics, graphics fired per click.
 
+![The graphics operator console at the moment a goal routine lands: running order with three scheduled layers, the "Fire all 3" one-click package with a twelve-second SLA countdown, match-intelligence chips (shot speed, distance, sprints) on each proposal, an amber warning flagging an unsourced number on the English line, a template-fallback notice at the top, and the Gallery Metrics panel for turnaround, operator workload and where it went wrong.](docs/img/operator-controls.png)
+
 ## Human in the loop, by design
 
 The AI proposes; the graphics operator fires every graphic. Nothing reaches air without that click.
@@ -136,19 +142,16 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 
 | Piece | How it is used | Status |
 | --- | --- | --- |
-| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | [In progress]; until then a fired graphic airs at once |
+| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
 | Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
 | Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
 | Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`) | Built |
-| Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built (feed); [deploy] |
-| Azure Container Apps | Ingest, API and web | [deploy] |
-| Azure Cosmos DB (serverless) | Match state and the decision log | [deploy] |
-| Azure Logic Apps | The 20-second hold in Azure (in-process timer locally) | [In progress] |
-| Application Insights + OpenTelemetry | Traces per agent call | [deploy] |
-| Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push | Built (CI); [deploy] |
-
-Update the Status column as each piece lands; leave out anything that does not ship.
+| Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
+| Azure Container Apps | Ingest, API and web | Built |
+| Azure Cosmos DB (serverless) | Match state and the decision log | Built |
+| Application Insights + OpenTelemetry | Resource provisioned and its connection string wired to the apps; OpenTelemetry tracing of the agent calls is next | Resource built; tracing in progress |
+| Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 
 ## Quick start (local, no Azure)
 
