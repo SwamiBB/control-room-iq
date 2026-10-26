@@ -38,7 +38,7 @@ flowchart TB
     end
     subgraph Foundry["Microsoft Foundry · crq-dev-foundry"]
         AGS[Foundry Agent Service<br/>explainer · narrator · producer · personalizer · localizer]
-        MR[model-router: router-quality · router-balanced · router-cost<br/>+ gpt-4.1-mini fallback]
+        MR[model router, one deployment per mode:<br/>router-quality · router-balanced · router-cost<br/>+ gpt-4.1-mini]
         EVAL[Evaluations]
         TR[Tracing]
     end
@@ -149,8 +149,8 @@ Pydantic models in `packages/schemas` (see DESIGN.md §2). Overlay `payload` per
 | --- | --- | --- |
 | Agent Framework (`agent-framework` ≥ 1.22, `agent-framework-foundry`) | `services/agents` | `Agent` per role; sequential and concurrent composition in `workflow.py`; structured outputs via `response_format` |
 | Foundry Agent Service | Foundry project `crq` | Agents registered by name for portal inspection, evaluation, and tracing |
-| Model router (`model-router`, 2025-11-18) | All agent calls | Routing mode per agent via request metadata; selected model recorded in spans |
-| Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Used when the router returns an error or exceeds timeout budget |
+| Model router (`model-router` 2025-11-18): `router-quality`, `router-balanced`, `router-cost` | All agent calls | One deployment per routing mode, since the mode is a deployment setting; each agent calls its own (`AGENT_ROUTING`), with `reasoning_effort` low; selected model recorded on the card and in spans |
+| Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Deployed, not yet called (#35): today a failed or timed-out call falls back to the template |
 | Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language, content safety |
 | Tracing | All services | OpenTelemetry via Agent Framework instrumentation → Application Insights |
 | Content safety | Foundry resource | Applied to all generated text |
@@ -167,7 +167,7 @@ flowchart LR
         CAE[Container Apps env]
         EHNS[Event Hubs ns]
         COSM[Cosmos DB]
-        FND[Foundry + project<br/>model-router · gpt-4.1-mini]
+        FND[Foundry + project<br/>router-quality · router-balanced · router-cost · gpt-4.1-mini]
         LAPP[Logic App]
         LOGS[Log Analytics + App Insights]
         KV[Key Vault<br/>local-dev secrets only]

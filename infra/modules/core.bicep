@@ -52,8 +52,19 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
-  // Entra ID only: the checkpoint store (#37) uses the managed identity's Storage Blob Data Contributor role.
+  // Entra ID only: the checkpoint store (#37) uses the managed identity's role below, never an account key.
   properties: { allowBlobPublicAccess: false, minimumTlsVersion: 'TLS1_2', allowSharedKeyAccess: false }
+}
+
+// Storage Blob Data Contributor for the workload identity (the ingest checkpoint store, #37)
+resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, identity.id, 'blobcontrib')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 output identityId string = identity.id

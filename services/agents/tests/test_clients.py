@@ -17,7 +17,7 @@ from openai.lib._pydantic import to_strict_json_schema  # noqa: E402
 def _online_client(deployment=None):
     # Placeholder endpoint and token provider: building the client sends no request.
     return OpenAIChatCompletionClient(azure_endpoint="https://example.openai.azure.com/",
-                                      credential=lambda: "test-token", model=deployment or "model-router")
+                                      credential=lambda: "test-token", model=deployment or "router-balanced")
 
 
 def test_make_agent_online_sets_structured_output(monkeypatch):
@@ -48,7 +48,7 @@ def test_each_agent_calls_its_routing_modes_deployment(monkeypatch):
 
 
 def test_a_reasoning_effort_the_models_reject_is_not_sent(monkeypatch, caplog):
-    for value, sent in (("LOW", "low"), ("none", "none"), ("", ""), ("minimal", ""), ("lo", "")):
+    for value, sent in (("LOW", "low"), ("high", "high"), ("", ""), ("none", ""), ("minimal", ""), ("lo", "")):
         monkeypatch.setenv("AGENT_REASONING_EFFORT", value)
         with caplog.at_level(logging.WARNING):
             assert config._reasoning_effort() == sent
@@ -58,13 +58,16 @@ def test_a_reasoning_effort_the_models_reject_is_not_sent(monkeypatch, caplog):
 def test_all_routers_share_one_credential(monkeypatch):
     monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
                                                              azure_openai_endpoint="https://example.openai.azure.com/"))
-    clients.chat_client.cache_clear()
+    clients._client_for.cache_clear()
     clients._credential.cache_clear()
     try:
         a, b = clients.chat_client("router-quality"), clients.chat_client("router-cost")
         assert a is not b and clients._credential() is clients._credential()
+        # The default deployment, named or not, is one client.
+        balanced = clients.settings.router_balanced
+        assert clients.chat_client() is clients.chat_client(None) is clients.chat_client(balanced)
     finally:
-        clients.chat_client.cache_clear()
+        clients._client_for.cache_clear()
         clients._credential.cache_clear()
 
 
@@ -72,11 +75,11 @@ def test_chat_client_builds_with_real_settings(monkeypatch):
     # The real factory, not a copy of its arguments: a wrong argument would otherwise hide behind the except.
     monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
                                                              azure_openai_endpoint="https://example.openai.azure.com/"))
-    clients.chat_client.cache_clear()
+    clients._client_for.cache_clear()
     try:
         assert isinstance(clients.chat_client(), OpenAIChatCompletionClient)
     finally:
-        clients.chat_client.cache_clear()
+        clients._client_for.cache_clear()
 
 
 def _open_objects(node, path=""):
@@ -108,13 +111,13 @@ def test_client_failure_falls_back_to_templates(monkeypatch, caplog):
     monkeypatch.setattr(clients, "settings", config.Settings(offline=False,
                                                              azure_openai_endpoint="https://example.openai.azure.com/"))
     monkeypatch.setattr("agent_framework.openai.OpenAIChatCompletionClient", broken)
-    clients.chat_client.cache_clear()
+    clients._client_for.cache_clear()
     try:
         with caplog.at_level(logging.ERROR):
             assert clients.make_agent("explainer", "Explain the moment.", Explanation) is None
         assert "template fallback" in caplog.text
     finally:
-        clients.chat_client.cache_clear()
+        clients._client_for.cache_clear()
 
 
 def test_agent_failure_falls_back_to_template(monkeypatch, caplog):

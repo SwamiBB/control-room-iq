@@ -34,6 +34,7 @@ Everything authenticates with Entra ID (managed identity in Azure, your `az logi
 
 ## Quotas to request on day one
 
-- `model-router` (version 2025-11-18), GlobalStandard, 100K TPM → 300K before demo day
+- `model-router` (version 2025-11-18), GlobalStandard: three deployments (`router-quality`, `router-balanced`,
+  `router-cost`) at 100K TPM each
 - `gpt-4.1-mini`, GlobalStandard, 100K TPM
 - Confirm Foundry Agent Service and evaluations availability in East US 2

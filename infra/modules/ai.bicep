@@ -4,7 +4,7 @@ param location string
 param tags object
 param identityPrincipalId string
 
-// Microsoft Foundry resource (AIServices kind) with a project, model router, and a fallback model.
+// Microsoft Foundry resource (AIServices kind) with a project, a fallback model and one model router per routing mode.
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: 'aif-${app}-${suffix}'
   location: location
@@ -30,20 +30,10 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
 }
 
 // The account takes one operation at a time, so the project and deployments are created in sequence.
-resource modelRouter 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
-  parent: foundry
-  name: 'model-router'
-  dependsOn: [ project ]
-  sku: { name: 'GlobalStandard', capacity: 100 }
-  properties: {
-    model: { format: 'OpenAI', name: 'model-router', version: '2025-11-18' }
-  }
-}
-
 resource fallback 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: foundry
   name: 'gpt-4.1-mini'
-  dependsOn: [ modelRouter ]
+  dependsOn: [ project ]
   sku: { name: 'GlobalStandard', capacity: 100 }
   properties: {
     model: { format: 'OpenAI', name: 'gpt-4.1-mini', version: '2025-04-14' }

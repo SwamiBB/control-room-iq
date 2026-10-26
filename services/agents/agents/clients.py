@@ -25,9 +25,14 @@ def _credential():
     return DefaultAzureCredential()
 
 
-@cache
 def chat_client(deployment: str | None = None):
-    """One client per deployment: on Azure the deployment is part of the request URL."""
+    """One client per deployment: on Azure the deployment is part of the request URL. The name is resolved
+    first, so chat_client() and chat_client(<the balanced router>) share one client."""
+    return _client_for(deployment or settings.router_balanced)
+
+
+@cache
+def _client_for(deployment: str):
     if settings.offline:
         return None
     try:
@@ -38,11 +43,11 @@ def chat_client(deployment: str | None = None):
         return OpenAIChatCompletionClient(
             azure_endpoint=settings.azure_openai_endpoint or settings.foundry_project_endpoint,
             credential=_credential(),
-            model=deployment or settings.model_router,
+            model=deployment,
         )
     except Exception:  # noqa: BLE001 - the API must still serve the console; these agents fall back to templates
         logger.exception("Model client for %s unavailable; its agents will use their template fallbacks",
-                         deployment or settings.model_router)
+                         deployment)
         return None
 
 

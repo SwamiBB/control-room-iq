@@ -23,8 +23,9 @@ def _languages() -> tuple[str, ...]:
     return tuple(x for x in wanted if x in supported) or ("en",)
 
 
-# What the reasoning models behind the routers accept; gpt-5.1 and later reject "minimal".
-REASONING_EFFORTS = ("none", "low", "medium", "high")
+# What every reasoning model the routers can pick accepts: gpt-5.1 and later reject "minimal", and gpt-5, gpt-5-mini
+# and o4-mini reject "none". To send no effort at all, leave the setting empty.
+REASONING_EFFORTS = ("low", "medium", "high")
 
 
 def _reasoning_effort() -> str:
@@ -42,8 +43,6 @@ def _reasoning_effort() -> str:
 class Settings:
     foundry_project_endpoint: str = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
     azure_openai_endpoint: str = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-    # Model router deployment handles routing; per-agent routing hints are passed as metadata.
-    model_router: str = os.environ.get("MODEL_ROUTER_DEPLOYMENT", "model-router")
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
     # 12 s lets an occasional slow router pick finish instead of falling back to the template.
@@ -68,7 +67,7 @@ AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", 
 
 
 def deployment_for(agent: str) -> str:
-    """The router deployment an agent should call; falls back to the single model-router deployment."""
+    """The router deployment an agent should call; an agent with no routing mode gets the balanced router."""
     mode = AGENT_ROUTING.get(agent)
     return {"quality": settings.router_quality, "balanced": settings.router_balanced,
-            "cost": settings.router_cost}.get(mode or "", settings.model_router)
+            "cost": settings.router_cost}.get(mode or "", settings.router_balanced)

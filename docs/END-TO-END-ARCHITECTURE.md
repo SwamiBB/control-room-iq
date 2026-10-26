@@ -432,7 +432,7 @@ flowchart TB
 
 ### 9.1 Routing per agent
 
-In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/config.py` (the single `MODEL_ROUTER_DEPLOYMENT` only for an agent with no routing mode). Each agent has its own client for its router, and `AGENT_REASONING_EFFORT` (default `low`) is sent with every call.
+In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/config.py` (an agent with no routing mode gets `router-balanced`). Each agent has its own client for its router, and `AGENT_REASONING_EFFORT` (default `low`) is sent with every call.
 
 | Agent | Deployment | Why |
 | --- | --- | --- |
