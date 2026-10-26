@@ -47,7 +47,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: cae.id
     configuration: {
-      ingress: { external: true, targetPort: 8000, transport: 'auto' }
+      // Internal: reachable only inside the environment. The web app's nginx is the one public door (#14, #22).
+      ingress: { external: false, targetPort: 8000, transport: 'auto' }
       registries: [ { server: acrLoginServer, identity: identityId } ]
     }
     template: {
@@ -100,7 +101,8 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [ {
         name: 'web'
         image: 'mcr.microsoft.com/k8se/quickstart:latest'
-        env: [ { name: 'VITE_API_URL', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
+        // The web image's nginx proxies the API paths here (#14); the API has no public address of its own.
+        env: [ { name: 'API_UPSTREAM', value: 'https://${api.properties.configuration.ingress.fqdn}' } ]
         resources: { cpu: json('0.25'), memory: '0.5Gi' }
       } ]
       scale: { minReplicas: 1, maxReplicas: 2 }
@@ -108,5 +110,4 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
 output webUrl string = 'https://${web.properties.configuration.ingress.fqdn}'

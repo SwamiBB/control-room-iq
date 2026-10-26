@@ -465,7 +465,7 @@ class ReplayRequest(BaseModel):
     console takes when it connects to a live feed at half past three.
     """
 
-    file: str = "data/match.jsonl"
+    file: str = "data/reference/match-042.jsonl"  # bundled in the image (#13)
     speed: float = Field(default=1.0, gt=0, description="Play time per real second when nothing is pending.")
     decision_speed: float | None = Field(
         default=1.0, gt=0,
@@ -482,7 +482,8 @@ class ReplayRequest(BaseModel):
 async def replay(req: ReplayRequest):
     path = Path(req.file)
     if not path.exists():
-        raise HTTPException(404, f"{path} not found; run the simulator first")
+        raise HTTPException(404, f"{path} not found; replay a match in data/reference/, or generate one with "
+                                 "the simulator")
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
     hub.replay_speed = None
