@@ -231,6 +231,11 @@ present in this POC:
   namespace scope and Cosmos DB Data Contributor at account scope. Splitting into three identities with
   per-container, per-hub and per-container-scoped role assignments is a Bicep rewrite reserved for a
   post-submission iteration.
+- **API-contract hygiene.** The current API has flat routes (no `/api/v1/` prefix), returns FastAPI's
+  default error shapes rather than standardised ProblemDetails bodies, and does not paginate the
+  collection endpoints (`/decisions`, `/decisions.csv`, `/deliveries`). Named here for completeness
+  with the external review feedback; versioning, ProblemDetails and pagination are reserved for a
+  post-submission iteration.
 
 The intended production topology is in [`docs/END-TO-END-ARCHITECTURE.md`](docs/END-TO-END-ARCHITECTURE.md)
 §9. The gap between the POC and production is a configuration delta on the same Bicep modules, not a

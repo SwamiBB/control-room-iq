@@ -167,5 +167,16 @@ Honesty on scope is part of the enterprise story.
 - **`new_match` transient state.** Starting a new match clears the hub but keeps `match_state` populated with
   the previous match until the new folder loads. A `/recap` call during that window would see the previous
   state behind the new metadata. Fix is to set `match_state = None` during `new_match`.
+- **Event Hubs producer context closure after first publish.** `services/ingest/ingest/consumer.py` opens
+  the producer inside an `async with` for each publish, which closes the shared producer on exit; a
+  subsequent publish from the same consumer may then fail. Not observed on the current replay path (the
+  API runs the pipeline in-process in both environments). The fix is to hold the producer open for the
+  consumer's lifetime and add multi-moment publish coverage; reserved for a post-submission iteration.
+- **Spanish variant language heuristic.** `services/api/api/variant_checks.py` catches an untranslated
+  Spanish variant by rejecting a base-line prefix and by requiring non-ASCII content, but it does not
+  fully verify that the text is Spanish. An English paraphrase labelled Spanish that happens to carry a
+  non-ASCII character can pass. The fix is a Spanish-letter-share check mirroring the Hindi Devanagari
+  check (looking for `ñ á é í ó ú ¿ ¡`); still a heuristic, so it has false negatives; reserved for a
+  post-submission iteration.
 
 See [README §Limits](../README.md#limits) for the shipped-feature limits.
