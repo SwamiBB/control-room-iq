@@ -15,6 +15,9 @@ param openAiEndpoint string
 param apiExists bool = false
 param ingestExists bool = false
 param webExists bool = false
+// Prompt and response text in traces is on because all match data is synthetic; a deployment with real viewer data
+// sets it false.
+param traceContent string = 'true'
 
 var placeholderImage = 'mcr.microsoft.com/k8se/quickstart:latest'
 
@@ -57,6 +60,7 @@ var commonEnv = [
   { name: 'ROUTER_BALANCED', value: 'router-balanced' }
   { name: 'ROUTER_COST', value: 'router-cost' }
   { name: 'AZURE_CLIENT_ID', value: reference(identityId, '2023-01-31').clientId }
+  { name: 'CRQ_TRACE_CONTENT', value: traceContent }
 ]
 
 resource api 'Microsoft.App/containerApps@2024-03-01' = {

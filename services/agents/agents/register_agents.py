@@ -16,12 +16,10 @@ import argparse
 import logging
 from dataclasses import dataclass
 
-from .config import AGENT_ROUTING, deployment_for, settings
+from .config import AGENT_ROUTING, deployment_for, registered_name, settings
 from .workflow import _prompt
 
 logger = logging.getLogger(__name__)
-
-PREFIX = "crq-"
 
 # What each agent is for, shown in the portal next to its instructions.
 PURPOSE = {
@@ -45,7 +43,7 @@ class AgentSpec:
 
 def specs() -> list[AgentSpec]:
     """The five agents as the runtime builds them, in a stable order."""
-    return [AgentSpec(name=f"{PREFIX}{role}", role=role, model=deployment_for(role), routing=routing,
+    return [AgentSpec(name=registered_name(role), role=role, model=deployment_for(role), routing=routing,
                       instructions=_prompt(role), description=PURPOSE[role])
             for role, routing in AGENT_ROUTING.items()]
 

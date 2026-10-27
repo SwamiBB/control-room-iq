@@ -7,7 +7,8 @@ os.environ["CRQ_OFFLINE"] = "1"
 from types import SimpleNamespace  # noqa: E402
 
 from agents import config  # noqa: E402
-from agents.register_agents import PREFIX, register, specs  # noqa: E402
+from agents.config import registered_name  # noqa: E402
+from agents.register_agents import register, specs  # noqa: E402
 from agents.workflow import _prompt  # noqa: E402
 
 
@@ -32,7 +33,7 @@ def test_specs_match_the_runtime_agents():
     by_role = {s.role: s for s in specs()}
     assert set(by_role) == set(config.AGENT_ROUTING)
     for role, s in by_role.items():
-        assert s.name == PREFIX + role
+        assert s.name == registered_name(role)
         assert s.model == config.deployment_for(role)  # the same router the runtime calls
         assert s.routing == config.AGENT_ROUTING[role]
         assert s.instructions == _prompt(role)  # the same instructions the runtime uses

@@ -13,6 +13,9 @@ param expires string = '2026-11-30'
 param apiExists bool = false
 param ingestExists bool = false
 param webExists bool = false
+// Record prompt and response text in traces (CRQ_TRACE_CONTENT). On because all match data is synthetic; a
+// deployment with real viewer data sets it false.
+param traceContent string = 'true'
 
 // Naming convention: resource group {app}-rg-{env}-{region}-{instance}, resources {type}-{app}-{env}-{region}-{instance}.
 var app = 'crq'
@@ -40,7 +43,15 @@ module data 'modules/data.bicep' = {
 module ai 'modules/ai.bicep' = {
   name: 'ai'
   scope: rg
-  params: { app: app, suffix: suffix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
+  params: {
+    app: app
+    suffix: suffix
+    location: location
+    tags: tags
+    identityPrincipalId: core.outputs.identityPrincipalId
+    appInsightsId: core.outputs.appInsightsId
+    appInsightsConnectionString: core.outputs.appInsightsConnectionString
+  }
 }
 
 module apps 'modules/apps.bicep' = {
@@ -62,6 +73,7 @@ module apps 'modules/apps.bicep' = {
     apiExists: apiExists
     ingestExists: ingestExists
     webExists: webExists
+    traceContent: traceContent
   }
 }
 

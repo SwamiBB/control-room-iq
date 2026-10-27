@@ -38,7 +38,8 @@ and [SECURITY.md](SECURITY.md) for the full posture.
   gated by code checks (invented numbers, name drift, banned content, actually-translated, faithfulness).
   See [`services/api/api/variant_checks.py`](services/api/api/variant_checks.py).
 - **Model choice is auditable.** A per-agent router (quality / balanced / cost) records the served model
-  on every proposal. Every decision is in an append-only log, downloadable at `GET /decisions.csv`.
+  on every proposal and on its agent's trace span, one trace per moment. Every decision is in an
+  append-only log, downloadable at `GET /decisions.csv`.
   See [`services/agents/agents/config.py`](services/agents/agents/config.py).
 
 Enterprise substrate: managed identity + OIDC (no secrets in the repo), CodeQL + Trivy + Dependabot on
@@ -149,7 +150,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
 | Azure Container Apps | Ingest, API and web | Built |
 | Azure Cosmos DB (serverless) | Match state and the decision log | Built |
-| Application Insights + OpenTelemetry | Resource provisioned and its connection string wired to the apps; OpenTelemetry tracing of the agent calls is next | Resource built; tracing in progress |
+| Application Insights + OpenTelemetry | One trace per moment: every agent call with its routing mode, the model the router chose, tokens and failures; decisions and airings linked back to it. Connected to the Foundry project's Traces view; Entra ID only | Built |
 | Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 
 ## Quick start (local, no Azure)

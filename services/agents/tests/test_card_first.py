@@ -102,3 +102,23 @@ def test_a_fallback_card_over_its_layer_limit_sets_the_limit():
     res = asyncio.run(p.process(_moment(), requests=REQUESTS))
     assert res.proposal is not None and res.proposal.fallback and res.proposal.line == long_line
     assert p.personalizer.inputs[0]["max_chars"] == len(long_line)  # a version need not be shorter than its source
+
+
+def test_each_agent_call_is_a_span_with_its_routing_and_the_model_served(spans):
+    log: list = []
+    p = _pipeline(log)
+
+    class Broken(_Agent):
+        async def run(self, text: str):
+            raise ConnectionError("router unreachable")
+
+    p.narrator = Broken("", "narrator", log)  # the narrator's call fails: its span says it fell back, and why
+    asyncio.run(p.process(_moment(), requests=REQUESTS))
+    by_agent = {s.attributes["crq.agent"]: s for s in spans.get_finished_spans() if s.name.startswith("crq.agent ")}
+    assert set(by_agent) == {"explainer", "narrator", "producer", "personalizer", "localizer"}
+    assert by_agent["producer"].attributes["crq.routing"] == "quality"
+    assert by_agent["producer"].attributes["crq.model_served"] == "m"
+    assert not by_agent["producer"].attributes["crq.call_failed"]
+    narrator = by_agent["narrator"].attributes
+    # Trace content is off in the tests: the error's type is kept, its message (which can quote a reply) is not.
+    assert narrator["crq.call_failed"] and narrator["crq.error"] == "narrator: ConnectionError"

@@ -24,7 +24,20 @@ resource appi 'Microsoft.Insights/components@2020-02-02' = {
   location: location
   tags: tags
   kind: 'web'
-  properties: { Application_Type: 'web', WorkspaceResourceId: logs.id }
+  // Entra ID only: telemetry sent with just the connection string's key is refused.
+  properties: { Application_Type: 'web', WorkspaceResourceId: logs.id, DisableLocalAuth: true }
+}
+
+// Monitoring Metrics Publisher for the workload identity, so the apps can send traces with local auth off. Despite
+// the name, the role covers all telemetry, not just metrics.
+resource appiPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, identity.id, 'metricspub')
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -107,5 +120,6 @@ output identityId string = identity.id
 output identityPrincipalId string = identity.properties.principalId
 output identityClientId string = identity.properties.clientId
 output logAnalyticsId string = logs.id
+output appInsightsId string = appi.id
 output appInsightsConnectionString string = appi.properties.ConnectionString
 output acrLoginServer string = acr.properties.loginServer
