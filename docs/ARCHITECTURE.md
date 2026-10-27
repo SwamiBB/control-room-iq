@@ -31,7 +31,7 @@ flowchart TB
         EH3[(crq-overlay)]
     end
     subgraph ACA["Azure Container Apps · crq-dev-cae"]
-        ING[ingest<br/>state engine, moment detector<br/>KEDA on partition lag]
+        ING[ingest<br/>state engine, moment detector<br/>one replica]
         AGR[agents-runner<br/>MomentPipeline]
         API[api<br/>FastAPI · approval loop · WebSockets]
         WEB[web<br/>React console + viewer]
@@ -62,7 +62,7 @@ flowchart TB
 | Container | Runtime | Responsibility | Scales on |
 | --- | --- | --- | --- |
 | simulator | ACA Job (or local CLI) | Generate and replay matches; publish to `crq-events` | Manual / per match |
-| ingest | Container App, Python | Consume events, fold state, raise moments, persist, publish to `crq-moments` | Event Hubs unprocessed events (KEDA, threshold 64) |
+| ingest | Container App, Python | Consume events, fold state, raise moments, persist, publish to `crq-moments` | Fixed at one replica; scaling on Event Hubs lag is deferred until the consumer has a checkpoint store |
 | agents-runner | Container App, Python | Consume moments, run `MomentPipeline` (five agents) on Foundry, call evaluation, hand results to API | Event Hubs lag on `crq-moments` |
 | api | Container App, Python (FastAPI) | Proposal queue, approval loop, decision log, WebSocket fan-out, overlay publishing | HTTP concurrency (1–3 replicas) |
 | web | Container App, nginx | Static React app | 1–2 replicas |
@@ -177,7 +177,7 @@ flowchart LR
 `infra/main.bicep` (subscription scope) creates the resource group and four modules: `core`
 (identity, logs, App Insights, ACR, storage), `data` (Event Hubs, Cosmos with RBAC), `ai` (Foundry
 resource, project, the three model-router deployments and the fallback, role assignments), `apps` (Container Apps environment and
-the three apps with KEDA rules). `azure.yaml` maps the services to Dockerfiles so `azd deploy` builds and
+the three apps, each with a fixed replica count). `azure.yaml` maps the services to Dockerfiles so `azd deploy` builds and
 pushes images and sets the image on each app. GitHub Actions `deploy.yml` runs the same two commands on
 push to `main` using an OIDC federated credential; no secrets are stored.
 
@@ -189,7 +189,7 @@ Environments: `dev` (sandbox, the demo) only. Naming `crq-<env>-<resource>`, tag
 | Quality | Target | How |
 | --- | --- | --- |
 | Responsiveness | Target: proposal on console ≤ 10 s after the event (measured Oct 26: 15.3 s average); overlay timing exact on the match clock | Async pipeline, concurrent agents, 12 s timeouts, match-clock scheduling |
-| Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, KEDA scaling, checkpointed consumers |
+| Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, checkpointed consumers |
 | Explainability | Every line traceable to events; faithfulness measured | Cited event IDs, state snapshots per moment, Foundry evaluation per narrative |
 | Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, Logic App auto-hold |
 | Security | No keys; least privilege | Managed identity, Entra-only data planes, five scoped role assignments |

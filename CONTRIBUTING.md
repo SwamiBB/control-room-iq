@@ -20,14 +20,19 @@ every change keeps.
 
 ## Get it running
 
-Full steps, including the Azure sandbox, are in [docs/SETUP.md](docs/SETUP.md). The short version, with no
-Azure needed:
+Full steps, including the Azure sandbox, are in [docs/SETUP.md](docs/SETUP.md). You need Python 3.12 and
+Node 22, the versions CI and the images use. The short version, with no Azure needed:
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 Copy-Item .env.example .env            # CRQ_OFFLINE=1: agents use their offline fallbacks
-uvicorn api.main:app --reload          # API on :8000
+uvicorn api.main:app --reload          # API on :8000; keeps running in this terminal
+```
+
+Then, in a second terminal:
+
+```powershell
 cd web; npm install; npm run dev       # console on :5173 -> /operator and /viewer
 ```
 
@@ -49,13 +54,14 @@ Run `ruff check .` on its own, not piped into another command: a pipe hides its 
 Add a test with every fix, and check that it fails without the fix. Tests use small synthetic events (see
 `services/ingest/tests/test_match_intel_units.py`) or the seeded reference matches; never a live service.
 
-CI also builds the container images and checks that they run as non-root. CodeQL and Trivy scan every PR, and
-Dependabot opens dependency updates. If Trivy flags a transitive dependency, add a version floor with the
-advisory ID in `pyproject.toml`, as the `urllib3` and `msgpack` lines do.
+CI also builds the container images and checks that they run as non-root. CodeQL and Trivy scan every PR.
+Dependabot only keeps the SHA-pinned GitHub Actions current; it doesn't update Python or npm packages. If Trivy
+flags a dependency, add a version floor with the advisory ID in `pyproject.toml`, as the `urllib3` and `msgpack`
+lines do.
 
 ## Branches, commits and pull requests
 
-1. Branch from an up-to-date `main`: `feat/…`, `fix/…` or `docs/…`.
+1. Branch from an up-to-date `main`: `feat/…`, `fix/…`, `docs/…` or `infra/…`.
 2. Keep each PR to one change. Unrelated fixes go in their own PR.
 3. Write commit messages as a short sentence saying what changes and why, e.g. "Keep every trace: the default
    sampler dropped an operator's fire".
@@ -63,8 +69,8 @@ advisory ID in `pyproject.toml`, as the `urllib3` and `msgpack` lines do.
    merge.
 5. Every PR is reviewed before merge. Answer each review comment with a fix or a reason, then ask for another
    look.
-6. PRs are squash-merged into `main`, which must stay green: the live demo is deployed from it
-   (`.github/workflows/deploy.yml`, run by hand).
+6. PRs are merged into `main` with a merge commit, and `main` must stay green: the live demo is deployed from
+   it (`.github/workflows/deploy.yml`, run by hand).
 
 If you touch a file another teammate owns, say so in the PR description so they can review that part.
 

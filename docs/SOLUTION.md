@@ -111,7 +111,7 @@ rhythm. Data innovation: a seedable match engine and an LLM squad-authoring agen
 synthetic dataset. Multi-language storytelling: EN/ES/HI/AR written natively, not translated.
 
 **Categories.** Primary: Best Use of Microsoft Foundry. Also fits Best Azure Cloud Native Integration
-(event-driven pipeline on Event Hubs, Container Apps with KEDA, Cosmos DB, Logic Apps, azd) and Best
+(event-driven pipeline on Event Hubs, Container Apps, Cosmos DB, Logic Apps, azd) and Best
 Enterprise Solution (human-in-the-loop, evaluation, audit log, managed identity only, infrastructure as
 code).
 
