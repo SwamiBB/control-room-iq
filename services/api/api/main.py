@@ -998,7 +998,11 @@ async def _handle_moment(m: Moment) -> None:
 
 
 async def _queue_card(proposal: OverlayProposal, m: Moment) -> None:
-    flagged = unsourced_numbers(proposal.line, m)
+    # unsourced_numbers catches AI mistakes; template-fallback and code-built lines are authored in this
+    # repo (templates in fallback_text.py, goal routines in goal_package.py, speed/stat milestones in
+    # ingest), so their numbers are trustworthy by construction and the flag would be a false positive.
+    model_authored = not proposal.fallback and proposal.meta.routing != "template"
+    flagged = unsourced_numbers(proposal.line, m) if model_authored else []
     lead = _from_agent(proposal).model_copy(update={"proposed_at": hub.now(), "unsourced_numbers": flagged})
     for p in build_goal_package(lead, m, hub.meta):
         await _queue_proposal(p)
