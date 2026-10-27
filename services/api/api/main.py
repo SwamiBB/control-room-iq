@@ -125,6 +125,8 @@ if not logging.getLogger().handlers:
     # reach stderr bare, with no time or source. Before tracing starts: Azure Monitor adds its own handler to the
     # root logger, which would skip this and leave the console without the app's warnings.
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Each agent call's time and model, at INFO: the root's WARNING would drop them from the console and App Insights.
+logging.getLogger("agents.workflow").setLevel(logging.INFO)
 telemetry.configure("crq-api")
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 telemetry.instrument_app(app)
