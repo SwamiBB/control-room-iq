@@ -27,8 +27,10 @@ without** `approval_id`, `approved_by`, `approved_at` — these are required fie
   `class OverlayPacket` with required approval triple at lines 600–602.
 - Guard: [`services/api/api/packets.py`](../services/api/api/packets.py) — docstring: *"The packet type
   itself is the gate, since it cannot be constructed without approval fields."*
-- Negative-path test: [`services/api/tests/test_gate.py`](../services/api/tests/test_gate.py) —
-  `test_approve_stamps_packet_with_the_decision` asserts the stamped triple matches the decision log entry.
+- Approval-stamp test: [`services/api/tests/test_gate.py`](../services/api/tests/test_gate.py) —
+  `test_approve_stamps_packet_with_the_decision` asserts the resulting packet carries the triple that matches
+  its decision log entry. The *structural* refusal of untriple'd packets does not need a runtime test: it is
+  enforced by the Pydantic schema itself, so no code path can construct an `OverlayPacket` without the three fields.
 - Status rule: [`services/api/tests/test_approval.py`](../services/api/tests/test_approval.py) —
   `test_approve_then_cannot_hold` proves the state machine refuses contradictory actions.
 
@@ -64,9 +66,12 @@ one. The model the router selected is recorded on every span and on every propos
 
 - Every decision (approve, override, hold, reject, SLA hold, expiry, supersession) is appended to the Cosmos DB
   `decisions` container, once, per replay run (`services/api/api/decision_store.py`).
-- **Scope:** the audit record (decisions) is durable; in-flight state (proposals, packets, in-progress agent runs) is
-  kept in the API's in-memory hub for the lifetime of a run. An API restart loses only the current run's working
-  set; every decision ever written survives.
+- **Scope:** decisions are written to Cosmos DB on a best-effort append path — `decision_store.py` queues each
+  decision and retries, so transient Cosmos failures do not block the fire; sustained failures, queue overflow
+  (10,000 pending) or shutdown with items still queued are logged and the item is dropped (see also
+  [THREAT-MODEL.md](THREAT-MODEL.md) T1 and T5). In-flight state (proposals, packets, in-progress agent runs) is
+  kept in the API's in-memory hub for the lifetime of a run and lost on restart. The audit guarantee is
+  "retried then logged", not "every decision survives".
 - Downloadable at `GET /decisions.csv` (route in
   [`services/api/api/main.py:480`](../services/api/api/main.py); CSV built in
   [`services/api/api/exports.py`](../services/api/api/exports.py), with formula-injection
@@ -114,7 +119,7 @@ Highlights to notice:
 | --- | --- | --- |
 | Approval triple required on every packet | `packages/schemas/crq_schemas/__init__.py:577` | `OverlayPacket` with `approval_id`, `approved_by`, `approved_at` at lines 600-602 |
 | Packet construction is the gate | `services/api/api/packets.py` | Module docstring |
-| Negative-path gate test | `services/api/tests/test_gate.py` | `test_approve_stamps_packet_with_the_decision` |
+| Approval-stamp test | `services/api/tests/test_gate.py` | `test_approve_stamps_packet_with_the_decision` (happy path; structural refusal of untriple'd packets is enforced by Pydantic, not by a runtime test) |
 | Approve → aired, cannot hold | `services/api/tests/test_approval.py` | `test_approve_then_cannot_hold` |
 | SLA holds, never approves | `services/api/api/timing.py` | `warn_at`, auto-hold, expiry |
 | Unsourced numbers flagged | `packages/schemas/crq_schemas/__init__.py:573` | `OverlayProposal.unsourced_numbers` |
@@ -143,7 +148,7 @@ Honesty on scope is part of the enterprise story.
 - Offside and VAR appear as text only; no dedicated graphics.
 - Distance covered counts runs with the ball until the tracking totals are wired in.
 
-**Enterprise architecture gaps** *(flagged in the external review; carried as post-submission items)*
+**Enterprise architecture gaps** *(flagged in the [AI-assisted code and architecture review](COPILOT-REVIEWS.md); carried as post-submission items)*
 
 - **Event-driven agent worker.** The intended Azure topology has `services/ingest` publishing moments to the
   `crq-moments` Event Hub and a separate agent worker consuming them. The current implementation runs the whole
@@ -172,11 +177,12 @@ Honesty on scope is part of the enterprise story.
   subsequent publish from the same consumer may then fail. Not observed on the current replay path (the
   API runs the pipeline in-process in both environments). The fix is to hold the producer open for the
   consumer's lifetime and add multi-moment publish coverage; reserved for a post-submission iteration.
-- **Spanish variant language heuristic.** `services/api/api/variant_checks.py` catches an untranslated
-  Spanish variant by rejecting a base-line prefix and by requiring non-ASCII content, but it does not
-  fully verify that the text is Spanish. An English paraphrase labelled Spanish that happens to carry a
-  non-ASCII character can pass. The fix is a Spanish-letter-share check mirroring the Hindi Devanagari
-  check (looking for `ñ á é í ó ú ¿ ¡`); still a heuristic, so it has false negatives; reserved for a
-  post-submission iteration.
+- **Spanish variant language heuristic.** `services/api/api/variant_checks.py:_untranslated` rejects a
+  non-English variant whose text starts with the approved base-line prefix. For Hindi it additionally
+  enforces a Devanagari-share threshold (`DEVANAGARI_MIN_SHARE = 0.3`). **Spanish currently has no
+  language-share check** — an English paraphrase labelled Spanish that does not start with the base-line
+  can pass. Adding a Spanish-letter-share check mirroring the Hindi one (looking for
+  `ñ á é í ó ú ¿ ¡`) would close that specific gap; still a heuristic with false negatives; reserved for
+  a post-submission iteration.
 
 See [README §Limits](../README.md#limits) for the shipped-feature limits.

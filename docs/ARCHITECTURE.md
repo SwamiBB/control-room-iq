@@ -2,7 +2,7 @@
 
 **Owner:** Swami · **Baseline:** `main` as of the submission (schemas v0.2, API v0.2, pipeline v0.2,
 goal routine, metrics, hold warning and expiry, preview before firing, match intelligence, caption card
-in code, Localizer, scheduler, Content Safety, decision persistence to Cosmos). If this document and the
+in code, Localizer, scheduler, Content Safety on operator overrides, decision persistence to Cosmos). If this document and the
 repo disagree, `packages/schemas` v0.2 governs. Raise the difference rather than working around it.
 **Related:** [ENTERPRISE-OVERVIEW.md](ENTERPRISE-OVERVIEW.md) (judge-facing enterprise claim),
 [DESIGN.md](DESIGN.md) §5 (agent table), [THREAT-MODEL.md](THREAT-MODEL.md),
@@ -166,37 +166,36 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant API as API
-  participant WF as Workflow
-  participant EX as Explain (quality)
-  participant NR as Narrator (balanced)
-  participant PR as Producer (quality)
-  participant PZ as Personalizer (cost)
-  participant LZ as Localizer (cost)
-  participant SC as scheduler.py
-  participant PB as Publisher + variant_checks
-  participant DB as Cosmos
+  box API process (one FastAPI container)
+    participant API as API routes
+    participant WF as Workflow (Agent Framework in-process)
+    participant EX as Explain (quality)
+    participant NR as Narrator (balanced)
+    participant PR as Producer (quality)
+    participant PZ as Personalizer (cost)
+    participant LZ as Localizer (cost)
+    participant SC as api/scheduler.py
+    participant PB as Publisher + variant_checks
+  end
+  participant DB as Cosmos (decisions only)
   participant CON as Console
   API->>WF: moment_id (result beat, snapshot)
   WF->>EX: snapshot
   EX-->>WF: Explanation + cites
   WF->>NR: moment + Explanation + intel
   NR-->>WF: English on-air line (≤ 22 words)
-  par
-    WF->>PR: Explanation + line
-    PR-->>WF: recommendation, graphic, evidence, alternatives
-  and
-    WF->>PZ: line + English requests (persona × access)
-    PZ-->>WF: English variants
-    WF->>LZ: English variants + names + targets (es, hi)
-    LZ-->>WF: es, hi variants (code keeps requested targets, copies cites)
-  end
-  WF->>SC: proposal (no timing)
-  SC-->>WF: layer, t_in/t_out, hold_advice, preempted_by
-  WF->>PB: proposal + variants
-  PB->>PB: validate English line, then run variant checks per variant
-  PB->>DB: proposal(status=pending, model_served), bundle, EvaluationRecord
-  DB-->>CON: pending item + evidence + faithfulness + routed model + SLA countdown
+  WF->>PR: Explanation + line
+  PR-->>WF: recommendation, graphic, evidence, alternatives
+  WF-->>API: card early (goes on the desk before versions arrive)
+  WF->>PZ: line + English requests (persona × access)
+  PZ-->>WF: English variants
+  WF->>LZ: English variants + names + targets (es, hi)
+  LZ-->>WF: es, hi variants (code keeps requested targets, copies cites)
+  API->>SC: place card (collisions, next clean gap, preempt on goal / red card)
+  SC-->>API: layer, t_in/t_out, hold_advice
+  API->>PB: validate English line, then run variant checks per variant
+  API-->>CON: pending item + evidence + routed model + SLA countdown
+  Note over API,DB: Operator decisions (approve / hold / override / reject / sla) go to Cosmos on a best-effort append path when the operator acts; proposals and packets stay in the API's in-memory hub.
 ```
 
 ### 5.3 Decision and publication
