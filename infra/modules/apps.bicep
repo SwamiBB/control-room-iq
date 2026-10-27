@@ -10,6 +10,7 @@ param eventHubNamespaceFqdn string
 param cosmosEndpoint string
 param foundryProjectEndpoint string
 param openAiEndpoint string
+param contentSafetyEndpoint string
 // Whether each app already exists (azd sets SERVICE_*_RESOURCE_EXISTS). If it does, provisioning keeps the image it
 // is running, read from Azure; otherwise the app starts on the placeholder until the first `azd deploy`.
 param apiExists bool = false
@@ -55,6 +56,7 @@ var commonEnv = [
   { name: 'COSMOS_ENDPOINT', value: cosmosEndpoint }
   { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
   { name: 'AZURE_OPENAI_ENDPOINT', value: openAiEndpoint }
+  { name: 'AZURE_CONTENT_SAFETY_ENDPOINT', value: contentSafetyEndpoint }
   { name: 'MODEL_FALLBACK_DEPLOYMENT', value: 'gpt-4.1-mini' }
   { name: 'ROUTER_QUALITY', value: 'router-quality' }
   { name: 'ROUTER_BALANCED', value: 'router-balanced' }

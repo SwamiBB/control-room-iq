@@ -1,0 +1,62 @@
+"""Limits for an open demo: the operator console has no sign-in during judging, so these keep a script from
+running up the bill or flooding the desk, while staying far above what a person at the console does.
+
+Pure code with an injected clock, so the tests control time. Limits are global, not per client: behind the web
+proxy and Container Apps ingress the API can't reliably tell clients apart, and a global cap still bounds the cost.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from collections import deque
+from collections.abc import Callable
+from datetime import UTC, datetime
+
+# Defaults sized against real use: an operator fires one graphic every few seconds at most (a goal routine fires
+# three at once), types an override in more than three seconds, and a demo window takes minutes to replay.
+DECISIONS_PER_MINUTE = 120
+OVERRIDES_PER_MINUTE = 20
+REPLAY_COOLDOWN_S = 30.0
+# About 75 demo-window runs a day: a safeguard against a runaway script, not a quota for judges.
+AI_MOMENTS_PER_DAY = int(os.environ.get("CRQ_DAILY_AI_MOMENTS", "300"))
+
+
+class RateWindow:
+    """At most `limit` events in any `window_s` seconds."""
+
+    def __init__(self, limit: int, window_s: float = 60.0, clock: Callable[[], float] = time.monotonic) -> None:
+        self.limit, self.window_s, self.clock = limit, window_s, clock
+        self._events: deque[float] = deque()
+
+    def take(self) -> float | None:
+        """Records an event and returns None, or returns the seconds to wait when the window is full."""
+        now = self.clock()
+        while self._events and now - self._events[0] >= self.window_s:
+            self._events.popleft()
+        if len(self._events) >= self.limit:
+            return self.window_s - (now - self._events[0])
+        self._events.append(now)
+        return None
+
+
+class DailyBudget:
+    """How many moments may use the models today (UTC). Past it, moments use the templates: nothing is blocked."""
+
+    def __init__(self, limit: int = AI_MOMENTS_PER_DAY, today: Callable[[], str] | None = None) -> None:
+        self.limit = limit
+        self.today = today or (lambda: datetime.now(UTC).date().isoformat())
+        self._day, self.used = self.today(), 0
+
+    def take(self) -> bool:
+        """True, and counts the moment, while today's budget lasts."""
+        if (day := self.today()) != self._day:
+            self._day, self.used = day, 0
+        if self.used >= self.limit:
+            return False
+        self.used += 1
+        return True
+
+
+def retry_after(seconds: float) -> dict[str, str]:
+    return {"Retry-After": str(max(1, round(seconds + 0.5)))}

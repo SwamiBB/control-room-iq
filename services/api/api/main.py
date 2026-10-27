@@ -51,6 +51,7 @@ from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
+from .content_safety import check_override
 from .decision_store import DecisionStore, decision_store_from_env
 from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
 from .exports import decisions_to_csv, history_to_csv
@@ -59,6 +60,14 @@ from .fan_card import build_fan_card
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
 from .goal_package import build_goal_package, is_code_built
+from .guards import (
+    DECISIONS_PER_MINUTE,
+    OVERRIDES_PER_MINUTE,
+    REPLAY_COOLDOWN_S,
+    DailyBudget,
+    RateWindow,
+    retry_after,
+)
 from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
@@ -164,6 +173,11 @@ class Hub:
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
         self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
         self.moment_traces: dict[str, SpanContext] = {}  # moment_id -> its trace, which decisions and airings link to
+        # The console is open during judging (synthetic data only): limits far above what a person at it does.
+        self.decision_rate = RateWindow(DECISIONS_PER_MINUTE)
+        self.override_rate = RateWindow(OVERRIDES_PER_MINUTE)
+        self.replay_finished_at: float | None = None  # time.monotonic() when the last replay ended
+        self.budget = DailyBudget()
         self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
         self.tracking_index: int | None = None  # the frame last sent
         self.tracking_sent_at = 0.0  # time.monotonic() of that send
@@ -240,6 +254,7 @@ class Hub:
 
 hub = Hub()
 pipeline = MomentPipeline()
+templates = MomentPipeline.templates_only()  # once the day's model budget is spent
 
 
 # ---------- approval loop ----------
@@ -373,13 +388,20 @@ def _without_override(d: Decision | None) -> Decision:
     return d or Decision()
 
 
+def _limit(window: RateWindow, what: str) -> None:
+    if (wait := window.take()) is not None:
+        raise HTTPException(429, f"too many {what}; try again in {round(wait)} s", headers=retry_after(wait))
+
+
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
 async def approve(proposal_id: str, d: Decision | None = None):
+    _limit(hub.decision_rate, "decisions")
     return await _decide(proposal_id, ProposalStatus.APPROVED, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
 async def hold(proposal_id: str, d: Decision | None = None):
+    _limit(hub.decision_rate, "decisions")
     return await _decide(proposal_id, ProposalStatus.HELD, _without_override(d))
 
 
@@ -387,11 +409,15 @@ async def hold(proposal_id: str, d: Decision | None = None):
 async def override(proposal_id: str, d: Decision):
     if not d.override_line:
         raise HTTPException(422, "override_line required")
+    _limit(hub.override_rate, "overrides")
+    _limit(hub.decision_rate, "decisions")
+    await check_override(d.override_line)  # before anything is recorded or aired; fails closed in Azure
     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
+    _limit(hub.decision_rate, "decisions")
     return await _decide(proposal_id, ProposalStatus.REJECTED, _without_override(d))
 
 
@@ -418,6 +444,7 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     decision row and its own approval id on the packet, so the gate and the audit trail are unchanged."""
     if action not in PACKAGE_ACTIONS:
         raise HTTPException(404, f"action must be one of {sorted(PACKAGE_ACTIONS)}")
+    _limit(hub.decision_rate, "decisions")  # one click, however many items it fires
     d = _without_override(d)
     await _expire_stale()  # choose what to fire only after stale items have left the running order
     items = _package_items(package_id)
@@ -598,6 +625,10 @@ async def replay(req: ReplayRequest):
                                  "the simulator")
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
+    if hub.replay_finished_at is not None and (wait := REPLAY_COOLDOWN_S - (time.monotonic()
+                                                                          - hub.replay_finished_at)) > 0:
+        raise HTTPException(429, f"the last replay just ended; start another in {round(wait)} s",
+                            headers=retry_after(wait))
     hub.replay_speed = None
     hub.replay_task = _background(_replay(req))
     return {"started": True}
@@ -621,6 +652,7 @@ async def _replay(req: ReplayRequest) -> None:
 
 async def _finish_replay(error: str | None) -> None:
     hub.replay_speed = None
+    hub.replay_finished_at = time.monotonic()
     await hub.broadcast_operators({"type": "replay", "finished": True, "speed": None, "error": error,
                                    "clock": hub.clock.snapshot()})
 
@@ -839,6 +871,7 @@ def _clock(m: Moment) -> str:
 
 
 GOAL_TOOK_OVER = "No graphic proposed: the goal on the same move took over"
+BUDGET_PAUSE = "Templates used: today's model budget ({limit} moments) is spent; the agents resume tomorrow (UTC)"
 
 
 def _taken_by_goal(m: Moment) -> bool:
@@ -870,7 +903,11 @@ async def _handle_moment(m: Moment) -> None:
             "crq.template": card.proposal.fallback})
 
     try:
-        res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
+        with_models = hub.budget.take()
+        trace.get_current_span().set_attribute("crq.models", with_models)
+        res = await (pipeline if with_models else templates).process(m, meta=hub.meta, on_card=on_card)
+        if not with_models:
+            res.notes.append(BUDGET_PAUSE.format(limit=hub.budget.limit))
         if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
             await on_card(res)
     except Exception as ex:

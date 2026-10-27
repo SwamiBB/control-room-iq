@@ -338,6 +338,13 @@ class MomentPipeline:
         self.localizer = make_agent("localizer", _prompt("localizer"), VariantsOut)
         self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
 
+    @classmethod
+    def templates_only(cls) -> MomentPipeline:
+        """The same pipeline with no model calls: every agent uses its template (the daily budget is spent)."""
+        p = cls.__new__(cls)
+        p.explainer = p.narrator = p.personalizer = p.localizer = p.producer = None
+        return p
+
     async def process(self, m: Moment, on_air: list[dict] | None = None,
                       requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None,
                       on_card: OnCard | None = None) -> MomentResult:

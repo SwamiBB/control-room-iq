@@ -49,6 +49,11 @@ def _value(token: str) -> float:
     return float(token.replace(",", "."))
 
 
+def mentions_banned_topic(text: str) -> bool:
+    """Refereeing, betting and injuries stay off air, in any language: AI versions and operator overrides alike."""
+    return any(p.search(text) for p in _BANNED)
+
+
 def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     teams = [n for t in (state.home, state.away) for n in (t.goals, t.xg, t.possession_pct, t.shots,
                                                            t.shots_on_target, t.xg_last_5min, t.shots_last_5min)]
@@ -134,7 +139,7 @@ def check_variant(v: NarrativeVariant, ctx: CheckContext) -> list[str]:
               "names": _breaks_names(v, ctx),
               "cites": _cites_outside_moment(v, ctx),
               "length": len(v.text) > ctx.max_chars,
-              "banned_topic": any(p.search(v.text) for p in _BANNED),
+              "banned_topic": mentions_banned_topic(v.text),
               "faithfulness": v.faithfulness is not None and v.faithfulness < FAITHFULNESS_MIN,
               "untranslated": _untranslated(v, ctx)}
     return [code for code, is_failed in failed.items() if is_failed]

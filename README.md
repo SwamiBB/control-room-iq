@@ -234,8 +234,10 @@ words (running order, fire, drop, goal routine).
 
 ## Limits
 
-- No sign-in or roles yet: anyone who can reach the API can fire a graphic, and the operator's name is
-  free text. Roles through Microsoft Entra ID come with the producer takeover above.
+- The demo is open by design during judging (no sign-in, synthetic data), guarded by an override content
+  check that fails closed, rate limits far above a person's pace, and a daily model budget that falls back to
+  templates ([SECURITY.md](SECURITY.md#known-limits)). The operator's name is free text. Roles through
+  Microsoft Entra ID come with the producer takeover above.
 - All match data is synthetic. Distance covered counts only runs with the ball until the tracking
   totals are wired in.
 - Spanish and Hindi templates and labels still need a native-speaker review.
