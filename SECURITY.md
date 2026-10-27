@@ -235,7 +235,17 @@ rewrite.
 
 Honesty on scope is part of the posture. See [README §Limits](README.md#limits) — notably:
 
-- No sign-in or roles yet; anyone who can reach the API can fire a graphic. Entra ID roles are the
-  stated next step and depend on the producer-takeover feature.
+- **The demo is open by design during judging:** no sign-in, so judges can use it with one click, and all
+  match data is synthetic. Anyone who can reach it can fire a graphic, so it is guarded instead:
+  - every override line is checked before it is recorded or aired: refereeing, betting and injuries are
+    refused, and Azure AI Content Safety refuses hate, sexual and self-harm content from Low severity and
+    violence from Medium (so match language passes). If the check can't run in Azure, the line is refused (424);
+  - rate limits far above a person's pace, counted only on real, open cards so junk requests can't lock the
+    operator out: 120 decisions and 20 overrides a minute; one replay at a time, at most 50x, 5 s apart;
+  - a daily model budget (`CRQ_DAILY_AI_MOMENTS`, default 300 moments): past it, moments use the templates
+    and the console says so, so the demo keeps working and the cost stays bounded.
+
+  Production would use Entra ID sign-in with Operator and Viewer roles; that depends on the
+  producer-takeover feature.
 - Spanish and Hindi templates and labels still need a native-speaker review pass.
 - Operator name is free text until Entra ID lands.
