@@ -82,7 +82,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
-      // One replica: proposals, decisions and viewer sockets live in memory in the API.
+      // One replica: the current run's proposals and viewer sockets live in memory in the API (decisions are
+      // also persisted to Cosmos DB).
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }

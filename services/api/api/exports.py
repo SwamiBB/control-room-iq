@@ -29,3 +29,13 @@ def decisions_to_csv(entries: Iterable[DecisionLogEntry]) -> str:
     writer.writerow(CSV_HEADER)
     writer.writerows(_row(e) for e in entries)
     return buf.getvalue()
+
+
+def history_to_csv(docs: Iterable[dict]) -> str:
+    """The persisted log (decision_store.py): the same columns, plus the run each decision belongs to."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow([*CSV_HEADER, "run_id", "seq"])
+    writer.writerows([*_row(DecisionLogEntry.model_validate(d)), d.get("run_id", ""), str(d.get("seq", ""))]
+                     for d in docs)
+    return buf.getvalue()

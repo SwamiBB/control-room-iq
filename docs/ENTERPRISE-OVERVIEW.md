@@ -61,8 +61,8 @@ one. The model the router selected is recorded on every span and on every propos
 
 ### 4. Full audit trail
 
-- Every agent output writes an `EvaluationRecord` (schema). Every operator decision, undo, SLA hold, and
-  reject lands in an append-only decisions container.
+- Every decision (approve, override, hold, reject, SLA hold, expiry, supersession) is appended to the Cosmos DB
+  `decisions` container, once, per replay run (`services/api/api/decision_store.py`).
 - Downloadable at `GET /decisions.csv` (route in
   [`services/api/api/main.py:407`](../services/api/api/main.py); CSV built in
   [`services/api/api/exports.py`](../services/api/api/exports.py), with formula-injection

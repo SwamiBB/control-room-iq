@@ -145,9 +145,12 @@ viewer. The decision is audited with actor and timestamp.
 
 ## 6. Audit and observability
 
-Every decision — approve, override, hold, SLA hold, reject, undo — writes to an append-only decisions
-container. The full log is downloadable at `GET /decisions.csv` and includes actor, timestamp and the
-proposal snapshot.
+Every decision (approve, override, hold, reject, the 20 s SLA hold, expiry, supersession by a goal) is
+appended to the Cosmos DB `decisions` container: written once, never updated, tagged with the replay run
+it belongs to, by the API's managed identity. The write runs in the background, so a fire never waits on
+it or fails because of it. `GET /decisions.csv` downloads the current run (decision id, proposal, action,
+actor, time, reason, package); `GET /decisions.csv?run=all` (or `?run=<run id>`) downloads the persisted
+log across runs and restarts.
 
 One **OpenTelemetry trace per moment** (`crq.moment`) holds a `crq.agent <role>` span per agent call:
 routing mode, the model the router chose (`crq.model_served`), latency, and whether the call failed and why.

@@ -149,7 +149,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`) | Built |
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
 | Azure Container Apps | Ingest, API and web | Built |
-| Azure Cosmos DB (serverless) | Match state and the decision log | Built |
+| Azure Cosmos DB (serverless) | The decision log: every decision appended once, per replay run, by the API's managed identity; `/decisions.csv?run=all` reads it back | Built |
 | Application Insights + OpenTelemetry | One trace per moment: every agent call with its routing mode, the model the router chose, tokens and failures; decisions and airings linked back to it. Connected to the Foundry project's Traces view; Entra ID only | Built |
 | Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 

@@ -2,9 +2,9 @@
 
 Local mode (default): `uvicorn api.main:app --reload` then POST /matches/replay with a match file to
 run the full pipeline in-process (simulator -> stats -> agents -> proposals -> approvals -> overlay).
-Azure mode: ingest/agents run as separate Container Apps; this service consumes `crq-moments` and
-publishes approved items to `crq-overlay`. Both modes share the same in-memory hub below, which is
-swapped for Cosmos DB persistence via `store.py`.
+In Azure the replay runs the same way, inside this service; approved items also go to the `crq-overlay`
+Event Hub, and every decision is also written to Cosmos DB (`decision_store.py`). The hub below holds the
+current run in memory.
 """
 
 from __future__ import annotations
@@ -51,8 +51,9 @@ from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
+from .decision_store import DecisionStore, decision_store_from_env
 from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
-from .exports import decisions_to_csv
+from .exports import decisions_to_csv, history_to_csv
 from .fallback_text import template_line
 from .fan_card import build_fan_card
 from .fan_cue import build_fan_cue
@@ -94,7 +95,14 @@ async def lifespan(_: FastAPI):
     sink = eventhubs_sink_from_env()
     if sink:
         hub.feed.sinks.append(sink)
+    store = decision_store_from_env()
+    if store:
+        store.start()
+        hub.store = store
     yield
+    if store:
+        hub.store = None
+        await store.close()
     if sink:
         await sink.close()
 
@@ -114,16 +122,23 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 MAX_PARALLEL_MOMENTS = 3  # agent pipelines allowed to run at once beside the replay
 
 
+def _new_run_id() -> str:
+    """One replay of a match. Replaying the same match reuses its moment ids, so the run keeps the log apart."""
+    return f"r-{datetime.now(UTC):%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:6]}"
+
+
 class Hub:
-    """In-memory state + fan-out. Replace with Cosmos + Event Hubs in Azure mode (store.py)."""
+    """In-memory state and fan-out for the current run; decisions are also persisted (`store`, when configured)."""
 
     def __init__(self) -> None:
+        self.store: DecisionStore | None = None  # outlives reset() and new_match(): it holds every run
         self.reset()
 
     def reset(self) -> None:
         self.now: Callable[[], datetime] = lambda: datetime.now(UTC)
         self.proposals: dict[str, OverlayProposal] = {}
         self.decisions: list[DecisionLogEntry] = []
+        self.run_id, self.decision_seq = _new_run_id(), 0  # the persisted log tells runs of the same match apart
         self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants/fan_card
         self.packets: list[OverlayPacket] = []  # canonical packets as aired, before per-viewer variants
         self.moments: dict[str, Moment] = {}  # moment_id -> moment, for variant checks and template lines
@@ -162,6 +177,7 @@ class Hub:
         self.moments.clear()
         self.deliveries.clear()
         self.state = None
+        self.run_id, self.decision_seq = _new_run_id(), 0  # "Run again" is a new run in the persisted log
         self.replay_speed = None
         self.state_published_at = 0.0
         self.cancel_moments()  # the old match's agents must not post into the new one
@@ -252,7 +268,12 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
                              action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
                              package_id=p.package_id)
     hub.decisions.append(entry)
-    attrs = {"crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.action": action.value,
+    hub.decision_seq += 1
+    if hub.store:  # the durable copy, written in the background: the decision never waits on it
+        hub.store.add(entry, hub.run_id, hub.decision_seq)
+    # The run joins a trace to its rows in the persisted log (/decisions.csv?run=<id>, Cosmos DB).
+    attrs = {"crq.run_id": hub.run_id, "crq.decision_id": entry.entry_id, "crq.moment_id": p.moment_id,
+             "crq.proposal_id": p.proposal_id, "crq.action": action.value,
              "crq.actor": d.actor, "crq.layer": p.layer.value}
     if p.package_id:
         attrs["crq.package_id"] = p.package_id
@@ -290,10 +311,11 @@ def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
                         is_high_stakes=bool(m and m.kind in HIGH_STAKES_KINDS), is_override=bool(p.override_line))
 
 
-async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
-    with tracer.start_as_current_span("crq.air", links=_links(p.moment_id), attributes={
+async def _air(p: OverlayProposal, approval: DecisionLogEntry, run_id: str, links: list[Link]) -> None:
+    """`run_id` and `links` are the decision's, taken when it was made (see _decide)."""
+    with tracer.start_as_current_span("crq.air", links=links, attributes={
             "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
-            "crq.approval_id": approval.entry_id}) as span:
+            "crq.approval_id": approval.entry_id, "crq.run_id": run_id}) as span:
         audits = await _send(p, approval)
         for source in ("variant", "template", "base", "override"):
             span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
@@ -329,9 +351,11 @@ async def _decide(proposal_id: str, action: ProposalStatus, d: Decision) -> Over
     await _expire_stale()  # a graphic that went stale while held cannot be fired late
     p = _open_proposal(proposal_id, action, d)
     entry = _record_decision(p, action, d)
+    # Taken now, with the decision: a new run can start during the broadcast below, and the airing belongs to this one.
+    run_id, links = hub.run_id, _links(p.moment_id)
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     if action in AIRING_ACTIONS:
-        await _air(p, entry)
+        await _air(p, entry, run_id, links)
     return p
 
 
@@ -442,10 +466,24 @@ async def metrics():
     return gallery_metrics(hub.proposals, hub.decisions, hub.deliveries, hub.clock.play_ms, len(hub.packets))
 
 
+RUN_PATTERN = r"^(all|r-[0-9A-Za-z-]{1,40})$"  # a run id from _new_run_id(), or "all"
+
+
 @app.get("/decisions.csv")
-async def decisions_csv():
-    return Response(decisions_to_csv(hub.decisions), media_type="text/csv",
-                    headers={"content-disposition": 'attachment; filename="decisions.csv"'})
+async def decisions_csv(run: Annotated[str | None, Query(pattern=RUN_PATTERN)] = None):
+    """The current run's log, as the console shows it. `?run=<run id>` or `?run=all` reads the persisted log
+    instead, which outlives "Run again" and restarts. That needs Cosmos DB: 503 when the API runs without it."""
+    if run is None:
+        return Response(decisions_to_csv(hub.decisions), media_type="text/csv",
+                        headers={"content-disposition": 'attachment; filename="decisions.csv"',
+                                 "x-crq-run-id": hub.run_id})
+    if hub.store is None:
+        raise HTTPException(503, "the persisted decision log needs Cosmos DB, which this API is running without")
+    docs = await hub.store.history(None if run == "all" else run)
+    name = "decisions-all.csv" if run == "all" else f"decisions-{run}.csv"
+    return Response(history_to_csv(docs), media_type="text/csv",
+                    headers={"content-disposition": f'attachment; filename="{name}"'})
+
 
 
 @app.get("/proposals")
@@ -747,8 +785,9 @@ async def _run_moment(m: Moment) -> None:
     # before the wait for a free slot, so a moment that queued shows why its card was late.
     waiting = time.perf_counter()
     with tracer.start_as_current_span("crq.moment", context=otel_context.Context(), attributes={
-            "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
-            "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
+            "crq.run_id": hub.run_id, "crq.moment_id": m.moment_id, "crq.match_id": m.match_id,
+            "crq.kind": m.kind.value, "crq.beat": m.beat, "crq.clock": _clock(m),
+            "crq.importance": m.importance}) as span:
         hub.moment_traces[m.moment_id] = span.get_span_context()
         try:
             async with hub.moment_slots:

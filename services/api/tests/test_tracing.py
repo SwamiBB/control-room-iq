@@ -62,6 +62,9 @@ def test_the_decision_and_the_airing_link_back_to_the_moment(monkeypatch):
     assert decision.attributes["crq.action"] == "approved" and decision.attributes["crq.proposal_id"] == "p-card"
     assert [link.context for link in decision.links] == [moment_span.get_span_context()]
     (air,) = _named("crq.air")
+    # One replay's spans share its run id, which is also the persisted log's run (decision_store.py).
+    runs = {moment_span.attributes["crq.run_id"], decision.attributes["crq.run_id"], air.attributes["crq.run_id"]}
+    assert runs == {hub.run_id} and decision.attributes["crq.decision_id"] == hub.decisions[-1].entry_id
     assert [link.context for link in air.links] == [moment_span.get_span_context()]
     assert sum(air.attributes[f"crq.groups.{s}"] for s in ("variant", "template", "base", "override")) == 1
     (delivered,) = [e for e in air.events if e.name == "delivered"]
@@ -159,3 +162,24 @@ def test_tracing_is_off_without_a_connection_string(monkeypatch):
     monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=00000000-0000-0000-0000-0")
     assert telemetry.settings.offline  # the tests run offline, as demos without Azure do: those never export
     assert telemetry.configure("crq-test") is False
+
+
+def test_an_airing_keeps_its_decision_s_run_when_run_again_lands_during_the_broadcast(monkeypatch):
+    """The fire awaits the operator broadcast before airing; a new run starting in that gap mustn't relabel it."""
+    _moment_with_card(monkeypatch)
+    (moment_span,) = _named("crq.moment")
+    decided_in = hub.run_id
+    real_broadcast = hub.broadcast_operators
+
+    async def run_again_mid_broadcast(msg):
+        if msg["type"] == "proposal":
+            hub.new_match(build_meta(42))
+        await real_broadcast(msg)
+
+    monkeypatch.setattr(hub, "broadcast_operators", run_again_mid_broadcast)
+    TestClient(app).post("/proposals/p-card/approve")
+    (decision,) = _named("crq.decision")
+    (air,) = _named("crq.air")
+    assert hub.run_id != decided_in  # the new run did start
+    assert decision.attributes["crq.run_id"] == air.attributes["crq.run_id"] == decided_in
+    assert [link.context for link in air.links] == [moment_span.get_span_context()]
