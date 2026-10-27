@@ -54,6 +54,7 @@ Three claims, each enforced in code:
 | **Hardened images** | Non-root container users; `requireInfrastructureEncryption` on Storage; 7-day blob delete retention; blob reads/writes/deletes forwarded to Log Analytics | [SECURITY.md §Deployment posture](SECURITY.md#9-deployment-posture) |
 | **API exposure** | The API container has `ingress.external: false`; nginx is the one public door; ingest has no ingress at all | [SECURITY.md §Deployment posture](SECURITY.md#9-deployment-posture), [`infra/modules/apps.bicep`](infra/modules/apps.bicep) |
 | **Degrade, never stall** | Every agent has a timeout and a deterministic template fallback; offline mode runs the whole pipeline with no Azure dependency; the fallback path is marked on the proposal and in `/metrics` | [`services/agents/agents/workflow.py`](services/agents/agents/workflow.py), [`GET /metrics`](services/api/api/metrics.py) |
+| **Open-demo guards** | 120 decisions and 20 overrides per minute (counted on real open cards only, so junk requests can't lock the operator out); one replay at a time with a cooldown and a 50× speed cap; a daily model-call budget (`CRQ_DAILY_AI_MOMENTS`, default 300) that forces template-only output past the budget with a console note explaining why; Azure AI Content Safety on every operator override before it is recorded or aired (424 if the service can't be reached) | [`services/api/api/guards.py`](services/api/api/guards.py), [`services/api/api/content_safety.py`](services/api/api/content_safety.py) |
 | **Availability monitoring** | 5-minute Application Insights URL ping test on `/healthz` from three US regions, with a metric alert that fires when two of three locations fail in a 5-minute window | [`infra/modules/apps.bicep`](infra/modules/apps.bicep) (`healthzPing`, `healthzAlert`) |
 | **Evaluations** | Foundry groundedness, relevance and fluency per language on a 50-output run from 10 moments, with 10 planted falsehoods (5 absent-number traps caught by the code check before air) | [`evals/results/latest.md`](evals/results/latest.md) |
 | **Documented posture** | Full [SECURITY.md](SECURITY.md) with trust-boundary diagram and deployment-posture section; [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) with 11 named threats and their current mitigation; [docs/RUNBOOK.md](docs/RUNBOOK.md) for operational response | [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), [docs/RUNBOOK.md](docs/RUNBOOK.md) |
@@ -68,6 +69,10 @@ Three claims, each enforced in code:
 - **Logic App for the SLA hold** — the hold runs as an in-process `asyncio` timer in both environments.
   The intended production replacement is a Cosmos change feed → Logic App → `POST /hold` with the
   `sla-timer` actor, deferred to post-submission.
+- **Azure Consumption budget with cost alerts** — the daily model-call cap in `services/api/api/guards.py`
+  caps calls, not dollars. A `Microsoft.Consumption/budgets` resource with 80 % and 100 % alerts to an
+  action group is the production-level cost guardrail; adding it to `infra/modules/core.bicep` is reserved
+  for a post-submission iteration.
 
 ## What it is
 
