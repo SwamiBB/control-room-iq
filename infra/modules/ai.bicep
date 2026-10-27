@@ -139,4 +139,6 @@ resource speechUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 output projectEndpoint string = 'https://${foundry.properties.customSubDomainName}.services.ai.azure.com/api/projects/${project.name}'
 output openAiEndpoint string = 'https://${foundry.properties.customSubDomainName}.openai.azure.com/'
+// Azure AI Content Safety on the same account: the API checks an operator's override line with it (Entra ID).
+output contentSafetyEndpoint string = 'https://${foundry.properties.customSubDomainName}.cognitiveservices.azure.com/'
 output speechEndpoint string = speech.properties.endpoint

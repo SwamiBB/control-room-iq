@@ -336,12 +336,16 @@ async def _call(agent, payload: dict, model, fallback, info: dict):
 
 
 class MomentPipeline:
-    def __init__(self) -> None:
-        self.explainer = make_agent("explainer", _prompt("explainer"), ExplanationOut)
-        self.narrator = make_agent("narrator", _prompt("narrator"))
-        self.personalizer = make_agent("personalizer", _prompt("personalizer"), VariantsOut)
-        self.localizer = make_agent("localizer", _prompt("localizer"), VariantsOut)
-        self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
+    def __init__(self, with_models: bool = True) -> None:
+        """`with_models=False` builds no agents: every agent uses its template (the day's model budget is spent)."""
+        def agent(*args):
+            return make_agent(*args) if with_models else None
+
+        self.explainer = agent("explainer", _prompt("explainer"), ExplanationOut)
+        self.narrator = agent("narrator", _prompt("narrator"))
+        self.personalizer = agent("personalizer", _prompt("personalizer"), VariantsOut)
+        self.localizer = agent("localizer", _prompt("localizer"), VariantsOut)
+        self.producer = agent("producer", _prompt("producer"), ProducerDecision)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
                       requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None,

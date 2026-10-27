@@ -65,11 +65,13 @@ module apps 'modules/apps.bicep' = {
     identityId: core.outputs.identityId
     acrLoginServer: core.outputs.acrLoginServer
     logAnalyticsId: core.outputs.logAnalyticsId
+    appInsightsId: core.outputs.appInsightsId
     appInsightsConnectionString: core.outputs.appInsightsConnectionString
     eventHubNamespaceFqdn: data.outputs.eventHubNamespaceFqdn
     cosmosEndpoint: data.outputs.cosmosEndpoint
     foundryProjectEndpoint: ai.outputs.projectEndpoint
     openAiEndpoint: ai.outputs.openAiEndpoint
+    contentSafetyEndpoint: ai.outputs.contentSafetyEndpoint
     apiExists: apiExists
     ingestExists: ingestExists
     webExists: webExists

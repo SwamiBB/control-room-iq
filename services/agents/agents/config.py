@@ -43,6 +43,9 @@ def _reasoning_effort() -> str:
 class Settings:
     foundry_project_endpoint: str = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
     azure_openai_endpoint: str = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    # Reserved: a Foundry deployment to call directly if every router deployment is unreachable. Provisioned by
+    # `infra/modules/ai.bicep` and injected by `apps.bicep` as `MODEL_FALLBACK_DEPLOYMENT`. The current fallback
+    # path for each agent is its deterministic template; a direct call to this deployment is a post-submission item.
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
     # 12 s lets an occasional slow router pick finish instead of falling back to the template.

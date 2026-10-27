@@ -56,9 +56,12 @@ def test_unscheduled_proposal_airs_now_for_its_proposed_duration():
     assert (packet.period, packet.clock_ms) == (1, 600_000)
 
 
-def test_scheduled_proposal_keeps_scheduler_times_and_displays_their_clock():
+def test_a_fired_graphic_is_placed_on_the_play_clock_and_displays_its_match_clock():
+    # The scheduler places it when it is fired, whatever times the card carried, and the packet shows the
+    # second-half clock for that play time.
     hub.clock._period_starts[2] = 2_820_000
-    pid = _seed(proposal(t_in_ms=2_900_000, t_out_ms=2_908_000))
+    hub.clock.play_ms = 2_900_000
+    pid = _seed(proposal(t_in_ms=1_000, t_out_ms=2_000, t_start_ms=0, t_end_ms=8_000))
     TestClient(app).post(f"/proposals/{pid}/approve")
     (packet,) = hub.packets
     assert (packet.t_in_ms, packet.t_out_ms, packet.period, packet.clock_ms) == (2_900_000, 2_908_000, 2, 80_000)

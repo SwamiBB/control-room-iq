@@ -390,7 +390,7 @@ flowchart TB
   GHA -->|azd up / Bicep| RG
 
   subgraph RG[Azure resource group — East US 2]
-    subgraph ACA[Azure Container Apps · KEDA on event lag]
+    subgraph ACA[Azure Container Apps · fixed replicas]
       APIAPP[API app<br/>FastAPI + ingest + agents]
       WEBAPP[Web app<br/>console · renderer · viewers]
     end
@@ -422,13 +422,12 @@ flowchart TB
 | Resource | Configuration |
 | --- | --- |
 | **Foundry project** | Model router version 2025-11-18 as three deployments with `routing.mode` quality / balanced / cost. `gpt-4.1-mini` is reached only on fallback. No Speech |
-| **Agent Service** | `register_agents.py` creates or updates the **five** agents by name: explainer, narrator, producer, personalizer, localizer (Saturday). No Recap agent. Never blocks offline mode |
-| **Event Hubs** | `match-events` (simulator → ingest) and `crq-overlay` (packet feed). One consumer group each. Identity-based access |
-| **Cosmos DB** (serverless) | Database `control-room-iq`. Containers `moments`, `proposals`, `deliveries`, `decisions`, `evaluations`. Partition key `/match_id` |
-| **Logic App** | Cosmos change feed on `proposals` → 20 s delay → `POST /proposals/{id}/hold` as `sla-timer`. A local timer does the same offline |
+| **Agent Service** | *Intended:* the five agents (explainer, narrator, producer, personalizer, localizer) registered by `register_agents.py` so they can be inspected in the Foundry portal. *Current:* the agents run in-process via Agent Framework; portal registration is a post-submission item |
+| **Event Hubs** | `match-events` (simulator → ingest) and `crq-overlay` (packet feed from `services/api/api/feed.py`). One consumer group each. Identity-based access. A separate `crq-moments` worker is intended but not deployed; the pipeline currently runs in-process inside the API container |
+| **Cosmos DB** (serverless) | Database `control-room-iq`. *Written now:* `decisions` (via `decision_store.py`, PR #100). *Reserved for post-submission iterations:* `moments`, `proposals`, `deliveries`, `evaluations`. Partition key `/match_id` on each |
 | **Container Apps** | API and web apps. Readiness probe `/healthz`. Public judge URL with a pre-loaded replay and no login |
 | **Identity and secrets** | Managed identity, no keys in the repo, GitHub Actions authenticates via OIDC (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) |
-| **IaC** | `infra/ai.bicep` (router deployments), `infra/apps.bicep` (env vars `ROUTER_QUALITY/BALANCED/COST`), Logic App, `azd up`. Expect API-version drift on the first deploy; fix it in place |
+| **IaC** | `infra/ai.bicep` (router deployments), `infra/apps.bicep` (env vars `ROUTER_QUALITY/BALANCED/COST`), `azd up`. The SLA hold runs as an in-process timer in both environments; a Logic App for it is reserved for post-submission. Expect API-version drift on the first deploy; fix it in place |
 
 ### 9.1 Routing per agent
 
