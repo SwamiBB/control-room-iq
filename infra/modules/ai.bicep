@@ -115,6 +115,18 @@ resource projectAppiPublisher 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
+// Monitoring Reader for the project's identity: the Foundry portal reads the traces as the project, so without it
+// the agents' Monitor and Traces pages say "Setup incomplete" though the traces are there.
+resource projectAppiReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, project.id, 'monitoringreader')
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
+    principalId: project.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource speechUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(speech.id, identityPrincipalId, 'speechuser')
   scope: speech
