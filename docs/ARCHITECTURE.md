@@ -506,7 +506,9 @@ control-room-iq/
   evals/         run_eval.py, datasets/, results/latest.md              Siranjeevi
   data/reference/ match-042.jsonl                                       Pranav
   infra/         ai.bicep, apps.bicep, data.bicep, core.bicep, azure.yaml  Swami
-  docs/          CHANGES-2026-10-23.md, HANDOFF-*.md, GALLERY-TERMS.md
+  docs/          ARCHITECTURE.md, ENTERPRISE-OVERVIEW.md, DESIGN.md, THREAT-MODEL.md,
+                 RUNBOOK.md, GALLERY-TERMS.md, SETUP.md, CALIBRATION.md, adr/, img/,
+                 internal/ (planning, handoffs, change log — historical)
 ```
 
 ### 13.1 Configuration

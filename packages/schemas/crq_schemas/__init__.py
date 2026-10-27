@@ -4,7 +4,7 @@ All services exchange these Pydantic models (as JSON) so the simulator, ingest, 
 front end agree on one vocabulary. Pitch coordinates are 0-100 on both axes, attacking left to right
 for the team in possession.
 
-Design rules encoded here (see docs/CHANGES-2026-10-23.md):
+Design rules encoded here (see docs/internal/CHANGES-2026-10-23.md for the historical change log):
 - Time: `play_ms` is monotonic play time from the first kickoff and is what everything is SCHEDULED on;
   `period` + `t_ms` (clock within the period) is what is DISPLAYED.
 - Gate: generated text reaches a screen only inside an `OverlayPacket`, which requires approval fields.

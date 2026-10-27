@@ -2,7 +2,7 @@
 
 They live with the stats engine because they decide what counts as ground truth. The agents use them to build
 their `intel` input, and the API's variant checks use them as the allow-list, so neither has to import the other
-(docs/HANDOFF-2026-10-24-match-intelligence.md, item 7). Moved here unchanged from agents/match_intel.py, which
+(docs/internal/HANDOFF-2026-10-24-match-intelligence.md, item 7). Moved here unchanged from agents/match_intel.py, which
 re-exports them. Pure functions: no I/O, no model calls.
 """
 
