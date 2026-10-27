@@ -508,7 +508,7 @@ export default function Operator({ demo = false }: { demo?: boolean } = {}) {
                   <span className="muted">{g.items.length} graphics, one click</span>
                   <PackageCountdown lead={g.items[0]} warned={Boolean(warnings[g.items[0].proposal_id])} />
                   <div className="routine-actions">
-                    <button className="fire" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
+                    <button className="primary" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
                       Fire all {g.items.length}
                     </button>
                     <button disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
