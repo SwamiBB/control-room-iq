@@ -23,8 +23,8 @@ each lives in the code.
 A renderer only airs text that is wrapped in an `OverlayPacket`. The packet type **cannot be constructed
 without** `approval_id`, `approved_by`, `approved_at` — these are required fields on the Pydantic model.
 
-- Schema: [`packages/schemas/crq_schemas/__init__.py:560`](../packages/schemas/crq_schemas/__init__.py) —
-  `class OverlayPacket` with required approval triple at lines 583–585.
+- Schema: [`packages/schemas/crq_schemas/__init__.py:577`](../packages/schemas/crq_schemas/__init__.py) —
+  `class OverlayPacket` with required approval triple at lines 600–602.
 - Guard: [`services/api/api/packets.py`](../services/api/api/packets.py) — docstring: *"The packet type
   itself is the gate, since it cannot be constructed without approval fields."*
 - Negative-path test: [`services/api/tests/test_gate.py`](../services/api/tests/test_gate.py) —
@@ -55,7 +55,8 @@ one. The model the router selected is recorded on every span and on every propos
 
 - Routing table: [`services/agents/agents/config.py`](../services/agents/agents/config.py) —
   `AGENT_ROUTING` and `deployment_for(agent)`.
-- Visible on the proposal: `OverlayProposal.model_served` field.
+- Visible on the proposal: `OverlayProposal.meta.model_served` (via `AgentMeta`, see
+  [`packages/schemas/crq_schemas/__init__.py:371`](../packages/schemas/crq_schemas/__init__.py)).
 - Trace: one OpenTelemetry trace per moment; each agent call is a span carrying its routing mode and
   the model the router chose (`crq.model_served`), which also goes into `meta.model_served`.
 
@@ -67,11 +68,11 @@ one. The model the router selected is recorded on every span and on every propos
   kept in the API's in-memory hub for the lifetime of a run. An API restart loses only the current run's working
   set; every decision ever written survives.
 - Downloadable at `GET /decisions.csv` (route in
-  [`services/api/api/main.py:407`](../services/api/api/main.py); CSV built in
+  [`services/api/api/main.py:480`](../services/api/api/main.py); CSV built in
   [`services/api/api/exports.py`](../services/api/api/exports.py), with formula-injection
   prefixes neutralised).
 - Per-viewer-group delivery visible at `GET /deliveries` (route in
-  [`services/api/api/main.py:418`](../services/api/api/main.py); variant selection in
+  [`services/api/api/main.py:506`](../services/api/api/main.py); variant selection in
   [`services/api/api/delivery.py`](../services/api/api/delivery.py)).
 
 ### 5. Enterprise substrate
@@ -111,17 +112,17 @@ Highlights to notice:
 
 | Claim | File | What to look for |
 | --- | --- | --- |
-| Approval triple required on every packet | `packages/schemas/crq_schemas/__init__.py:560` | `OverlayPacket` with `approval_id`, `approved_by`, `approved_at` |
+| Approval triple required on every packet | `packages/schemas/crq_schemas/__init__.py:577` | `OverlayPacket` with `approval_id`, `approved_by`, `approved_at` at lines 600-602 |
 | Packet construction is the gate | `services/api/api/packets.py` | Module docstring |
 | Negative-path gate test | `services/api/tests/test_gate.py` | `test_approve_stamps_packet_with_the_decision` |
 | Approve → aired, cannot hold | `services/api/tests/test_approval.py` | `test_approve_then_cannot_hold` |
 | SLA holds, never approves | `services/api/api/timing.py` | `warn_at`, auto-hold, expiry |
-| Unsourced numbers flagged | `packages/schemas/crq_schemas/__init__.py:556` | `OverlayProposal.unsourced_numbers` |
+| Unsourced numbers flagged | `packages/schemas/crq_schemas/__init__.py:573` | `OverlayProposal.unsourced_numbers` |
 | Variant checks catch invention and banned content | `services/api/api/variant_checks.py` | Module docstring + `_BANNED` patterns |
 | Per-agent model router | `services/agents/agents/config.py` | `AGENT_ROUTING`, `deployment_for` |
-| Model served recorded per call | `services/agents/agents/workflow.py:292` | `getattr(response, "raw_representation", None).model` captured into `info["model_served"]` |
-| Append-only decision log, CSV export | `services/api/api/main.py:407` (route) + `services/api/api/exports.py` (body) | `/decisions.csv`, formula-injection safe |
-| Per-viewer-group deliveries | `services/api/api/main.py:418` (route) + `services/api/api/delivery.py` (logic) | `/deliveries` |
+| Model served recorded per call | `services/agents/agents/workflow.py:321` | `getattr(response, "raw_representation", None).model` captured into `info["model_served"]` |
+| Append-only decision log, CSV export | `services/api/api/main.py:480` (route) + `services/api/api/exports.py` (body) | `/decisions.csv`, formula-injection safe |
+| Per-viewer-group deliveries | `services/api/api/main.py:506` (route) + `services/api/api/delivery.py` (logic) | `/deliveries` |
 | CodeQL on Python, TS, workflows | `.github/workflows/codeql.yml` | Matrix languages, pinned SHAs |
 | Trivy on deps, secrets, Dockerfiles, Bicep | `.github/workflows/trivy.yml` | Workflow header note on CVE-2026-33634 |
 | Dependabot | `.github/dependabot.yml` | Weekly cadence |
