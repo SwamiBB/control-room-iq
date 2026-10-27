@@ -63,6 +63,9 @@ one. The model the router selected is recorded on every span and on every propos
 
 - Every decision (approve, override, hold, reject, SLA hold, expiry, supersession) is appended to the Cosmos DB
   `decisions` container, once, per replay run (`services/api/api/decision_store.py`).
+- **Scope:** the audit record (decisions) is durable; in-flight state (proposals, packets, in-progress agent runs) is
+  kept in the API's in-memory hub for the lifetime of a run. An API restart loses only the current run's working
+  set; every decision ever written survives.
 - Downloadable at `GET /decisions.csv` (route in
   [`services/api/api/main.py:407`](../services/api/api/main.py); CSV built in
   [`services/api/api/exports.py`](../services/api/api/exports.py), with formula-injection
@@ -130,9 +133,41 @@ Highlights to notice:
 
 Honesty on scope is part of the enterprise story.
 
-- Sign-in and roles via Entra ID — stated as the next step; the producer takeover depends on it.
+**Product scope**
+
+- Sign-in and roles via Entra ID — stated as the next step; the producer takeover depends on it. Until it lands,
+  any client that can reach the API can call the decision endpoints and the actor on the request is trusted.
+  This is explicitly called out in the README limits section.
 - Spanish and Hindi templates and labels still need a native-speaker review pass.
 - Offside and VAR appear as text only; no dedicated graphics.
 - Distance covered counts runs with the ball until the tracking totals are wired in.
 
-See [README §Limits](../README.md#limits) for the full list.
+**Enterprise architecture gaps** *(flagged in the external review; carried as post-submission items)*
+
+- **Event-driven agent worker.** The intended Azure topology has `services/ingest` publishing moments to the
+  `crq-moments` Event Hub and a separate agent worker consuming them. The current implementation runs the whole
+  pipeline (simulator → stats → agents → proposals → approvals → overlay) in-process inside the API container,
+  which the live deployment does successfully. The second worker is deferred to a post-submission iteration.
+- **Deterministic placement scheduler.** `scheduler.py` is the "Landing shortly" row in the README table.
+  Proposals are timed by arrival; collision resolution, preemption, and `t_in_ms/t_out_ms` placement arrive
+  with that module.
+- **Direct model fallback.** `MODEL_FALLBACK_DEPLOYMENT` is provisioned by Bicep (`infra/modules/ai.bicep`
+  deploys the `gpt-4.1-mini` fallback) and injected into the API container, but the current fallback path for
+  each agent is its deterministic template, not a direct call to this deployment. Wiring the direct fallback is
+  a post-submission item.
+- **In-flight state persistence.** Decisions are durable (Cosmos DB, per §4). Proposals, packets and in-progress
+  agent runs live in memory for the duration of a run. A full Cosmos-backed working set is a post-submission item.
+
+**Known data-path edges**
+
+- **Momentum decay after half time.** `_recent` in `services/ingest/ingest/stats.py` stores period-local
+  `ev.t_ms`; a brief window after half time the decay math can over-weight late-first-half events until the
+  60-slot buffer rotates clean. Fix is to store `play_ms` for the recent window; filed for post-submission.
+- **Pass-accuracy guard with missing distance.** Pass accuracy aggregates can go stale when a pass event is
+  missing `distance_m` because the quality-recalc path returns early. Not seen on the current synthetic
+  fixtures; the fix is to split distance-dependent quality from count-based accuracy.
+- **`new_match` transient state.** Starting a new match clears the hub but keeps `match_state` populated with
+  the previous match until the new folder loads. A `/recap` call during that window would see the previous
+  state behind the new metadata. Fix is to set `match_state = None` during `new_match`.
+
+See [README §Limits](../README.md#limits) for the shipped-feature limits.
