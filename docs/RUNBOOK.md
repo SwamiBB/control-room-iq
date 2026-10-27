@@ -12,7 +12,7 @@ without touching data because the demo runs on synthetic events and the audit tr
 | `ca-crq-web-poc-eastus2-01` | nginx reverse-proxy and the React SPA; the one public ingress | `GET /` returns the SPA shell |
 | `ca-crq-ingest-poc-eastus2-01` | Event Hubs → stats engine fold (used in Azure mode; currently fixed one replica with no scaling) | No ingress; check container logs |
 | `cosmos-crq-poc-eastus2-01` | `decisions` container is written to on every operator action (PR #100) | Azure portal → Cosmos data explorer, container `decisions` |
-| `evhns-crq-poc-eastus2-01` | `match-events` (sim → ingest), `crq-overlay` (packet feed) | Azure portal → Event Hubs → incoming messages |
+| `evhns-crq-poc-eastus2-01` | `crq-events` (sim → ingest), `crq-moments` (interpret → agents), `crq-overlay` (approved packets → renderer) | Azure portal → Event Hubs → incoming messages |
 | `aif-crq-poc-eastus2-01` | Foundry account; three router deployments (`router-quality`, `router-balanced`, `router-cost`) plus `gpt-4.1-mini` fallback | Portal → Foundry project → Deployments → request counts |
 
 ## Normal operations
@@ -89,7 +89,9 @@ Response:
 1. `az containerapp show --name ca-crq-web-poc-eastus2-01 --resource-group crq-rg-poc-eastus2-01` to check revision health.
 2. If the environment is up but revisions are failing, roll back: `az containerapp revision set-mode --mode Single --name ca-crq-web-poc-eastus2-01 --resource-group crq-rg-poc-eastus2-01` then activate a known-good revision.
 3. **Offline fallback for judging:** record the walkthrough locally with `CRQ_OFFLINE=1` and link to the
-   recording. ADR-13 treats offline mode as a first-class path for exactly this reason.
+   recording. Offline mode is a first-class path (see `services/api/api/offline.py` and the
+   [README Quick start](../README.md#quick-start-local-no-azure)) exactly so judging survives an Azure
+   outage.
 
 ### Someone trolls the public operator endpoint during judging
 
