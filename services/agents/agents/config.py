@@ -43,6 +43,9 @@ def _reasoning_effort() -> str:
 class Settings:
     foundry_project_endpoint: str = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "")
     azure_openai_endpoint: str = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    # Reserved: a Foundry deployment to call directly if every router deployment is unreachable. Provisioned by
+    # `infra/modules/ai.bicep` and injected by `apps.bicep` as `MODEL_FALLBACK_DEPLOYMENT`. The current fallback
+    # path for each agent is its deterministic template; a direct call to this deployment is a post-submission item.
     model_fallback: str = os.environ.get("MODEL_FALLBACK_DEPLOYMENT", "gpt-4.1-mini")
     # Per agent call. Moments run in the background (#51), so a slower call delays its card, not the match;
     # 12 s lets an occasional slow router pick finish instead of falling back to the template.
@@ -52,6 +55,8 @@ class Settings:
     # past 8 s (#39). Empty sends no reasoning_effort.
     reasoning_effort: str = _reasoning_effort()
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
+    # Prompt and response text in trace spans (telemetry.py): only where the data is synthetic.
+    trace_content: bool = os.environ.get("CRQ_TRACE_CONTENT", "").strip().lower() == "true"
     languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.
     router_quality: str = os.environ.get("ROUTER_QUALITY", "router-quality")
@@ -60,6 +65,15 @@ class Settings:
 
 
 settings = Settings()
+
+# Each agent's name in Foundry Agent Service (register_agents.py) and its id on every trace span, so a trace
+# and the catalogue entry it ran as carry the same name.
+REGISTERED_PREFIX = "crq-"
+
+
+def registered_name(role: str) -> str:
+    return REGISTERED_PREFIX + role
+
 
 # Routing mode per agent: one model-router deployment per mode (see `router_*` above).
 AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", "narrator": "balanced",

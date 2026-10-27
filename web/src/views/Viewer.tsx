@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { WS, fetchStanding, matchMinute, type MatchStanding } from "../api";
 import BallPath from "../components/BallPath";
 import IntelChips from "../components/IntelChips";
 import { PitchLines } from "../components/PitchView";
+import TrackingLayer from "../components/TrackingLayer";
 import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
+import { asFrame, nextTrail, shotMirror, type TrackingFrame } from "../components/tracking";
 import type { IntelRegister, MomentMetrics } from "../intel";
 import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
-import { chanceText, heading, outcomeText, zoneText } from "../labels";
+import { HEADINGS, chanceText, heading, outcomeText, zoneText } from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
+import { SHOT_ON_SCREEN_MS, useRecent } from "../useRecent";
 import "./viewer.css";
 
 type Persona = "newcomer" | "fan" | "analyst";
@@ -17,6 +20,18 @@ type Lang = "en" | "es" | "hi";
 
 const PERSONAS: Record<Persona, string> = { newcomer: "New to football", fan: "Fan", analyst: "Analyst" };
 const ACCESS: Record<Access, string> = { none: "Standard", deaf: "Deaf — cues and captions" };
+
+/** What each choice changes, for the pickers' tooltips: the personalizer agent's rules, in a viewer's words. */
+export const PERSONA_HELP: Record<Persona, string> = {
+  newcomer: "Plain words, no jargon. Says what happened rather than the statistic, with one fact at most.",
+  fan: "Knows the game. Warm, factual lines with a key number or two, rounded: a speed, a pass length.",
+  analyst: "Precise and neutral. The supporting figure in full: speeds to one decimal, pass difficulty and accuracy.",
+};
+export const ACCESS_HELP: Record<Access, string> = {
+  none: "The graphics as broadcast.",
+  deaf: "A visual cue on every strike, and a caption card with who, where, the outcome and the score. "
+    + "Lines never rely on sound.",
+};
 const LANGS: Record<Lang, string> = { en: "English", es: "Español", hi: "हिन्दी" };
 const SIDES: Record<Allegiance, string> = { home: "Home", away: "Away", neutral: "Neutral" };
 
@@ -90,6 +105,14 @@ export type Cue = {
 export type Held = { packet: Packet; arrivedAt: number; until: number };
 
 const MIN_ON_SCREEN_MS = 2000;
+/**
+ * The longest any layer stays up, whatever its slot says: the agents' per-layer maximum (MAX_SLOT_MS in
+ * services/agents/agents/workflow.py), and 45 s for the goal routine's code-built ticker. A guard for any
+ * other source of packets, so a bad slot cannot pin a graphic on screen.
+ */
+const MAX_ON_SCREEN_MS: Record<string, number> = {
+  lower_third: 12_000, stat_panel: 20_000, heatmap: 20_000, full_screen: 25_000, ticker: 45_000, default: 45_000,
+};
 
 /**
  * How long a packet stays on screen: its slot, or its caption card's hold if that is longer.
@@ -100,7 +123,8 @@ const MIN_ON_SCREEN_MS = 2000;
  */
 export function holdMs(p: Packet): number {
   const slot = p.t_out_ms - p.t_in_ms;
-  return Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+  const wanted = Math.max(Number.isFinite(slot) ? slot : 0, p.fan_card?.hold_ms ?? 0, MIN_ON_SCREEN_MS);
+  return Math.min(wanted, MAX_ON_SCREEN_MS[p.layer] ?? MAX_ON_SCREEN_MS.default);
 }
 
 /** Adds a packet. A re-send under the same cue_id replaces it; a packet supersedes the ids it names. */
@@ -200,9 +224,9 @@ function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: La
 function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: Lang; register: IntelRegister }) {
   const badges = (!p.verified || p.fallback || p.lang !== lang) && (
     <span className="badges">
-      {!p.verified && <span className="badge override">Unverified</span>}
-      {p.fallback && <span className="badge fallback">Template</span>}
-      {p.lang !== lang && <span className="badge lang">in English</span>}
+      {!p.verified && <span className="badge override">{heading("unverified", lang)}</span>}
+      {p.fallback && <span className="badge fallback">{heading("template", lang)}</span>}
+      {p.lang !== lang && <span className="badge lang">{heading("in_english", lang)}</span>}
     </span>
   );
   const kicker = kickerFor(p, lang);
@@ -217,7 +241,8 @@ function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: 
     );
   }
   const detail = layer !== "player_tag" && (
-    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register} />
+    <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register}
+                lang={lang} />
   );
   // The spine takes the team colour the graphic carries (the scorer's stats do), else the viewer's side.
   const teamColor = (p.payload as { team_color?: unknown } | undefined)?.team_color;
@@ -388,15 +413,23 @@ export function cueTimer(setCue: (c: Cue | null) => void) {
   };
 }
 
-const CUE_WORDS: Record<Cue["kind"], string> = {
-  chance: "Shot",
-  goal: "Goal",
-  whistle: "Whistle",
-  crowd_rising: "Crowd rising",
-  crowd_roar: "Crowd roar",
-  crowd_groan: "Crowd groan",
-  card: "Card",
-};
+/** The strike cue's one word, in the viewer's language. */
+export const cueWord = (kind: string, lang: Lang) => HEADINGS[`cue.${kind}`]?.[lang] ?? heading("cue.play", lang);
+
+/**
+ * A small "?" beside a picker's label: hover or focus it for what every choice means. The select carries the
+ * current choice's meaning as its own tooltip too, and points screen readers at this list.
+ */
+function Help<K extends string>({ id, names, help }: { id: string; names: Record<K, string>; help: Record<K, string> }) {
+  return (
+    <span className="help" tabIndex={0} aria-label="What these mean">
+      ?
+      <span className="tip" role="tooltip" id={id}>
+        {(Object.keys(names) as K[]).map((k) => <span key={k}><b>{names[k]}</b>: {help[k]}</span>)}
+      </span>
+    </span>
+  );
+}
 
 export type ViewerPreset = {
   persona?: Persona;
@@ -419,6 +452,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [access, setAccess] = useState<Access>(initial.access ?? "none");
   const [lang, setLang] = useState<Lang>(initial.lang ?? "en");
   const [allegiance, setAllegiance] = useState<Allegiance>(initial.allegiance ?? "neutral");
+  const helpId = useId(); // the multiviewer draws three viewers: their tooltip ids must not collide
   useEffect(() => {
     if (preset) return;
     try {
@@ -435,6 +469,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   const [cues] = useState(() => cueTimer(setCue));
   const [strip, setStrip] = useState<Strip | null>(null);
   const [standing, setStanding] = useState<MatchStanding | null>(null);
+  // The players and the ball: the latest frame, the ball's recent frames, and when the latest arrived.
+  const [track, setTrack] = useState<{ frame: TrackingFrame; trail: TrackingFrame[]; stepMs: number; at: number } | null>(null);
 
   // No match clock on this socket, so anchor the hold at arrival: a late packet still gets its time.
   const upsert = useCallback((packet: Packet) => {
@@ -458,6 +494,18 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         upsert(packet);
       }
       if (m.type === "fan_cue") cues.show(m.cue as Cue);
+      if (m.type === "tracking") {
+        const frame = asFrame(m.frame);
+        if (!frame) return;
+        const at = Date.now();
+        // Each frame is reached over the time since the last one, so the dots glide at any replay speed.
+        setTrack((prev) => ({
+          frame,
+          trail: prev ? nextTrail(prev.trail, frame) : [frame],
+          stepMs: prev ? Math.min(400, Math.max(80, at - prev.at)) : 0,
+          at,
+        }));
+      }
     }
   });
 
@@ -476,6 +524,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           setHeld(new Map());
           cues.clear();
           setStrip(null);
+          setTrack(null);
           setWarming(true);
         }
         if (st) setWarming(false);
@@ -489,12 +538,14 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
     return () => { stop = true; window.clearInterval(t); };
   }, [link, url, cues]);
 
-  // New settings mean a new feed: a cue from the old one must not outlive it, nor a score worded for
-  // another side or language.
+  // New settings mean a new feed: a cue or graphic from the old one must not outlive it, nor a score worded for
+  // another side or language. A graphic is held for up to 45 s, so a viewer switching from Spanish to Hindi kept
+  // the Spanish line up, badged "in English" (#59). The next graphic comes in the new language.
   useEffect(() => {
     return () => {
       cues.clear();
       setStrip(null);
+      setHeld(new Map());
     };
   }, [persona, access, lang, allegiance, cues]);
 
@@ -506,6 +557,8 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
   }, []);
 
   const live = liveAt(held, Date.now());
+  // The latest shot's path for a few seconds after it arrives, then the pitch is the players' again.
+  const shotUp = useRecent(strip?.shot ? strip.shot.points.join(";") : null, SHOT_ON_SCREEN_MS);
 
   // Every layer on screen is drawn below. The caption card rides on whichever of them carries it (the goal
   // routine's lead), not on the newest, so the scorer's lower third arriving with it no longer hides the card.
@@ -534,15 +587,21 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         )}
         <div className="viewer-controls" hidden={!chrome}>
           <label>
-            <span>Who is watching</span>
-            <select value={persona} onChange={(e) => setPersona(e.target.value as Persona)}>
-              {Object.entries(PERSONAS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <span>Who is watching <Help id={`${helpId}-persona`} names={PERSONAS} help={PERSONA_HELP} /></span>
+            <select value={persona} onChange={(e) => setPersona(e.target.value as Persona)}
+                    title={PERSONA_HELP[persona]} aria-describedby={`${helpId}-persona`}>
+              {Object.entries(PERSONAS).map(([k, v]) => (
+                <option key={k} value={k} title={PERSONA_HELP[k as Persona]}>{v}</option>
+              ))}
             </select>
           </label>
           <label>
-            <span>Access</span>
-            <select value={access} onChange={(e) => setAccess(e.target.value as Access)}>
-              {Object.entries(ACCESS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            <span>Accessibility <Help id={`${helpId}-access`} names={ACCESS} help={ACCESS_HELP} /></span>
+            <select value={access} onChange={(e) => setAccess(e.target.value as Access)}
+                    title={ACCESS_HELP[access]} aria-describedby={`${helpId}-access`}>
+              {Object.entries(ACCESS).map(([k, v]) => (
+                <option key={k} value={k} title={ACCESS_HELP[k as Access]}>{v}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -561,12 +620,18 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       </header>
 
       <div className={`pitch ${fullScreenUp ? "full-screen-up" : ""}`}>
-        {/* Behind the graphics: the markings, and the latest shot from where it was struck to where it finished. */}
+        {/* Behind the graphics: the markings, the players and the ball, and the latest shot from where it was struck
+            to where it finished. */}
         <svg className="viewer-pitch" viewBox={`-2 -2 ${W + 4} ${H + 4}`} preserveAspectRatio="xMidYMid slice"
-             role="img" aria-label={strip?.shot ? "Pitch with the latest shot" : "Pitch"}>
+             role="img" aria-label={strip?.shot && shotUp ? "Pitch with the latest shot" : track ? "Pitch with the players" : "Pitch"}>
           <PitchLines />
-          {strip?.shot && (
+          {track && (
+            <TrackingLayer frame={track.frame} trail={track.trail.slice(0, -1)} homeTeam={standing?.homeTeam}
+                           stepMs={track.stepMs} />
+          )}
+          {strip?.shot && shotUp && (
             <BallPath key={strip.shot.points.join(";")} points={strip.shot.points} animate
+                      mirror={shotMirror(strip.shot.player, standing?.homeTeam, standing?.period)}
                       label={`${heading("shooter", lang)} ${strip.shot.name ?? nameOf(strip.shot.player)}`.trim()} />
           )}
         </svg>
@@ -582,7 +647,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
             role="status"
             aria-live="assertive"
           >
-            <span className="cue-word">{CUE_WORDS[cue.kind] ?? "Play"}</span>
+            <span className="cue-word">{cueWord(cue.kind, lang)}</span>
           </div>
         )}
 
@@ -596,10 +661,12 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
           );
         })}
 
-        {shown.length === 0 && !cue && (
+        {/* A feed says nothing between graphics: the pitch carries the picture. Only the link's state, or a
+            new run loading, is worth a line. */}
+        {shown.length === 0 && !cue && (link !== "live" || warming) && (
           <p className="viewer-idle">
             {link === "live"
-              ? warming ? "Warming up: the next run is loading." : "Waiting for the next approved graphic."
+              ? "Warming up: the next run is loading."
               : link === "connecting"
                 ? "Connecting…"
                 : "Lost the feed. Reconnecting automatically."}
@@ -612,7 +679,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
       {access !== "deaf" && (
         <p className="viewer-note">
-          Strike cues and detail cards go to deaf-access viewers. Switch Access to see them.
+          Strike cues and detail cards go to deaf-access viewers. Switch Accessibility to see them.
         </p>
       )}
 

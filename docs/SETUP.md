@@ -33,6 +33,16 @@ python -m simulator.cli replay data/match.jsonl --speed 20 --eventhub
 
 Everything authenticates with Entra ID (managed identity in Azure, your `az login` locally). No keys.
 
+**Provision, then deploy.** `azd provision` keeps the images the apps are running (it reads them from Azure), so it
+never blanks the site. When a change touches both the infrastructure and an image, as the move of the web app to
+port 8080 did, run `azd deploy` straight after `azd provision`, or `azd up`. Until then the app runs its old image
+against the new settings.
+
+**Upgrading an environment created before Oct 26:** the storage account now requires infrastructure encryption,
+which Azure only sets when an account is created. Delete the (empty) account once, then provision:
+`az storage account delete -g <resource group> -n <storage account> --yes`. Its only role, the app identity's
+Storage Blob Data Contributor, comes back from Bicep.
+
 ## Quotas to request on day one
 
 - `model-router` (version 2025-11-18), GlobalStandard: three deployments (`router-quality`, `router-balanced`,

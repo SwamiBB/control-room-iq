@@ -56,9 +56,12 @@ def test_unscheduled_proposal_airs_now_for_its_proposed_duration():
     assert (packet.period, packet.clock_ms) == (1, 600_000)
 
 
-def test_scheduled_proposal_keeps_scheduler_times_and_displays_their_clock():
+def test_a_fired_graphic_is_placed_on_the_play_clock_and_displays_its_match_clock():
+    # The scheduler places it when it is fired, whatever times the card carried, and the packet shows the
+    # second-half clock for that play time.
     hub.clock._period_starts[2] = 2_820_000
-    pid = _seed(proposal(t_in_ms=2_900_000, t_out_ms=2_908_000))
+    hub.clock.play_ms = 2_900_000
+    pid = _seed(proposal(t_in_ms=1_000, t_out_ms=2_000, t_start_ms=0, t_end_ms=8_000))
     TestClient(app).post(f"/proposals/{pid}/approve")
     (packet,) = hub.packets
     assert (packet.t_in_ms, packet.t_out_ms, packet.period, packet.clock_ms) == (2_900_000, 2_908_000, 2, 80_000)
@@ -102,6 +105,24 @@ def test_fan_card_travels_inside_the_approved_packet():
     TestClient(app).post(f"/proposals/{pid}/approve")
     (packet,) = _aired(deaf)
     assert packet.fan_card == card
+
+
+def test_only_deaf_access_viewers_get_the_caption_card():
+    card = FanCard(card_id="fc-1", match_id="m", moment_id="mo-1", play_ms=600_000, caption="Shot saved, low left")
+    deaf, hearing = _viewer(access="deaf"), _viewer()
+    pid = _seed(fan_card=card.model_dump(mode="json"))
+    TestClient(app).post(f"/proposals/{pid}/approve")
+    (to_deaf,), (to_hearing,) = _aired(deaf), _aired(hearing)
+    assert to_deaf.fan_card == card
+    assert to_hearing.fan_card is None and to_hearing.line == to_deaf.line
+
+
+def test_an_override_of_a_template_line_is_not_badged_as_the_template():
+    viewer = _viewer()
+    pid = _seed(proposal(fallback=True))
+    TestClient(app).post(f"/proposals/{pid}/override", json={"actor": "op", "override_line": "Operator line"})
+    (packet,) = _aired(viewer)
+    assert packet.line == "Operator line" and packet.fallback is False
 
 
 def test_hold_and_reject_publish_nothing():

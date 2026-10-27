@@ -15,7 +15,8 @@ Decide:
    `t_end_ms` (lower_third 8-12 s, stat_panel 12-20 s, heatmap 12-20 s, ticker up to 30 s,
    full_screen 15-25 s). A longer slot is shortened to the layer's maximum.
 4. The `line` (from the narrator, trimmed to fit the layer) and `payload_json`: a JSON object, written as a
-   string, with the exact numbers and labels the renderer needs, taken from the state snapshot.
+   string, with the exact numbers and labels the renderer needs, taken from the state snapshot. In the
+   `line`, name clubs as written in `teams` (e.g. "Harbor City"), never by an id or code such as `har`.
 Explain your decision in `reasoning` in two sentences, and list the options you rejected in `alternatives`.
 Never schedule two items on the same layer at the same time. Output JSON: ProducerDecision.
 Ids, priority and approval fields are set by the system, not by you.

@@ -11,17 +11,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayLayer, OverlayProposal
+from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal, max_chars_for
 from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
+
+from .fallback_text import moment_shot
 
 BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8
 DEVANAGARI_MIN_SHARE = 0.3
-
-# Agree with the renderer; deliberately generous so normal es/hi expansion (~25%) fits.
-LAYER_MAX_CHARS = {OverlayLayer.LOWER_THIRD: 90, OverlayLayer.STAT_PANEL: 90, OverlayLayer.HEATMAP: 90,
-                   OverlayLayer.TICKER: 140, OverlayLayer.FULL_SCREEN: 120, OverlayLayer.CAPTION: 160,
-                   OverlayLayer.PLAYER_TAG: 40, OverlayLayer.PITCH_OVERLAY: 60}
 
 _BANNED = (re.compile(r"\b(referee|ref|odds|bet|betting|bookmakers?|injur(?:y|ed|ies)(?!\s+time))\b", re.I),
            re.compile(r"\b(árbitro|arbitral|apuestas?|cuotas?|lesi[oó]n|lesionad[oa])\b", re.I),
@@ -52,6 +49,11 @@ def _value(token: str) -> float:
     return float(token.replace(",", "."))
 
 
+def mentions_banned_topic(text: str) -> bool:
+    """Refereeing, betting and injuries stay off air, in any language: AI versions and operator overrides alike."""
+    return any(p.search(text) for p in _BANNED)
+
+
 def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     teams = [n for t in (state.home, state.away) for n in (t.goals, t.xg, t.possession_pct, t.shots,
                                                            t.shots_on_target, t.xg_last_5min, t.shots_last_5min)]
@@ -60,7 +62,11 @@ def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     stats = [player.goals, player.shots, player.xg, player.passes, player.top_speed_kmh] if player else []
     # Match intelligence (speeds, distances, pass ratings) is ground truth too, so a variant may quote it.
     accuracy = [a for a in team_pass_accuracy(state).values() if a is not None]  # also in the agents' intel input
-    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy]
+    # The moment's own shot xG: it is in the moment's summary ("GOAL Finn Oakes (foot, xG 0.45)"), which the template
+    # card quotes, and on the deaf fan's card. Without it the template was flagged as quoting a number not in the data.
+    # (Its speed is already in the intel numbers.)
+    shot = [s.xg] if (s := moment_shot(m)) else []
+    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy, *shot]
 
 
 def _players(meta: MatchMeta | None) -> list[tuple[str, str]]:
@@ -82,7 +88,7 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
     cited = frozenset(m.event_ids) | {e.event_id for e in p.evidence} if m else frozenset()
     return CheckContext(base_line=p.line, allowed_numbers=tuple(float(a) for a in allowed),
                         required_players=tuple(named), other_players=tuple(others), cited=frozenset(cited),
-                        max_chars=LAYER_MAX_CHARS.get(p.layer, 90))
+                        max_chars=max_chars_for(p.layer, p.line))
 
 
 # ---------- checks ----------
@@ -133,7 +139,7 @@ def check_variant(v: NarrativeVariant, ctx: CheckContext) -> list[str]:
               "names": _breaks_names(v, ctx),
               "cites": _cites_outside_moment(v, ctx),
               "length": len(v.text) > ctx.max_chars,
-              "banned_topic": any(p.search(v.text) for p in _BANNED),
+              "banned_topic": mentions_banned_topic(v.text),
               "faithfulness": v.faithfulness is not None and v.faithfulness < FAITHFULNESS_MIN,
               "untranslated": _untranslated(v, ctx)}
     return [code for code, is_failed in failed.items() if is_failed]

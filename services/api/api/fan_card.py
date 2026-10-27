@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from crq_schemas import FanCard, FanDetail, MatchMeta, Moment
 
+from .fallback_text import moment_shot
+
 # Outcome codes as the simulator writes them; the viewer translates these, not free text.
 OUTCOMES = ("goal", "saved", "off_target", "blocked")
 
@@ -35,7 +37,7 @@ def build_fan_card(m: Moment, line: str, meta: MatchMeta | None) -> FanCard | No
     """A card for result beats only; the strike itself is the FanCue, which airs before any decision."""
     if m.beat != "result":
         return None
-    shot = next((s for s in m.state.shots if s.event_id in m.event_ids), None)
+    shot = moment_shot(m)
     detail = FanDetail(shooter=_player_name(m.player, meta),
                        zone=shot.zone or None if shot else None,
                        outcome=shot.outcome if shot and shot.outcome in OUTCOMES else None,

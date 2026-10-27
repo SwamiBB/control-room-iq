@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   WS, clock, playClock, layerName, modelLabel, isCodeBuilt, isTemplateFallback, decide, decidePackage, startReplay, decisionLabel, decisionHelp, DECISION_HELP, errorMessage,
   COMPRESSED_SPEEDS, REAL_TIME, speedLabel, type ReplayScope, type ReplaySpeed,
@@ -18,22 +18,15 @@ import { stableOrder } from "../runningOrder";
 import { agentsWriting, runPhase, RUN_PHASE_TEXT } from "../runStatus";
 import { loadSettings, newArrivals, saveSettings, shortcutFor, type OperatorSettings } from "../settings";
 import { useLiveSocket } from "../useLiveSocket";
+import { SHOT_ON_SCREEN_MS, useRecent } from "../useRecent";
 import type { MomentMetrics } from "../intel";
 import "./operator.css";
 
 const OPEN: Proposal["status"][] = ["proposed", "held"];
 const OVERRIDE_MAX = 280; // the API's limit on override_line, for firing and for the preview alike
-const ACT_WORDS = {
-  approve: "fire the graphic",
-  hold: "hold the graphic",
-  reject: "drop the graphic",
-  override: "fire the override",
-} as const;
-const PACKAGE_WORDS = {
-  approve: "fire the goal routine",
-  hold: "hold the goal routine",
-  reject: "drop the goal routine",
-} as const;
+/** What the banner says was being tried, for one graphic or a whole goal routine: "fire the goal routine". */
+const VERBS = { approve: "fire", hold: "hold", reject: "drop", override: "fire the override" } as const;
+const actWords = (a: keyof typeof VERBS, noun = "the graphic") => (a === "override" ? VERBS.override : `${VERBS[a]} ${noun}`);
 const WINDOW_MS = 90_000; // how much play time the running-order timeline shows
 
 type Group = { packageId: string | null; items: Proposal[] };
@@ -51,7 +44,10 @@ const browserStore = () => {
   }
 };
 
-export default function Operator() {
+/** True on /operator-demo. Enables the architecture-overlay chrome judges see; the plain /operator stays clean. */
+const DemoContext = createContext(false);
+
+export default function Operator({ demo = false }: { demo?: boolean } = {}) {
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [moments, setMoments] = useState<MomentMsg[]>([]);
   const [state, setState] = useState<any>(null);
@@ -230,15 +226,20 @@ export default function Operator() {
   }, []);
 
   const act = (id: string, a: "approve" | "hold" | "override" | "reject") =>
-    run(id, ACT_WORDS[a], async () => {
+    run(id, actWords(a), async () => {
       const p = await decide(id, a, a === "override" ? { override_line: override[id] } : {});
       setProposals((x) => ({ ...x, [p.proposal_id]: p }));
       if (a === "override") setOverride((o) => ({ ...o, [id]: "" }));
       refreshDecisions();
     });
 
+  // A routine's buttons wait while any of its items is being decided on its own, as the items' buttons wait for
+  // Fire all: either way round, a second click would race the first into a 409.
+  const routineBusy = (g: Group) =>
+    Boolean(g.packageId && (busy[g.packageId] || g.items.some((p) => busy[p.proposal_id])));
+
   const actPackage = (packageId: string, a: "approve" | "hold" | "reject") =>
-    run(packageId, PACKAGE_WORDS[a], async () => {
+    run(packageId, actWords(a, "the goal routine"), async () => {
       const items = await decidePackage(packageId, a);
       setProposals((x) => {
         const next = { ...x };
@@ -298,7 +299,7 @@ export default function Operator() {
     const g = topRef.current;
     if (!g) return;
     if (g.packageId) {
-      if (!busy[g.packageId]) actPackage(g.packageId, a);
+      if (!routineBusy(g)) actPackage(g.packageId, a);
       return;
     }
     const p = g.items[0];
@@ -340,6 +341,9 @@ export default function Operator() {
   };
 
   const nowPlay = clk?.play_ms ?? 0;
+  // The latest shot's path and label for a few seconds; after that only its marker stays on the shot map.
+  const latestPath = latestShotPath(moments, name);
+  const latestPathUp = useRecent(latestPath?.id, SHOT_ON_SCREEN_MS);
   // Degrading rather than stalling is by design, but the operator should be told it is happening.
   // A goal routine's stats and ticker are built in code, not a fallback, so they do not count.
   const fallbackCount = open.filter(isTemplateFallback).length;
@@ -354,7 +358,14 @@ export default function Operator() {
   });
 
   return (
-    <div className="gallery">
+    <DemoContext.Provider value={demo}>
+    <div className={`gallery ${demo ? "demo" : ""}`}>
+      {demo && (
+        <div className="arch-badge" title="You are on /operator-demo. The plain /operator does not show these labels.">
+          <span className="arch-badge-dot" aria-hidden="true" />
+          ARCHITECTURE OVERLAY
+        </div>
+      )}
       <header className="gallery-head">
         <div>
           <h1>Graphics operator</h1>
@@ -397,7 +408,7 @@ export default function Operator() {
                   setRunPace(pace);
                   setStarting(true);
                   try {
-                    await startReplay(scope, pace);
+                    await startReplay({ scope, speed: pace });
                   } catch (err) {
                     setStarting(false); // nothing started: the last run's desk stays as it was
                     throw err;
@@ -453,6 +464,7 @@ export default function Operator() {
       >
         {/* ---- left: the decisions ------------------------------------------------ */}
         <section className="running-order">
+          <ArchSub>Microsoft Agent Framework · 5 agents · Cosmos DB · 20-second SLA</ArchSub>
           <h2>
             Running order <span className="count">{open.length}</span>
             {pending.length > 0 && (
@@ -496,11 +508,11 @@ export default function Operator() {
                   <span className="muted">{g.items.length} graphics, one click</span>
                   <PackageCountdown lead={g.items[0]} warned={Boolean(warnings[g.items[0].proposal_id])} />
                   <div className="routine-actions">
-                    <button className="fire" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "approve")}>
+                    <button className="primary" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
                       Fire all {g.items.length}
                     </button>
-                    <button disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
-                    <button className="drop" disabled={busy[g.packageId]} onClick={() => actPackage(g.packageId!, "reject")}>Drop</button>
+                    <button disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
+                    <button className="drop" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "reject")}>Drop</button>
                   </div>
                 </div>
               )}
@@ -552,6 +564,7 @@ export default function Operator() {
 
           <div className="log-head">
             <h2>Decision log</h2>
+            <ArchSub>Append-only · Cosmos DB · CSV export · formula-injection safe</ArchSub>
             <a className="csv" href={decisionsCsvUrl} download>Download CSV</a>
           </div>
           <ul className="log">
@@ -590,13 +603,14 @@ export default function Operator() {
 
         <section className="program">
           <h2>Program feed</h2>
+          <ArchSub>Simulator → Azure Event Hubs → Ingest Container App → stats engine</ArchSub>
           <PitchView
             shots={(state?.shots ?? []) as PitchShot[]}
             homeTeamId={meta?.home?.team_id}
             pressureTrend={state?.pressure_trend}
             momentum={state?.momentum_label}
             nameOf={name}
-            latestPath={latestShotPath(moments, name)}
+            latestPath={latestPathUp ? latestPath : null}
           />
           <div className="on-air">
             {onAir[0] ? (
@@ -619,6 +633,7 @@ export default function Operator() {
           )}
 
           <h2>Gallery metrics</h2>
+          <ArchSub>Application Insights · OpenTelemetry one trace per moment</ArchSub>
           <MetricsPanel />
 
           <h2>Match intelligence</h2>
@@ -647,6 +662,48 @@ export default function Operator() {
           </div>
         </section>
       </div>
+    </div>
+    </DemoContext.Provider>
+  );
+}
+
+/** Small italic sub-label under a section header; renders only on /operator-demo. */
+function ArchSub({ children }: { children: ReactNode }) {
+  const demo = useContext(DemoContext);
+  if (!demo) return null;
+  return <div className="arch-sub">{children}</div>;
+}
+
+/** Agent lineage chip for a proposal; renders only on /operator-demo. */
+function AgentLineage({ p }: { p: Proposal }) {
+  const demo = useContext(DemoContext);
+  if (!demo) return null;
+  const codeBuilt = isCodeBuilt(p);
+  const template = isTemplateFallback(p);
+  const live = !codeBuilt && !template;
+  // `live` already excludes codeBuilt; the five chips light together because the proposal does not
+  // surface each agent's individual outcome. The overall title (below) names what "lit" actually means.
+  const agents = [
+    { name: "EXPLAINER", mode: "quality", on: live, title: "Why the moment matters, with cites. router-quality." },
+    { name: "NARRATOR", mode: "balanced", on: live, title: "The English on-air line (≤ 22 words). router-balanced." },
+    { name: "PRODUCER", mode: "quality", on: live, title: "Layer, template and evidence. router-quality." },
+    { name: "PERSONALIZER", mode: "cost", on: live, title: "English versions per persona × access. router-cost." },
+    { name: "LOCALIZER", mode: "cost", on: live, title: "Spanish and Hindi variants. router-cost." },
+  ];
+  const source = codeBuilt
+    ? "Built in code — no agents ran"
+    : template
+    ? "Template fallback — a model did not produce this line (timeout, decline, or offline mode)"
+    : null;
+  return (
+    <div className="lineage" title={source ?? "The agent chain this proposal attempted. Lit = Foundry call made for the chain; the proposal does not surface each agent's individual outcome."}>
+      {agents.map((a, i) => (
+        <span key={a.name} className={`lineage-agent ${a.mode} ${a.on ? "on" : "off"}`} title={a.title}>
+          {a.name}
+          {i < agents.length - 1 && <span className="lineage-arrow" aria-hidden="true">→</span>}
+        </span>
+      ))}
+      {source && <span className="lineage-note">{source}</span>}
     </div>
   );
 }
@@ -717,6 +774,7 @@ function Card({
       )}
 
       <p className="line">{p.line}</p>
+      <AgentLineage p={p} />
       <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={name} />
 
       {unsourced.length > 0 && (

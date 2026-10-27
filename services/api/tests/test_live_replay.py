@@ -115,12 +115,15 @@ def test_a_new_match_stops_the_old_matchs_agents(monkeypatch):
 
 
 def test_a_goal_that_arrives_during_the_broadcast_still_takes_the_card(monkeypatch):
-    # The save's moment is being broadcast when the goal lands: the card must still not be queued.
+    # The save's card is already on the desk while its moment is broadcast (#90): the goal landing then expires it.
     monkeypatch.setattr(main, "pipeline", SlowPipeline())
+    goal = _on_move(moment_id="goal", kind=MomentKind.GOAL, importance=1.0)
+    real_broadcast = hub.broadcast_operators
 
     async def goal_lands_mid_broadcast(msg):
         if msg["type"] == "moment" and msg["moment"]["moment_id"] == "save":
-            hub.goal_phases.add("ph-1")
+            await _start_moment(goal)
+        await real_broadcast(msg)
 
     monkeypatch.setattr(hub, "broadcast_operators", goal_lands_mid_broadcast)
 
@@ -129,8 +132,8 @@ def test_a_goal_that_arrives_during_the_broadcast_still_takes_the_card(monkeypat
         await _drain_moments()
 
     asyncio.run(scenario())
-    assert "p-save" not in hub.proposals
-    assert hub.results["save"]["notes"] == [main.GOAL_TOOK_OVER]  # the reason is kept, not lost
+    assert hub.proposals["p-save"].status == ProposalStatus.EXPIRED
+    assert any(d.proposal_id == "p-save" and "superseded by the goal" in (d.reasoning or "") for d in hub.decisions)
 
 
 def test_a_goal_without_a_move_supersedes_nothing(monkeypatch):

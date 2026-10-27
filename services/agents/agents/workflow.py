@@ -1,4 +1,4 @@
-"""Moment -> Explanation -> Narrative -> English variants -> Spanish and Hindi, with the Producer alongside.
+"""Moment -> Explanation -> Narrative -> Producer (the card) -> English variants -> Spanish and Hindi.
 
 Five agents: explainer (why it matters), narrator (the English on-air line, and half/full-time recaps),
 producer (the graphic and its evidence), personalizer (English versions per persona and access), and
@@ -26,6 +26,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, get_args
@@ -43,12 +44,14 @@ from crq_schemas import (
     OverlayLayer,
     OverlayProposal,
     Persona,
+    max_chars_for,
 )
 from pydantic import BaseModel, Field
 
 from .clients import make_agent
 from .config import AGENT_ROUTING, settings
 from .match_intel import NameOf, intel_context, intel_for, intel_payload, intel_short
+from .telemetry import brief, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,10 @@ class MomentResult:
     intel: dict | None = None  # the match-intelligence block the agents used (payload.intel shape)
     # Decisions worth showing that are not failures, e.g. the producer choosing no graphic for a moment.
     notes: list[str] = field(default_factory=list)
+
+
+# Receives the card as soon as the producer has written it: a MomentResult with no variants yet.
+OnCard = Callable[[MomentResult], Awaitable[None]]
 
 
 # ---------- fallbacks (deterministic, template based) ----------
@@ -281,15 +288,37 @@ def fallback_proposal(m: Moment, e: Explanation, line: str) -> OverlayProposal |
 # ---------- agents ----------
 
 async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
-    """`info`, when given, receives the call's latency_ms and the model the router served."""
+    """`info`, when given, receives the call's latency_ms and the model the router served.
+
+    Each call is a `crq.agent <role>` span in the moment's trace: its routing mode, the model the router chose, and
+    whether the call itself failed and why. A reply rejected later (bad JSON, a declined goal) is a template
+    fallback too: the moment's span lists them all. Agent Framework's spans (tokens, the request) nest inside."""
     if agent is None:
         return fallback(), None
+    role = getattr(agent, "name", "agent")
+    seen: dict = {} if info is None else info
+    with tracer.start_as_current_span(f"crq.agent {role}", attributes={
+            "crq.agent": role, "crq.routing": AGENT_ROUTING.get(role, "balanced")}) as span:
+        try:
+            result, error = await _call(agent, payload, model, fallback, seen)
+        except asyncio.CancelledError:
+            span.set_attribute("crq.cancelled", True)  # a new match replaced this one mid-call
+            raise
+        span.set_attribute("crq.call_failed", error is not None)
+        if error:
+            span.set_attribute("crq.error", brief(error))
+        for key in ("model_served", "latency_ms"):
+            if seen.get(key) is not None:
+                span.set_attribute(f"crq.{key}", seen[key])
+        return result, error
+
+
+async def _call(agent, payload: dict, model, fallback, info: dict):
     try:
         started = time.perf_counter()
         res = await asyncio.wait_for(agent.run(json.dumps(payload, default=str)), timeout=settings.agent_timeout_s)
-        if info is not None:
-            info["latency_ms"] = round((time.perf_counter() - started) * 1000)
-            info["model_served"] = getattr(getattr(res, "raw_representation", None), "model", None)
+        info["latency_ms"] = round((time.perf_counter() - started) * 1000)
+        info["model_served"] = getattr(getattr(res, "raw_representation", None), "model", None)
         text = getattr(res, "text", None) or str(res)
         return (model.model_validate_json(text) if model else text.strip()), None
     except Exception as ex:  # noqa: BLE001 - any failure falls back; recorded for the decision log
@@ -297,20 +326,32 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
         # A timeout has an empty message, which left only "TimeoutError: " in the decision log (#39).
         reason = (f"timed out after {settings.agent_timeout_s:g} s" if isinstance(ex, TimeoutError)
                   else f"{type(ex).__name__}: {ex}")
-        logger.warning("Agent %s fell back to its template: %s", name, reason)
+        logger.warning("Agent %s fell back to its template: %s", name, brief(reason))  # logs go to App Insights
         return fallback(), f"{name}: {reason}"
 
 
 class MomentPipeline:
-    def __init__(self) -> None:
-        self.explainer = make_agent("explainer", _prompt("explainer"), ExplanationOut)
-        self.narrator = make_agent("narrator", _prompt("narrator"))
-        self.personalizer = make_agent("personalizer", _prompt("personalizer"), VariantsOut)
-        self.localizer = make_agent("localizer", _prompt("localizer"), VariantsOut)
-        self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
+    def __init__(self, with_models: bool = True) -> None:
+        """`with_models=False` builds no agents: every agent uses its template (the day's model budget is spent)."""
+        def agent(*args):
+            return make_agent(*args) if with_models else None
+
+        self.explainer = agent("explainer", _prompt("explainer"), ExplanationOut)
+        self.narrator = agent("narrator", _prompt("narrator"))
+        self.personalizer = agent("personalizer", _prompt("personalizer"), VariantsOut)
+        self.localizer = agent("localizer", _prompt("localizer"), VariantsOut)
+        self.producer = agent("producer", _prompt("producer"), ProducerDecision)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
-                      requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None) -> MomentResult:
+                      requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None,
+                      on_card: OnCard | None = None) -> MomentResult:
+        """Run the agents on one moment.
+
+        The producer writes the card right after the narrator, and `on_card` receives it at once (a result with
+        no variants yet), so the operator isn't kept waiting for translations. The personalizer and localizer
+        then write every version from the **card's** line and within its layer's length: the line that airs is
+        the line every viewer's version is checked against (#90).
+        """
         requests = requests or [(p, a, lang, {})
                                 for p in Persona for a in get_args(Access) for lang in settings.languages]
         failures: list[str] = []
@@ -318,30 +359,34 @@ class MomentPipeline:
         intel = intel_context(m, _name_of(meta))
 
         info: dict = {}
-        out, err = await _run(self.explainer, {"moment": moment_json, "intel": intel}, ExplanationOut, lambda: None,
-                              info)
+        teams = _teams(meta)
+        out, err = await _run(self.explainer, {"moment": moment_json, "intel": intel, "teams": teams}, ExplanationOut,
+                              lambda: None, info)
         if out is None:
             expl = fallback_explanation(m)
         else:
             expl = Explanation(moment_id=m.moment_id, **out.model_dump(), meta=model_meta(info, "explainer"))
         if err:
             failures.append(err)
+        expl = expl.model_copy(update={"headline": club_names(expl.headline, meta),
+                                       "why_it_matters": club_names(expl.why_it_matters, meta)})
         line, err = await _run(self.narrator, {"moment": moment_json, "explanation": expl.model_dump(),
-                                               "intel": intel}, None, lambda: fallback_line(m, expl))
+                                               "intel": intel, "teams": teams}, None, lambda: fallback_line(m, expl))
+        line = club_names(line, meta)
         if err:
             failures.append(err)
 
-        # The producer runs alongside the personalizer -> localizer chain once the line exists.
         en_requests = english_requests(requests)
         targets = localize_targets(requests)
 
-        async def _variants():
+        async def _variants(source_line: str, max_chars: int | None):
             wanted = [{"persona": p.value, "access": a, "lang": lang, "focus": f} for p, a, lang, f in en_requests]
             info1: dict = {}
-            raw, e1 = await _run(self.personalizer, {"line": line, "moment": moment_json, "intel": intel,
-                                                     "requests": wanted},
-                                 None, lambda: fallback_variants(m, line, en_requests), info1)
-            english, e1 = _parse_variants(raw, e1, "personalizer", lambda: fallback_variants(m, line, en_requests),
+            raw, e1 = await _run(self.personalizer, {"line": source_line, "max_chars": max_chars,
+                                                     "moment": moment_json, "intel": intel, "requests": wanted},
+                                 None, lambda: fallback_variants(m, source_line, en_requests), info1)
+            english, e1 = _parse_variants(raw, e1, "personalizer",
+                                          lambda: fallback_variants(m, source_line, en_requests),
                                           m.moment_id, model_meta(info1, "personalizer"))
             first: dict[tuple, NarrativeVariant] = {}
             for v in english:
@@ -349,16 +394,16 @@ class MomentPipeline:
                     first.setdefault((v.persona, v.access), v)
             english = list(first.values())
             if missing := [r for r in en_requests if (r[0], r[1]) not in first]:
-                english += fallback_variants(m, line, missing)
+                english += fallback_variants(m, source_line, missing)
                 e1 = e1 or f"personalizer: {len(missing)} of {len(en_requests)} versions missing; templates used"
             if not targets:
                 return english, [e1]
             want = [{"persona": p.value, "access": a, "lang": lang} for p, a, lang in targets]
             source = [v.model_dump(mode="json") for v in english]
             info2: dict = {}
-            raw, e2 = await _run(self.localizer, {"line": line, "variants": source, "moment": moment_json,
-                                                  "intel": intel, "names": _names(meta), "targets": want}, None, list,
-                                 info2)
+            raw, e2 = await _run(self.localizer, {"line": source_line, "max_chars": max_chars, "variants": source,
+                                                  "moment": moment_json, "intel": intel, "names": _names(meta),
+                                                  "targets": want}, None, list, info2)
             localized, e2 = _parse_variants(raw, e2, "localizer", list, m.moment_id, model_meta(info2, "localizer"))
             kept = keep_localized(localized, english, targets)
             if self.localizer is not None and not e2 and len(kept) < len(targets):
@@ -372,7 +417,8 @@ class MomentPipeline:
                 return None, None
             info3: dict = {}
             decision, err = await _run(self.producer, {"moment": moment_json, "explanation": expl.model_dump(),
-                                                       "line": line, "intel": intel, "on_air": on_air or []},
+                                                       "line": line, "intel": intel, "teams": teams,
+                                                       "on_air": on_air or []},
                                        ProducerDecision, lambda: None, info3)
             if decision is None:
                 return fallback_proposal(m, expl, line), err
@@ -387,12 +433,30 @@ class MomentPipeline:
                 return fallback_proposal(m, expl, line), "producer: t_end_ms is not after t_start_ms; template used"
             return proposal_from(decision, m, model_meta(info3, "producer"))
 
-        (variants, variant_errors), (proposal, e3) = await asyncio.gather(_variants(), _proposal())
+        proposal, e3 = await _proposal()
         proposal = with_intel(proposal, m, _name_of(meta))
-        failures += [e for e in (*variant_errors, e3) if e]
+        written = proposal.line if proposal is not None else ""
+        if proposal is not None:
+            alternatives = [a.model_copy(update={"line": club_names(a.line, meta)}) for a in proposal.alternatives]
+            proposal = proposal.model_copy(update={"line": club_names(proposal.line, meta),
+                                                   "alternatives": alternatives})
+        if e3:
+            failures.append(e3)
+        moment_intel = intel_payload(intel_for(m), _prefer(m), _name_of(meta))
+        if on_card is not None:
+            await on_card(MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=proposal,
+                                       failures=list(failures), intel=moment_intel, notes=list(notes)))
+        if proposal is None:  # no card, so nothing airs from this moment: no versions to write
+            return MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=None,
+                                failures=failures, intel=moment_intel, notes=notes)
+        # Every version is written from the line that airs, to fit its graphic.
+        # The budget is the card as it was written to fit: a code expanded to a club name mustn't widen it for every
+        # version. A version pushed over it by its own expansion fails the length check and gets the template.
+        variants, variant_errors = await _variants(proposal.line, max_chars_for(proposal.layer, written))
+        variants = [v.model_copy(update={"text": club_names(v.text, meta)}) for v in variants]
+        failures += [e for e in variant_errors if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
-                            failures=failures, intel=intel_payload(intel_for(m), _prefer(m), _name_of(meta)),
-                            notes=notes)
+                            failures=failures, intel=moment_intel, notes=notes)
 
 
 def with_intel(proposal: OverlayProposal | None, m: Moment, name_of: NameOf | None = None) -> OverlayProposal | None:
@@ -421,6 +485,29 @@ def _names(meta: MatchMeta | None) -> list[str]:
     if meta is None:
         return []
     return [t.name for t in (meta.home, meta.away)] + [p.name for t in (meta.home, meta.away) for p in t.players]
+
+
+def _teams(meta: MatchMeta | None) -> dict[str, str]:
+    """Team id -> club name, so the agents can name clubs the way viewers know them (#40)."""
+    return {t.team_id: t.name for t in (meta.home, meta.away)} if meta else {}
+
+
+def club_names(text: str, meta: MatchMeta | None) -> str:
+    """A team id or code an agent wrote anyway ("puts har ahead", "HAR lead") becomes the club's name, so the line
+    airs as viewers know it and every language agrees on the name (#40).
+
+    One pass over whole words, full club names first, so a club already named is left alone even when its code is
+    also one of its words ("Inter Milan" stays). Codes match in any case, since the agents wrote "Har" and "Nfu";
+    a club whose code is an ordinary word ("BAR", "NEW") would also change that word."""
+    if not meta:
+        return text
+    teams = (meta.home, meta.away)
+    names = {t.name.lower(): t.name for t in teams}
+    codes = {c.lower(): t.name for t in teams for c in (t.team_id, t.short_name)}
+    words = sorted({*names, *codes}, key=len, reverse=True)
+    pattern = rf"(?<!\w)(?:{'|'.join(map(re.escape, words))})(?!\w)"
+    # A function, not a replacement string: a club name is never read as a regex template.
+    return re.sub(pattern, lambda w: w[0] if w[0].lower() in names else codes[w[0].lower()], text, flags=re.IGNORECASE)
 
 
 def _name_of(meta: MatchMeta | None) -> NameOf:
