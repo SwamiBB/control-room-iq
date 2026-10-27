@@ -7,3 +7,19 @@ Status (Oct 27): KEDA scaling is not built. Each app runs a fixed replica count,
 replica until the consumer has a checkpoint store (`infra/modules/apps.bicep`).
 Consequences: the Cloud Native category story is Container Apps + Event Hubs + Logic Apps + Cosmos,
 not Kubernetes; an AKS variant could be added after the hackathon.
+
+Update (2026-10-27, post PR #106): three controls previously flagged as missing on this ADR's path have
+landed on the API side without changing the Container Apps / scaling decision:
+
+- `services/api/api/scheduler.py` places every graphic (collisions, next-gap, preempt-on-goal-or-red-card,
+  hold-when-pressure-is-rising); the earlier "scheduler is not built" caveat on `/schedule` no longer
+  applies.
+- `services/api/api/guards.py` adds per-minute rate limits on operator decisions and overrides, a
+  one-at-a-time replay with a cooldown, a replay-speed cap of 50x, and a daily model-call budget
+  (`CRQ_DAILY_AI_MOMENTS`, default 300) that falls back to templates when exceeded.
+- `services/api/api/content_safety.py` checks every operator override against Azure AI Content Safety
+  before it is recorded or aired; 424 when the service can't be reached, so nothing unchecked airs.
+
+KEDA scaling and a durable checkpoint store for the ingest consumer remain the two Container-Apps-shaped
+items reserved for a post-submission iteration; both are referenced in `infra/modules/apps.bicep` and in
+`services/ingest/ingest/consumer.py`.
