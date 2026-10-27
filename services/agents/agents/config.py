@@ -52,6 +52,8 @@ class Settings:
     # past 8 s (#39). Empty sends no reasoning_effort.
     reasoning_effort: str = _reasoning_effort()
     offline: bool = os.environ.get("CRQ_OFFLINE", "0") == "1"  # use fallbacks only (tests, demos w/o Azure)
+    # Prompt and response text in trace spans (telemetry.py): only where the data is synthetic.
+    trace_content: bool = os.environ.get("CRQ_TRACE_CONTENT", "").strip().lower() == "true"
     languages: tuple[str, ...] = _languages()
     # Routing mode is a per-deployment setting on model router, so one deployment per mode.
     router_quality: str = os.environ.get("ROUTER_QUALITY", "router-quality")
@@ -60,6 +62,15 @@ class Settings:
 
 
 settings = Settings()
+
+# Each agent's name in Foundry Agent Service (register_agents.py) and its id on every trace span, so a trace
+# and the catalogue entry it ran as carry the same name.
+REGISTERED_PREFIX = "crq-"
+
+
+def registered_name(role: str) -> str:
+    return REGISTERED_PREFIX + role
+
 
 # Routing mode per agent: one model-router deployment per mode (see `router_*` above).
 AGENT_ROUTING: dict[str, str] = {"explainer": "quality", "producer": "quality", "narrator": "balanced",

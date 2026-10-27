@@ -56,8 +56,8 @@ one. The model the router selected is recorded on every span and on every propos
 - Routing table: [`services/agents/agents/config.py`](../services/agents/agents/config.py) —
   `AGENT_ROUTING` and `deployment_for(agent)`.
 - Visible on the proposal: `OverlayProposal.model_served` field.
-- Trace: one OpenTelemetry trace per `moment_id`; `agent.run` wrapped to capture
-  `response.model` into `meta.model_served`.
+- Trace: one OpenTelemetry trace per moment; each agent call is a span carrying its routing mode and
+  the model the router chose (`crq.model_served`), which also goes into `meta.model_served`.
 
 ### 4. Full audit trail
 

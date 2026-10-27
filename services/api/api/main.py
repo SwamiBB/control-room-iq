@@ -20,7 +20,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, get_args
 
+from agents import telemetry
 from agents.config import settings
+from agents.telemetry import brief, tracer
 from agents.workflow import MomentPipeline, MomentResult
 from crq_schemas import (
     Access,
@@ -43,6 +45,9 @@ from crq_schemas import (
 from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from ingest.stats import StateFolder
+from opentelemetry import context as otel_context
+from opentelemetry import trace
+from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
@@ -94,12 +99,15 @@ async def lifespan(_: FastAPI):
         await sink.close()
 
 
-app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 logger = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
     # Uvicorn configures only its own loggers; without this, app warnings (agent fallbacks, sink failures)
-    # reach stderr bare, with no time or source.
+    # reach stderr bare, with no time or source. Before tracing starts: Azure Monitor adds its own handler to the
+    # root logger, which would skip this and leave the console without the app's warnings.
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+telemetry.configure("crq-api")
+app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
+telemetry.instrument_app(app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -135,6 +143,7 @@ class Hub:
         self.moment_tasks: set[asyncio.Task] = set()  # agent pipelines running beside the replay (#51)
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
         self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
+        self.moment_traces: dict[str, SpanContext] = {}  # moment_id -> its trace, which decisions and airings link to
         self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
         self.tracking_index: int | None = None  # the frame last sent
         self.tracking_sent_at = 0.0  # time.monotonic() of that send
@@ -158,6 +167,7 @@ class Hub:
         self.cancel_moments()  # the old match's agents must not post into the new one
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)  # a fresh one per match (and event loop)
         self.goal_phases.clear()
+        self.moment_traces.clear()  # a replayed match reuses moment ids: its decisions must not link to the last run
         self.tracking, self.tracking_index, self.tracking_sent_at = None, None, 0.0
 
     def cancel_moments(self) -> None:
@@ -242,7 +252,22 @@ def _record_decision(p: OverlayProposal, action: ProposalStatus, d: Decision) ->
                              action=action, actor=d.actor, at=p.decided_at, reasoning=d.reasoning,
                              package_id=p.package_id)
     hub.decisions.append(entry)
+    attrs = {"crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.action": action.value,
+             "crq.actor": d.actor, "crq.layer": p.layer.value}
+    if p.package_id:
+        attrs["crq.package_id"] = p.package_id
+    if p.proposed_at:
+        attrs["crq.seconds_on_desk"] = round((entry.at - p.proposed_at).total_seconds(), 2)
+    # Inside an operator's request it sits beside the airing it caused; from the timer or a goal it is its own trace.
+    # Either way it links to the moment's trace.
+    tracer.start_span("crq.decision", links=_links(p.moment_id), attributes=attrs).end()
     return entry
+
+
+def _links(moment_id: str) -> list[Link]:
+    """A decision or an airing happens later, in its own trace: a link takes it back to the moment's agents."""
+    ctx = hub.moment_traces.get(moment_id)
+    return [Link(ctx)] if ctx else []
 
 
 def _fan_card(p: OverlayProposal) -> FanCard | None:
@@ -266,6 +291,18 @@ def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
 
 
 async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
+    with tracer.start_as_current_span("crq.air", links=_links(p.moment_id), attributes={
+            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
+            "crq.approval_id": approval.entry_id}) as span:
+        audits = await _send(p, approval)
+        for source in ("variant", "template", "base", "override"):
+            span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
+        for a in audits:  # what each viewer group got, and why not its own version
+            span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
+                                         "crq.source": a["source"], "crq.failures": a["failures"]})
+
+
+async def _send(p: OverlayProposal, approval: DecisionLogEntry) -> list[dict]:
     packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
     hub.packets.append(packet)
     await hub.feed.publish("packet", packet)
@@ -273,6 +310,7 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry) -> None:
     hub.deliveries += audits
     await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id, "deliveries": audits})
     p.status = ProposalStatus.AIRED
+    return audits
 
 
 async def _expire_stale() -> list[OverlayProposal]:
@@ -512,7 +550,7 @@ async def replay(req: ReplayRequest):
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
     hub.replay_speed = None
-    hub.replay_task = asyncio.create_task(_replay(req))
+    hub.replay_task = _background(_replay(req))
     return {"started": True}
 
 
@@ -689,17 +727,44 @@ async def _start_moment(m: Moment) -> None:
     if m.kind == MomentKind.GOAL and (phase := _phase_of(m)):
         hub.goal_phases.add(phase)
         await _supersede(phase, m)
-    task = asyncio.create_task(_run_moment(m))
+    task = _background(_run_moment(m))
     hub.moment_tasks.add(task)
     task.add_done_callback(hub.moment_tasks.discard)
 
 
+def _background(coro) -> asyncio.Task:
+    """A task that outlives the span it was started in (a replay, a moment, the timer): it starts with no current
+    span, so it can't keep adding to a request's trace long after the request ended."""
+    token = otel_context.attach(otel_context.Context())
+    try:
+        return asyncio.create_task(coro)
+    finally:
+        otel_context.detach(token)
+
+
 async def _run_moment(m: Moment) -> None:
-    async with hub.moment_slots:
+    # One trace per moment: the agents' spans nest inside; its decisions and airings link back to it. It starts
+    # before the wait for a free slot, so a moment that queued shows why its card was late.
+    waiting = time.perf_counter()
+    with tracer.start_as_current_span("crq.moment", context=otel_context.Context(), attributes={
+            "crq.moment_id": m.moment_id, "crq.match_id": m.match_id, "crq.kind": m.kind.value,
+            "crq.beat": m.beat, "crq.clock": _clock(m), "crq.importance": m.importance}) as span:
+        hub.moment_traces[m.moment_id] = span.get_span_context()
         try:
-            await _handle_moment(m)
-        except Exception:  # noqa: BLE001 - one moment's failure must not stop the match
+            async with hub.moment_slots:
+                span.set_attribute("crq.slot_wait_ms", round((time.perf_counter() - waiting) * 1000))
+                await _handle_moment(m)
+        except asyncio.CancelledError:
+            span.set_attribute("crq.cancelled", True)  # a new match replaced this one: not a failure
+            raise
+        except Exception as ex:  # noqa: BLE001 - one moment's failure must not stop the match
+            _record_failure(span, ex)
             logger.exception("moment %s failed", m.moment_id)
+
+
+def _record_failure(span, ex: Exception) -> None:
+    span.record_exception(ex)
+    span.set_status(Status(StatusCode.ERROR, brief(f"{type(ex).__name__}: {ex}")))
 
 
 async def _drain_moments() -> None:
@@ -750,18 +815,25 @@ async def _handle_moment(m: Moment) -> None:
             return
         await _queue_card(card.proposal, m)
         queued = True  # only once it is on the desk: a queueing error fails the moment as a whole
+        trace.get_current_span().add_event("card on the desk", {
+            "crq.proposal_id": card.proposal.proposal_id, "crq.layer": card.proposal.layer.value,
+            "crq.template": card.proposal.fallback})
 
     try:
         res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
         if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
             await on_card(res)
-    except Exception:
+    except Exception as ex:
         if not queued:
             raise  # nothing reached the desk: the moment fails as a whole, as before
         # The card is already on the desk: keep its record and tell the operators, rather than leave it orphaned.
         logger.exception("moment %s: the versions failed after the card was queued", m.moment_id)
         record = hub.results.setdefault(m.moment_id, {})
         record["failures"] = [*record.get("failures", []), "versions: failed after the card; templates used"]
+        span = trace.get_current_span()
+        _record_failure(span, ex)
+        span.set_attribute("crq.card", True)
+        span.set_attribute("crq.failure_reasons", [brief(r) for r in record["failures"]])
         await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                        **record})
         return
@@ -770,6 +842,12 @@ async def _handle_moment(m: Moment) -> None:
         res.proposal = None
     hub.moments[m.moment_id] = m
     hub.results[m.moment_id] = _result_record(res)
+    span = trace.get_current_span()
+    span.set_attribute("crq.card", bool(queued))
+    span.set_attribute("crq.versions", len(res.variants))
+    span.set_attribute("crq.failures", len(res.failures))
+    if res.failures:  # every template fallback in this moment and why, including those decided after a call
+        span.set_attribute("crq.failure_reasons", [brief(r) for r in res.failures])
     await hub.broadcast_operators({"type": "moment", "moment": m.model_dump(mode="json", exclude={"state"}),
                                    **hub.results[m.moment_id]})
     # A graphic fired before the versions existed keeps the text it aired with (a template in the viewer's
@@ -803,7 +881,7 @@ async def _queue_proposal(p: OverlayProposal) -> None:
                              "warn_at": warn_at, "hold_at": hold_at})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
-    asyncio.create_task(_auto_hold(p.proposal_id))
+    _background(_auto_hold(p.proposal_id))
 
 
 # ---------- websockets ----------
