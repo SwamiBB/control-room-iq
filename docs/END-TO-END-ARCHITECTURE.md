@@ -390,7 +390,7 @@ flowchart TB
   GHA -->|azd up / Bicep| RG
 
   subgraph RG[Azure resource group — East US 2]
-    subgraph ACA[Azure Container Apps · KEDA on event lag]
+    subgraph ACA[Azure Container Apps · fixed replicas]
       APIAPP[API app<br/>FastAPI + ingest + agents]
       WEBAPP[Web app<br/>console · renderer · viewers]
     end

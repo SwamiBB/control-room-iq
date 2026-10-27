@@ -326,7 +326,7 @@ below 0.85 on the reference match.
 | --- | --- | --- |
 | Model timeout / error | Template fallback for that step | "fallback used" on the moment; failure in decision log context |
 | Agents service down | All steps fall back; feed continues | Console banner; `failures[]` non-empty |
-| Event Hubs lag | KEDA scales ingest on unprocessed events; moments carry match clock, not wall clock | Overlay timing unaffected |
+| Event Hubs lag | Ingest runs as one replica (scaling on unprocessed events is deferred); moments carry match clock, not wall clock | Overlay timing unaffected |
 | Operator absent | SLA auto-hold; nothing airs unreviewed | `sla-timer` entries in the log |
 | Layer collision | API rejects approval with 409 | Operator sees the conflict and holds one |
 | Bad JSON from an agent | Validation fails → fallback | Same as timeout |
