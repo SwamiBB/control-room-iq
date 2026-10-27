@@ -411,9 +411,10 @@ export const isCodeBuilt = (p: Partial<Pick<Proposal, "package_seq" | "payload">
 export const isTemplateFallback = (p: Source) =>
   !isCodeBuilt(p) && (p.fallback || p.meta?.routing === "template");
 
-/** What produced this line: the routed model, Template when the fallback wrote it, or the official stats. */
+/** What produced this line: the routed model or the official stats. None when the fallback wrote it: the card does
+ *  not label itself a template. */
 export const modelLabel = (p: Source) =>
-  isCodeBuilt(p) ? "Official stats" : isTemplateFallback(p) ? "Template" : p.meta?.model_served ?? null;
+  isCodeBuilt(p) ? "Official stats" : isTemplateFallback(p) ? null : p.meta?.model_served ?? null;
 
 export const STATUS_WORDS: Record<string, string> = {
   proposed: "Awaiting decision",

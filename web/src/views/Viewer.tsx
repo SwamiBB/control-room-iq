@@ -222,8 +222,8 @@ function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: La
  * this is the object drawn in it, sized to its content.
  */
 function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: Lang; register: IntelRegister }) {
-  // No badge for a template line: it is built from the official data, and the operator console already marks
-  // it Template before it airs. A viewer has nothing to do with that information.
+  // No badge for a template line: it is built from the official data, and a viewer has nothing to do with
+  // which writer produced it.
   const badges = (!p.verified || p.lang !== lang) && (
     <span className="badges">
       {!p.verified && <span className="badge override">{heading("unverified", lang)}</span>}
