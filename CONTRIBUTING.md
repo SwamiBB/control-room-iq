@@ -55,7 +55,8 @@ Add a test with every fix, and check that it fails without the fix. Tests use sm
 `services/ingest/tests/test_match_intel_units.py`) or the seeded reference matches; never a live service.
 
 CI also builds the container images and checks that they run as non-root. CodeQL and Trivy scan every PR.
-Dependabot only keeps the SHA-pinned GitHub Actions current; it doesn't update Python or npm packages. If Trivy
+Dependabot's scheduled updates cover only the SHA-pinned GitHub Actions (`.github/dependabot.yml`); its security
+updates also open PRs for vulnerable npm packages, which still need a review like any other PR. If Trivy
 flags a dependency, add a version floor with the advisory ID in `pyproject.toml`, as the `urllib3` and `msgpack`
 lines do.
 

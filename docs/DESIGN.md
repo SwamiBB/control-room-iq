@@ -281,8 +281,8 @@ stateDiagram-v2
 Rules: a proposal can be decided once; `override` requires `override_line`; every transition writes a
 `DecisionLogEntry` with actor and reasoning (the SLA timer is an actor named `sla-timer`); the published
 `OverlayItem` carries `source_proposal_id` so a graphic on screen can always be traced to a proposal, a
-moment, and the events behind it. In Azure the SLA timer is a Logic App triggered by a Cosmos DB change
-feed; locally it is an `asyncio` task.
+moment, and the events behind it. The SLA timer is an `asyncio` task in the API, in Azure as
+locally; a Logic App on the Cosmos DB change feed is deferred.
 
 API surface: `POST /proposals/{id}/approve|hold|override`, `GET /proposals?status=`, `GET /decisions`,
 `GET /state`, `POST /matches/replay` (local), `GET /healthz`; WebSockets `/ws/operator` (match, state,

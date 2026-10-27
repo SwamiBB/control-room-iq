@@ -96,7 +96,7 @@ flowchart TB
     SC --> PB[Publisher checks]
     PB --> DB[(Cosmos DB)]
     DB --> CON[Operator console<br/>approve · hold · reject · override · undo]
-    SLA[SLA timer 20 s<br/>Logic App / local] -->|hold as sla-timer| DB
+    SLA[SLA timer 20 s<br/>in the API] -->|hold as sla-timer| DB
     CON -->|fire / drop / hold / override| PUB[Publish → OverlayPacket<br/>+ approval triple]
   end
 
@@ -396,7 +396,7 @@ flowchart TB
     end
     EHN[[Event Hubs namespace<br/>match-events · crq-overlay]]
     COS[(Cosmos DB serverless<br/>db control-room-iq)]
-    LA[Logic App<br/>change feed → 20 s → hold]
+    LA[SLA timer in the API<br/>20 s → hold]
     AI[Application Insights]
     subgraph FDY[Microsoft Foundry project]
       R1[router-quality]
@@ -411,7 +411,7 @@ flowchart TB
 
   APIAPP <---> EHN
   APIAPP <---> COS
-  COS -->|change feed| LA -->|POST hold as sla-timer| APIAPP
+  LA -->|hold as sla-timer| APIAPP
   APIAPP --> R1 & R2 & R3
   APIAPP -.fallback.-> FB
   APIAPP --> AI
@@ -425,10 +425,10 @@ flowchart TB
 | **Agent Service** | `register_agents.py` creates or updates the **five** agents by name: explainer, narrator, producer, personalizer, localizer (Saturday). No Recap agent. Never blocks offline mode |
 | **Event Hubs** | `match-events` (simulator → ingest) and `crq-overlay` (packet feed). One consumer group each. Identity-based access |
 | **Cosmos DB** (serverless) | Database `control-room-iq`. Containers `moments`, `proposals`, `deliveries`, `decisions`, `evaluations`. Partition key `/match_id` |
-| **Logic App** | Cosmos change feed on `proposals` → 20 s delay → `POST /proposals/{id}/hold` as `sla-timer`. A local timer does the same offline |
+| **SLA timer** | In the API process: a proposal untouched for 20 s is held as `sla-timer`, in Azure and offline alike. A Logic App on the Cosmos change feed is deferred |
 | **Container Apps** | API and web apps. Readiness probe `/healthz`. Public judge URL with a pre-loaded replay and no login |
 | **Identity and secrets** | Managed identity, no keys in the repo, GitHub Actions authenticates via OIDC (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) |
-| **IaC** | `infra/ai.bicep` (router deployments), `infra/apps.bicep` (env vars `ROUTER_QUALITY/BALANCED/COST`), Logic App, `azd up`. Expect API-version drift on the first deploy; fix it in place |
+| **IaC** | `infra/ai.bicep` (router deployments), `infra/apps.bicep` (env vars `ROUTER_QUALITY/BALANCED/COST`), `azd up`. Expect API-version drift on the first deploy; fix it in place |
 
 ### 9.1 Routing per agent
 
@@ -502,7 +502,7 @@ control-room-iq/
                  TV caption layer                                       Mudassar
   evals/         run_eval.py, datasets/, results/latest.md              Siranjeevi
   data/reference/ match-042.jsonl                                       Pranav
-  infra/         ai.bicep, apps.bicep, Logic App, azure.yaml            Swami
+  infra/         ai.bicep, apps.bicep, azure.yaml                       Swami
   docs/          CHANGES-2026-10-23.md, HANDOFF-*.md, GALLERY-TERMS.md
 ```
 
