@@ -21,9 +21,6 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 
 All match data is synthetic. Clubs, players and venues are fictional.
 
-<!-- Before submission: fill every [bracket] or delete the row; never guess a figure. Check the walkthrough
-     against the final console and update the Status column in "Built on Microsoft Foundry and Azure". -->
-
 ## For enterprise reviewers
 
 The Best Enterprise Solution category rewards *"reliability, transparency, and controls required for

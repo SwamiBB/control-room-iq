@@ -281,8 +281,8 @@ stateDiagram-v2
 Rules: a proposal can be decided once; `override` requires `override_line`; every transition writes a
 `DecisionLogEntry` with actor and reasoning (the SLA timer is an actor named `sla-timer`); the published
 `OverlayItem` carries `source_proposal_id` so a graphic on screen can always be traced to a proposal, a
-moment, and the events behind it. In Azure the SLA timer is a Logic App triggered by a Cosmos DB change
-feed; locally it is an `asyncio` task.
+moment, and the events behind it. The SLA timer runs as an in-process `asyncio` task in both environments;
+a Logic App triggered by the Cosmos DB change feed is reserved for a post-submission iteration.
 
 API surface: `POST /proposals/{id}/approve|hold|override`, `GET /proposals?status=`, `GET /decisions`,
 `GET /state`, `POST /matches/replay` (local), `GET /healthz`; WebSockets `/ws/operator` (match, state,
@@ -313,7 +313,7 @@ with the viewer's player when that player is involved and otherwise stays neutra
 Offline: a match is replayed, and every (moment, explanation, line, variants) tuple is written to
 `evals/datasets/<match>.jsonl` together with the cited events and the state snapshot. A Foundry evaluation
 run scores each narrative with groundedness/faithfulness (does every claim follow from the cited events
-and snapshot), relevance (does it address the moment), fluency per language, and content safety. Scores
+and snapshot), relevance (does it address the moment), and fluency per language. Scores
 are written to the `evaluations` container and joined to proposals by `moment_id`, which is how the
 console shows a faithfulness number next to each proposal. Online (demo): the same evaluator is called
 asynchronously after the narrator step so the score arrives within a few seconds of the proposal.

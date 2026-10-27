@@ -151,9 +151,9 @@ Pydantic models in `packages/schemas` (see DESIGN.md §2). Overlay `payload` per
 | Foundry Agent Service | Foundry project `crq` | Agents registered by name for portal inspection, evaluation, and tracing |
 | Model router (`model-router` 2025-11-18): `router-quality`, `router-balanced`, `router-cost` | All agent calls | One deployment per routing mode, since the mode is a deployment setting; each agent calls its own (`AGENT_ROUTING`), with `reasoning_effort` low; selected model recorded on the card and in spans |
 | Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Deployed, not yet called (#35): today a failed or timed-out call falls back to the template |
-| Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language, content safety |
+| Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language |
 | Tracing | All services | OpenTelemetry via Agent Framework instrumentation → Application Insights |
-| Content safety | Foundry resource | Applied to all generated text |
+| Content filtering | Foundry deployment defaults | Default content filters configured on each Foundry deployment apply to every call; a dedicated Azure AI Content Safety resource is reserved for a post-submission iteration |
 
 ## 6. Deployment
 
@@ -168,9 +168,7 @@ flowchart LR
         EHNS[Event Hubs ns]
         COSM[Cosmos DB]
         FND[Foundry + project<br/>router-quality · router-balanced · router-cost · gpt-4.1-mini]
-        LAPP[Logic App]
         LOGS[Log Analytics + App Insights]
-        KV[Key Vault<br/>local-dev secrets only]
     end
 ```
 
@@ -191,7 +189,7 @@ Environments: `dev` (sandbox, the demo) only. Naming `crq-<env>-<resource>`, tag
 | Responsiveness | Target: proposal on console ≤ 10 s after the event (measured Oct 26: 15.3 s average); overlay timing exact on the match clock | Async pipeline, concurrent agents, 12 s timeouts, match-clock scheduling |
 | Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, checkpointed consumers |
 | Explainability | Every line traceable to events; faithfulness measured | Cited event IDs, state snapshots per moment, Foundry evaluation per narrative |
-| Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, Logic App auto-hold |
+| Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, in-process 20-second auto-hold |
 | Security | No keys; least privilege | Managed identity, Entra-only data planes, five scoped role assignments |
 | Observability | Every moment and decision visible end to end | OpenTelemetry spans (service → agent → model), App Insights, health endpoints |
 | Portability | Any rendering partner or viewer client can consume the output | Overlay contract on Event Hubs and WebSocket; JSON schemas versioned |

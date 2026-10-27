@@ -10,7 +10,8 @@ should go on screen and when, and routes every proposal through a human operator
 overlay feed. The same intelligence is personalized for an analyst, a casual fan, and an audio-description
 accessibility mode in English, Spanish, Hindi, and Arabic. It is built on Microsoft Foundry (Agent
 Framework agents, model router, evaluations, tracing) and runs on Azure cloud-native services (Event
-Hubs, Container Apps, Cosmos DB, Logic Apps), deployed with one `azd up`.
+Hubs, Container Apps, Cosmos DB), deployed with one `azd up`. The 20-second SLA hold runs as an
+in-process timer in both environments; a Logic App for it is reserved for a post-submission iteration.
 
 ## 2. The problem
 
@@ -52,7 +53,7 @@ piece), and cites the events it relied on. It may use only facts in its input.
 third, stat panel, heat map, ticker, full screen), the timing on the match clock, the on-air line, and the
 exact numbers the renderer needs, and it explains its decision in two sentences including the alternative
 it rejected. The proposal lands in the operator console with a faithfulness score. The operator approves,
-holds, or overrides; a Logic App auto-holds anything untouched for 20 seconds. Approved items are
+holds, or overrides; an in-process timer auto-holds anything untouched for 20 seconds. Approved items are
 published as a timed, machine-readable overlay feed a graphics engine, video wall, or streaming client can
 consume.
 
@@ -111,7 +112,7 @@ rhythm. Data innovation: a seedable match engine and an LLM squad-authoring agen
 synthetic dataset. Multi-language storytelling: EN/ES/HI/AR written natively, not translated.
 
 **Categories.** Primary: Best Use of Microsoft Foundry. Also fits Best Azure Cloud Native Integration
-(event-driven pipeline on Event Hubs, Container Apps, Cosmos DB, Logic Apps, azd) and Best
+(event-driven pipeline on Event Hubs, Container Apps, Cosmos DB, `azd`) and Best
 Enterprise Solution (human-in-the-loop, evaluation, audit log, managed identity only, infrastructure as
 code).
 
