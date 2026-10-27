@@ -172,9 +172,9 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | --- | --- | --- |
 | Placement rules (`services/api/api/scheduler.py`, code) | One graphic per layer in the earliest free gap, one story per 30 s on the main layers, a goal or red card cuts the lower third and stat panel, a new caption cuts the running one, past `max_delay` a higher-priority graphic cuts what blocks it, hold advice when pressure is rising. A queued graphic is sent when the match reaches its slot | Built |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
-| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
-| Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
-| Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`) | Built |
+| Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card. See the live [Models → Deployments screenshot](docs/evidence/foundry-models-deployments-2026-10-27.png). | Built: about 15 s from moment to card on the demo window |
+| Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`). See the live [Agents tab screenshot](docs/evidence/foundry-agents-tab-2026-10-27.png) — five agents, Status *Running*, version 2. | Built |
+| Foundry evaluations | Groundedness, relevance, coherence, fluency and violence per output and language, plus a planted-error set (`evals/run_eval.py`). See the live [Evaluation run screenshot](docs/evidence/foundry-evaluation-crq-eval-2026-10-26.png) — dataset = *Inline data*. | Built |
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
 | Azure Container Apps | Ingest, API and web | Built |
 | Azure Cosmos DB (serverless) | The decision log: every decision appended once, per replay run, by the API's managed identity; `/decisions.csv?run=all` reads it back | Built |

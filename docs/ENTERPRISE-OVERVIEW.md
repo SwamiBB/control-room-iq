@@ -65,6 +65,19 @@ one. The model the router selected is recorded on every span and on every propos
   counts for all five agents, the three model-router deployments, token consumption and `invoke_agent`
   traces with the `crq.moment` span name
   ([evidence screenshot, 2026-10-27](evidence/application-insights-agents-dashboard-2026-10-27.png)).
+- Live: the Foundry portal's *Agents* tab for this project shows the five agents registered via
+  `python -m agents.register_agents`, all at **Status: Running**, version 2
+  ([evidence screenshot, 2026-10-27](evidence/foundry-agents-tab-2026-10-27.png)).
+- Live: the Foundry portal's *Models → Deployments* tab shows the three router deployments
+  (`router-quality`, `router-balanced`, `router-cost`) and the `gpt-4.1-mini` fallback, all **Succeeded**;
+  the right-panel "Call this model" sample code uses `DefaultAzureCredential` and the panel confirms
+  *API Key authentication is disabled*
+  ([evidence screenshot, 2026-10-27](evidence/foundry-models-deployments-2026-10-27.png)).
+- Live: the Foundry portal's *Evaluations* tab shows a completed run (`crq-eval-2026-10-26`) with
+  dataset = **Inline data**, confirming the evaluator runs the live agents against the synthetic
+  reference match and plants falsehoods inline in `evals/run_eval.py` — there is no separate
+  `evals/datasets/` file
+  ([evidence screenshot](evidence/foundry-evaluation-crq-eval-2026-10-26.png)).
 
 ### 4. Full audit trail
 
@@ -136,6 +149,10 @@ Highlights to notice:
 | Trivy on deps, secrets, Dockerfiles, Bicep | `.github/workflows/trivy.yml` | Workflow header note on CVE-2026-33634 |
 | Dependabot | `.github/dependabot.yml` | Weekly cadence |
 | Offline mode as first-class | `services/api/api/offline.py`, `CRQ_OFFLINE=1` | Whole pipeline runs with no Azure |
+| Portal: Agents registered and running | `docs/evidence/foundry-agents-tab-2026-10-27.png` | Foundry *Agents* tab: five agents at *Running*, version 2 |
+| Portal: Model router deployments | `docs/evidence/foundry-models-deployments-2026-10-27.png` | Foundry *Models → Deployments*: three routers + `gpt-4.1-mini`, all *Succeeded*; "API Key authentication is disabled" |
+| Portal: Evaluation run on inline synthetic data | `docs/evidence/foundry-evaluation-crq-eval-2026-10-26.png` | Foundry *Evaluations*: `crq-eval-2026-10-26` completed; dataset = *Inline data* |
+| Portal: Live traces (Agents Preview) | `docs/evidence/application-insights-agents-dashboard-2026-10-27.png` | Application Insights *Agents (Preview)*: Agent Runs per agent, three model routers, `invoke_agent` on `crq.moment` |
 
 ---
 

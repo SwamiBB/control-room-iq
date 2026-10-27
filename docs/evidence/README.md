@@ -75,6 +75,12 @@ Every role is assigned by Bicep (`infra/`), none by hand.
 Each router has its routing mode set in `infra/modules/ai.bicep`; the agents' mapping is in
 `services/agents/agents/config.py` (`AGENT_ROUTING`).
 
+**Live portal view.** The Foundry portal's *Models → Deployments* page for this project
+([`foundry-models-deployments-2026-10-27.png`](foundry-models-deployments-2026-10-27.png)) shows the
+same four deployments at *Succeeded*, their SKU and version, and the right-panel *Call this model*
+sample code that uses `DefaultAzureCredential` with the panel confirming *API Key authentication is
+disabled* — the key-less Entra ID path that §2 and §4 describe for all data planes.
+
 ## 6. What the agents did: 24 hours of traces
 
 Log Analytics over the Application Insights the apps send to (KQL over `AppDependencies`, the spans named in
@@ -113,3 +119,34 @@ section's table because they are over a shorter window.
 
 `gh run list --branch main`: CodeQL and Trivy succeed on every push to `main`. The CI job's status is in the
 repository's Actions tab.
+
+## 8. Agents (live portal view)
+
+The Foundry portal's *Agents* tab for this project
+([`foundry-agents-tab-2026-10-27.png`](foundry-agents-tab-2026-10-27.png)) shows the five agents the
+`python -m agents.register_agents` script registers (`crq-narrator`, `crq-producer`, `crq-explainer`,
+`crq-localizer`, `crq-personalizer`), all at *Status: Running*, version 2, type *Prompt*, interaction
+type *Text*, last updated 2026-10-27. The *Description* column matches the per-agent docstrings in
+`services/agents/agents/agent_catalog.py`.
+
+## 9. Evaluation (live portal view)
+
+The Foundry portal's *Evaluations* tab for this project
+([`foundry-evaluation-crq-eval-2026-10-26.png`](foundry-evaluation-crq-eval-2026-10-26.png)) shows one
+completed run, `crq-eval-2026-10-26`, with these headline numbers:
+
+| Metric | Score |
+| --- | --- |
+| Overall | 89% |
+| Groundedness | 72% (43 / 60) |
+| Relevance | 100% (60 / 60) |
+| Coherence | 100% (60 / 60) |
+| Fluency | 78% (47 / 60) |
+| Violence (safety) | 95% (57 / 60) |
+
+**Dataset = *Inline data*.** The portal reports what the code does: `evals/run_eval.py` runs the live
+agents against the synthetic reference match (`data/reference/match-042.jsonl`) and submits rows to
+Foundry evaluators inline — there is no `evals/datasets/` folder, and planted-falsehood probes are built
+inline in the runner. Scores and the full breakdown are reported honestly in
+[`evals/results/latest.md`](../../evals/results/latest.md); the numbers above are from one run of the
+runner and are not a certification.
