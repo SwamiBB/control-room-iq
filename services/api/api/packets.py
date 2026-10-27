@@ -42,6 +42,16 @@ def parse_viewer(persona: str, access: Access) -> tuple[Persona, Access]:
     return Persona(persona), access
 
 
+def cue_id_of(p: OverlayProposal) -> str:
+    """The stable id the renderer upserts by."""
+    return p.cue_id or f"c-{p.proposal_id}"
+
+
+def slot_length_ms(p: OverlayProposal) -> int:
+    """How long the graphic stays up: its proposed slot, never less than its minimum hold."""
+    return max(p.t_end_ms - p.t_start_ms, p.min_hold_ms)
+
+
 def packet_slot(p: OverlayProposal, now_play_ms: int) -> tuple[int, int]:
     """Play-time window for the packet.
 
@@ -51,9 +61,8 @@ def packet_slot(p: OverlayProposal, now_play_ms: int) -> tuple[int, int]:
     """
     if p.t_out_ms > p.t_in_ms:
         return p.t_in_ms, p.t_out_ms
-    duration = max(p.t_end_ms - p.t_start_ms, p.min_hold_ms)
     start = now_play_ms + p.package_offset_ms
-    return start, start + duration
+    return start, start + slot_length_ms(p)
 
 
 def _is_verified(p: OverlayProposal) -> bool:
@@ -66,7 +75,7 @@ def _is_verified(p: OverlayProposal) -> bool:
 def build_packet(p: OverlayProposal, approval: DecisionLogEntry, clock: PlayClock) -> OverlayPacket:
     t_in, t_out = packet_slot(p, clock.play_ms)
     period, clock_ms = clock.display(t_in)
-    return OverlayPacket(cue_id=p.cue_id or f"c-{p.proposal_id}", match_id=p.match_id, layer=p.layer,
+    return OverlayPacket(cue_id=cue_id_of(p), match_id=p.match_id, layer=p.layer,
                          t_in_ms=t_in, t_out_ms=t_out, period=period, clock_ms=clock_ms,
                          priority=p.priority, replaces=p.replaces, min_hold_ms=p.min_hold_ms,
                          line=p.override_line or p.line, payload=p.payload, verified=_is_verified(p),

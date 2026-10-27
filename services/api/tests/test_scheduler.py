@@ -108,3 +108,24 @@ def test_hold_advice_only_when_pressure_rises_and_not_on_a_goal():
     assert advice.recommend_hold and advice.until_play_ms > NOW
     assert not hold_advice(moment(kind=MomentKind.GOAL, state=rising), NOW).recommend_hold
     assert not hold_advice(moment(), NOW).recommend_hold
+
+
+def test_a_story_that_has_ended_still_counts_for_30_s():
+    ended = packet("other", layer=OverlayLayer.STAT_PANEL, t_in=NOW - 6_000, t_out=NOW - 2_000, source="p-other")
+    slot = place(card(), [ended], NOW, moment(), moment_of)
+    assert slot.t_in_ms == NOW - 6_000 + STORY_GAP_MS
+
+
+def test_a_wait_for_the_story_rule_is_never_cut_short():
+    # Another story began 2 s ago, so this one waits 28 s, past its 20 s max delay; a lower-priority lower
+    # third is on its layer. It must not cut that and air next to the other story: it airs late instead.
+    other = packet("other", layer=OverlayLayer.STAT_PANEL, t_in=NOW - 2_000, t_out=NOW + 10_000, source="p-other")
+    lower = packet("lt", t_in=NOW - 9_000, t_out=NOW + 1_000, priority=7)
+    slot = place(card(priority=5, max_delay_ms=20_000), [other, lower], NOW, moment(), moment_of)
+    assert slot.late and slot.replaces == [] and slot.t_in_ms == NOW - 2_000 + STORY_GAP_MS
+
+
+def test_with_the_clock_stopped_a_graphic_cuts_its_layer_instead_of_queueing():
+    slot = place(card(), [packet("old")], NOW, moment(), clock_running=False)
+    assert slot.t_in_ms == NOW and slot.replaces == ["old"]
+

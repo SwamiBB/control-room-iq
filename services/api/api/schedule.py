@@ -26,23 +26,24 @@ class ScheduleView(BaseModel):
     awaiting_decision: list[OverlayProposal]
 
 
-def _latest_by_cue(packets: Iterable[OverlayPacket]) -> list[OverlayPacket]:
+def latest_by_cue(packets: Iterable[OverlayPacket]) -> list[OverlayPacket]:
     latest: dict[str, OverlayPacket] = {}
     for p in packets:
         latest[p.cue_id] = p
     return list(latest.values())
 
 
-def _replaced(packets: list[OverlayPacket], now: int) -> set[str]:
-    return {cue for p in packets if p.t_in_ms <= now for cue in p.replaces}
+def live_packets(packets: Iterable[OverlayPacket], now: int) -> list[OverlayPacket]:
+    """On air or queued, as the renderer sees it: the latest per cue, not yet over, and not taken down by a
+    packet that replaces it and has started. The scheduler places against the same list."""
+    latest = latest_by_cue(packets)
+    gone = {cue for p in latest if p.t_in_ms <= now for cue in p.replaces}
+    return [p for p in latest if p.cue_id not in gone and p.t_out_ms > now]
 
 
 def _layers(packets: list[OverlayPacket], now: int) -> dict[OverlayLayer, LayerSchedule]:
     layers = {layer: LayerSchedule() for layer in OverlayLayer}
-    gone = _replaced(packets, now)
-    for p in sorted(packets, key=lambda p: (p.t_in_ms, p.priority)):
-        if p.cue_id in gone or p.t_out_ms <= now:
-            continue
+    for p in sorted(live_packets(packets, now), key=lambda p: (p.t_in_ms, p.priority)):
         bucket = layers[p.layer].on_air if p.t_in_ms <= now else layers[p.layer].queued
         bucket.append(p)
     return layers
@@ -51,5 +52,5 @@ def _layers(packets: list[OverlayPacket], now: int) -> dict[OverlayLayer, LayerS
 def build_schedule(packets: Iterable[OverlayPacket], proposals: Iterable[OverlayProposal],
                    clock: PlayClock) -> ScheduleView:
     awaiting = sorted((p for p in proposals if p.status == ProposalStatus.PROPOSED), key=lambda p: p.priority)
-    return ScheduleView(clock=clock.snapshot(), layers=_layers(_latest_by_cue(packets), clock.play_ms),
+    return ScheduleView(clock=clock.snapshot(), layers=_layers(list(packets), clock.play_ms),
                         awaiting_decision=awaiting)

@@ -181,6 +181,10 @@ class Hub:
         self.override_rate = RateWindow(OVERRIDES_PER_MINUTE)
         self.replay_finished_at: float | None = None  # time.monotonic() when the last replay ended
         self.budget = DailyBudget()
+        # The replay moves the clock to the next event before waiting out the gap; this is how far the match
+        # itself still is from it, so placement and queued graphics use the live play time (`live_ms`).
+        self.pace_left_ms = 0.0
+        self.air_tasks: set[asyncio.Task] = set()  # queued graphics waiting for their slot
         self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
         self.tracking_index: int | None = None  # the frame last sent
         self.tracking_sent_at = 0.0  # time.monotonic() of that send
@@ -212,9 +216,14 @@ class Hub:
         self.tracking, self.tracking_index, self.tracking_sent_at = None, None, 0.0
 
     def cancel_moments(self) -> None:
-        for task in self.moment_tasks:
+        for task in self.moment_tasks | self.air_tasks:  # queued graphics of the old match must not air either
             task.cancel()
         self.moment_tasks.clear()
+        self.air_tasks.clear()
+
+    def live_ms(self) -> int:
+        """Play time as the match is now, not the next event's time the clock already reads."""
+        return self.clock.play_ms - int(self.pace_left_ms)
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -345,14 +354,17 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry, run_id: str, link
         slot = _place(p)  # against what is on air now: the card may have waited on the desk
         p.t_in_ms, p.t_out_ms = slot.t_in_ms, slot.t_out_ms
         p.replaces = list(dict.fromkeys([*p.replaces, *slot.replaces]))
-        span.set_attributes({"crq.wait_ms": slot.t_in_ms - hub.clock.play_ms, "crq.late": slot.late,
+        span.set_attributes({"crq.wait_ms": slot.t_in_ms - hub.live_ms(), "crq.late": slot.late,
                              "crq.cuts": len(slot.replaces), "crq.placement": slot.reason or "on air at once"})
         packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
         hub.packets.append(packet)  # on the schedule now, so the next placement sees it
-        p.status = ProposalStatus.AIRED
-        if packet.t_in_ms > hub.clock.play_ms and hub.replay_speed is not None:
+        # The console's running order shows the slot it was given now, not the one from when it reached the desk.
+        await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+        if packet.t_in_ms > hub.live_ms() and hub.replay_speed is not None:
             # Viewers show a packet as it arrives, so a queued one is sent when the match reaches its slot.
-            _background(_send_when_due(p, packet, links))
+            task = _background(_send_when_due(p, packet, links))
+            hub.air_tasks.add(task)
+            task.add_done_callback(hub.air_tasks.discard)
             return
         _record_audits(span, await _send(p, packet))
 
@@ -361,7 +373,8 @@ def _place(p: OverlayProposal) -> Placement:
     def moment_of(proposal_id: str) -> str | None:
         return q.moment_id if (q := hub.proposals.get(proposal_id)) else None
 
-    return place(p, hub.packets, hub.clock.play_ms, hub.moments.get(p.moment_id), moment_of)
+    return place(p, hub.packets, hub.live_ms(), hub.moments.get(p.moment_id), moment_of,
+                 clock_running=hub.replay_speed is not None)
 
 
 def _record_audits(span, audits: list[dict]) -> None:
@@ -373,12 +386,15 @@ def _record_audits(span, audits: list[dict]) -> None:
 
 
 async def _send_when_due(p: OverlayProposal, packet: OverlayPacket, links: list[Link]) -> None:
-    """Waits for the match to reach the packet's slot, then sends it, unless a new match or a graphic that
-    replaces it got there first. When the replay stops, it goes at once rather than never."""
-    while hub.replay_speed is not None and hub.clock.play_ms < packet.t_in_ms:
-        await asyncio.sleep(0.2)
-    if packet not in hub.packets or any(packet.cue_id in q.replaces for q in hub.packets
-                                        if q is not packet and q.t_in_ms <= hub.clock.play_ms):
+    """Waits for the match to reach the packet's slot, then sends it. A graphic that something placed after it
+    replaces is never sent, and comes off the schedule (so it isn't counted as aired). When the replay stops, a
+    waiting graphic that nothing replaces goes at once rather than never."""
+    while (speed := hub.replay_speed) is not None and (left := packet.t_in_ms - hub.live_ms()) > 0:
+        await asyncio.sleep(min(1.0, max(0.05, left / 1000 / speed)))
+    if packet not in hub.packets:
+        return  # a new match
+    if any(packet.cue_id in q.replaces for q in hub.packets if q is not packet):
+        hub.packets.remove(packet)
         return
     with tracer.start_as_current_span("crq.air", links=links, attributes={
             "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
@@ -387,6 +403,8 @@ async def _send_when_due(p: OverlayProposal, packet: OverlayPacket, links: list[
 
 
 async def _send(p: OverlayProposal, packet: OverlayPacket) -> list[dict]:
+    p.status = ProposalStatus.AIRED  # only now: a queued graphic is approved until it is actually on air
+    await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     await hub.feed.publish("packet", packet)
     audits = await hub.broadcast_viewers(packet, _delivery_plan(p))
     hub.deliveries += audits
@@ -787,15 +805,18 @@ async def _pace(gap_ms: int, req: ReplayRequest) -> None:
     moment instead of the next event, and a decision taken mid-gap speeds it back up. The slices are real
     time, so a long gap at high speed costs no more wakeups than a short one.
     """
-    left = float(max(0, gap_ms))
-    while left > 0:
-        speed = _effective_speed(req)
-        await _announce_speed(speed)
-        step = min(left, PACING_SLICE_MS * speed)
-        await asyncio.sleep(step / 1000 / speed)
-        left -= step
-        # The clock already reads the next event's time; the match itself is `left` short of it.
-        await _send_tracking(hub.clock.play_ms - int(left))
+    left = hub.pace_left_ms = float(max(0, gap_ms))
+    try:
+        while left > 0:
+            speed = _effective_speed(req)
+            await _announce_speed(speed)
+            step = min(left, PACING_SLICE_MS * speed)
+            await asyncio.sleep(step / 1000 / speed)
+            left = hub.pace_left_ms = left - step
+            # The clock already reads the next event's time; the match itself is `left` short of it.
+            await _send_tracking(hub.live_ms())
+    finally:
+        hub.pace_left_ms = 0.0
 
 
 TRACKING_SEND_S = 0.2  # at most this often in real time: every frame at real time (4 a second), a sample faster
@@ -1029,7 +1050,7 @@ async def _queue_proposal(p: OverlayProposal) -> None:
     # Where it would go if fired now, so the running order shows a real slot; placed again when it is fired.
     slot = _place(p)
     advice = p.hold_advice if p.hold_advice.recommend_hold else hold_advice(hub.moments.get(p.moment_id),
-                                                                            hub.clock.play_ms)
+                                                                            hub.live_ms())
     p = p.model_copy(update={"t_in_ms": slot.t_in_ms, "t_out_ms": slot.t_out_ms, "hold_advice": advice})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
