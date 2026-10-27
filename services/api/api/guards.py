@@ -7,6 +7,7 @@ proxy and Container Apps ingress the API can't reliably tell clients apart, and 
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections import deque
@@ -17,9 +18,27 @@ from datetime import UTC, datetime
 # three at once), types an override in more than three seconds, and a demo window takes minutes to replay.
 DECISIONS_PER_MINUTE = 120
 OVERRIDES_PER_MINUTE = 20
-REPLAY_COOLDOWN_S = 30.0
-# About 75 demo-window runs a day: a safeguard against a runaway script, not a quota for judges.
-AI_MOMENTS_PER_DAY = int(os.environ.get("CRQ_DAILY_AI_MOMENTS", "300"))
+REPLAY_COOLDOWN_S = 5.0  # stops a tight loop; a person clicking "Run again" never waits
+MAX_REPLAY_SPEED = 50.0  # the console's fastest
+DEFAULT_AI_MOMENTS_PER_DAY = 300  # about 75 demo-window runs: a safeguard against a runaway script, not a quota
+
+
+def _daily_moments() -> int:
+    """CRQ_DAILY_AI_MOMENTS, read safely: a bad value warns and keeps the default rather than stopping the API.
+    The count is kept in memory, so a restart starts the day's count again: fine for a runaway guard."""
+    raw = os.environ.get("CRQ_DAILY_AI_MOMENTS", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_AI_MOMENTS_PER_DAY
+    except ValueError:
+        value = -1
+    if value < 0:
+        logging.getLogger(__name__).warning("CRQ_DAILY_AI_MOMENTS=%r is not a whole number; using %d", raw,
+                                            DEFAULT_AI_MOMENTS_PER_DAY)
+        return DEFAULT_AI_MOMENTS_PER_DAY
+    return value
+
+
+AI_MOMENTS_PER_DAY = _daily_moments()
 
 
 class RateWindow:

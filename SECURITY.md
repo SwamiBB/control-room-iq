@@ -240,8 +240,8 @@ Honesty on scope is part of the posture. See [README §Limits](README.md#limits)
   - every override line is checked before it is recorded or aired: refereeing, betting and injuries are
     refused, and Azure AI Content Safety refuses hate, sexual and self-harm content from Low severity and
     violence from Medium (so match language passes). If the check can't run in Azure, the line is refused (424);
-  - rate limits far above a person's pace: 120 decisions and 20 overrides a minute, one replay at a
-    time with a 30 s cooldown;
+  - rate limits far above a person's pace, counted only on real, open cards so junk requests can't lock the
+    operator out: 120 decisions and 20 overrides a minute; one replay at a time, at most 50x, 5 s apart;
   - a daily model budget (`CRQ_DAILY_AI_MOMENTS`, default 300 moments): past it, moments use the templates
     and the console says so, so the demo keeps working and the cost stays bounded.
 

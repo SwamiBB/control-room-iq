@@ -51,7 +51,7 @@ from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
-from .content_safety import check_override
+from .content_safety import check_override, close_content_safety
 from .decision_store import DecisionStore, decision_store_from_env
 from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
 from .exports import decisions_to_csv, history_to_csv
@@ -62,6 +62,7 @@ from .feed import OverlayFeed, eventhubs_sink_from_env
 from .goal_package import build_goal_package, is_code_built
 from .guards import (
     DECISIONS_PER_MINUTE,
+    MAX_REPLAY_SPEED,
     OVERRIDES_PER_MINUTE,
     REPLAY_COOLDOWN_S,
     DailyBudget,
@@ -114,6 +115,7 @@ async def lifespan(_: FastAPI):
         hub.store = None
     if sink:
         await sink.close()
+    await close_content_safety()
 
 
 logger = logging.getLogger(__name__)
@@ -254,7 +256,7 @@ class Hub:
 
 hub = Hub()
 pipeline = MomentPipeline()
-templates = MomentPipeline.templates_only()  # once the day's model budget is spent
+templates = MomentPipeline(with_models=False)  # once the day's model budget is spent
 
 
 # ---------- approval loop ----------
@@ -393,15 +395,25 @@ def _limit(window: RateWindow, what: str) -> None:
         raise HTTPException(429, f"too many {what}; try again in {round(wait)} s", headers=retry_after(wait))
 
 
+def _limit_decision(proposal_id: str, *windows: tuple[RateWindow, str]) -> None:
+    """Counts only a decision on a real card still open: requests for made-up or already decided cards are
+    refused by _decide without using the shared limit, so they can't lock the operator out."""
+    p = hub.proposals.get(proposal_id)
+    if p is None or p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
+        return
+    for window, what in windows or ((hub.decision_rate, "decisions"),):
+        _limit(window, what)
+
+
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
 async def approve(proposal_id: str, d: Decision | None = None):
-    _limit(hub.decision_rate, "decisions")
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.APPROVED, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
 async def hold(proposal_id: str, d: Decision | None = None):
-    _limit(hub.decision_rate, "decisions")
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.HELD, _without_override(d))
 
 
@@ -409,15 +421,15 @@ async def hold(proposal_id: str, d: Decision | None = None):
 async def override(proposal_id: str, d: Decision):
     if not d.override_line:
         raise HTTPException(422, "override_line required")
-    _limit(hub.override_rate, "overrides")
-    _limit(hub.decision_rate, "decisions")
+    _open_proposal(proposal_id, ProposalStatus.OVERRIDDEN, d)  # a missing or decided card: no paid check, no limit
+    _limit_decision(proposal_id, (hub.override_rate, "overrides"), (hub.decision_rate, "decisions"))
     await check_override(d.override_line)  # before anything is recorded or aired; fails closed in Azure
     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
-    _limit(hub.decision_rate, "decisions")
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.REJECTED, _without_override(d))
 
 
@@ -444,7 +456,6 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     decision row and its own approval id on the packet, so the gate and the audit trail are unchanged."""
     if action not in PACKAGE_ACTIONS:
         raise HTTPException(404, f"action must be one of {sorted(PACKAGE_ACTIONS)}")
-    _limit(hub.decision_rate, "decisions")  # one click, however many items it fires
     d = _without_override(d)
     await _expire_stale()  # choose what to fire only after stale items have left the running order
     items = _package_items(package_id)
@@ -453,6 +464,7 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     open_items = [p for p in items if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)]
     if not open_items:
         raise HTTPException(409, "package already decided")
+    _limit(hub.decision_rate, "decisions")  # one click on a real, open package, however many items it fires
     return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
 
 
@@ -625,6 +637,10 @@ async def replay(req: ReplayRequest):
                                  "the simulator")
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
+    # Over HTTP, no faster than the console's fastest (50x): a faster replay would produce moments, and spend the
+    # day's model budget, faster than anyone could watch.
+    if max(req.speed, req.decision_speed or 0) > MAX_REPLAY_SPEED:
+        raise HTTPException(422, f"replay speed is at most {MAX_REPLAY_SPEED:g}x")
     if hub.replay_finished_at is not None and (wait := REPLAY_COOLDOWN_S - (time.monotonic()
                                                                           - hub.replay_finished_at)) > 0:
         raise HTTPException(429, f"the last replay just ended; start another in {round(wait)} s",
@@ -652,7 +668,8 @@ async def _replay(req: ReplayRequest) -> None:
 
 async def _finish_replay(error: str | None) -> None:
     hub.replay_speed = None
-    hub.replay_finished_at = time.monotonic()
+    if error is None:  # after a failed replay, "Run again" works at once
+        hub.replay_finished_at = time.monotonic()
     await hub.broadcast_operators({"type": "replay", "finished": True, "speed": None, "error": error,
                                    "clock": hub.clock.snapshot()})
 
@@ -887,6 +904,8 @@ async def _handle_moment(m: Moment) -> None:
         """The card goes on the desk as soon as the producer writes it; the translations follow (#90)."""
         nonlocal called, queued, dropped
         called = True
+        if not with_models:
+            card.notes.append(BUDGET_PAUSE.format(limit=hub.budget.limit))
         hub.moments[m.moment_id] = m
         # A record before the versions exist, so a preview or a fire in the meantime has the line, the deaf fan's
         # card and the templates; a viewer's own version falls back until the translations arrive.
@@ -906,7 +925,7 @@ async def _handle_moment(m: Moment) -> None:
         with_models = hub.budget.take()
         trace.get_current_span().set_attribute("crq.models", with_models)
         res = await (pipeline if with_models else templates).process(m, meta=hub.meta, on_card=on_card)
-        if not with_models:
+        if not with_models and not any(n.startswith("Templates used") for n in res.notes):
             res.notes.append(BUDGET_PAUSE.format(limit=hub.budget.limit))
         if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
             await on_card(res)

@@ -93,6 +93,19 @@ def test_once_the_day_s_budget_is_spent_moments_use_the_templates(monkeypatch):
 
 # ---------- the override check ----------
 
+def _remote_check(monkeypatch, analyze):
+    """The tests run offline, where only the banned-topic rule runs: switch the remote check on, with fakes."""
+    from dataclasses import replace
+
+    async def token():
+        return "t"
+
+    monkeypatch.setattr(content_safety, "settings", replace(content_safety.settings, offline=False))
+    monkeypatch.setenv("AZURE_CONTENT_SAFETY_ENDPOINT", "https://content-safety.example")
+    monkeypatch.setattr(content_safety, "_token", token)
+    monkeypatch.setattr(content_safety, "_analyze", analyze)
+
+
 def test_an_override_on_a_banned_topic_is_refused_and_nothing_airs():
     r = TestClient(app).post(f"/proposals/{_seed('p-ban')}/override",
                              json={"override_line": "What a dive, the referee is blind"})
@@ -101,41 +114,57 @@ def test_an_override_on_a_banned_topic_is_refused_and_nothing_airs():
 
 
 def test_an_override_content_safety_flags_is_refused(monkeypatch):
-    monkeypatch.setenv("AZURE_CONTENT_SAFETY_ENDPOINT", "https://content-safety.example")
-
-    async def analyze(_endpoint, _text):
+    async def analyze(_endpoint, _text, _token):
         return {"Hate": 4, "Sexual": 0, "SelfHarm": 0, "Violence": 0}
 
-    monkeypatch.setattr(content_safety, "_analyze", analyze)
+    _remote_check(monkeypatch, analyze)
     r = TestClient(app).post(f"/proposals/{_seed('p-cs')}/override", json={"override_line": "something hateful"})
     assert r.status_code == 422 and r.json()["detail"].endswith("flagged it (hate)")
     assert hub.packets == []
 
 
 def test_match_language_passes_the_violence_threshold(monkeypatch):
-    monkeypatch.setenv("AZURE_CONTENT_SAFETY_ENDPOINT", "https://content-safety.example")
-
-    async def analyze(_endpoint, _text):
+    async def analyze(_endpoint, _text, _token):
         return {"Hate": 0, "Sexual": 0, "SelfHarm": 0, "Violence": 2}  # Low: "he smashed it in"
 
-    monkeypatch.setattr(content_safety, "_analyze", analyze)
+    _remote_check(monkeypatch, analyze)
     r = TestClient(app).post(f"/proposals/{_seed('p-ok')}/override", json={"override_line": "He smashed it in!"})
     assert r.status_code == 200 and r.json()["override_line"] == "He smashed it in!"
 
 
 def test_an_override_that_can_t_be_checked_is_refused(monkeypatch):
-    monkeypatch.setenv("AZURE_CONTENT_SAFETY_ENDPOINT", "https://content-safety.example")
-
-    async def analyze(_endpoint, _text):
+    async def analyze(_endpoint, _text, _token):
         raise TimeoutError
 
-    monkeypatch.setattr(content_safety, "_analyze", analyze)
+    _remote_check(monkeypatch, analyze)
     r = TestClient(app).post(f"/proposals/{_seed('p-503')}/override", json={"override_line": "A fine line"})
     assert r.status_code == 424 and hub.packets == []  # not 503, which the console reads as "API down"
 
 
 def test_in_azure_an_unconfigured_check_refuses_rather_than_skips(monkeypatch):
+    from dataclasses import replace
+
+    monkeypatch.setattr(content_safety, "settings", replace(content_safety.settings, offline=False))
     monkeypatch.delenv("AZURE_CONTENT_SAFETY_ENDPOINT", raising=False)
     monkeypatch.setenv("CONTAINER_APP_NAME", "api")
     r = TestClient(app).post(f"/proposals/{_seed('p-cfg')}/override", json={"override_line": "A fine line"})
     assert r.status_code == 424
+
+
+def test_a_replay_faster_than_the_console_s_fastest_is_refused():
+    r = TestClient(app).post("/matches/replay", json={"file": "data/reference/match-042.jsonl", "speed": 1000})
+    assert r.status_code == 422 and "50x" in r.json()["detail"]
+
+
+def test_requests_for_cards_that_don_t_exist_don_t_use_the_limit():
+    hub.decision_rate = RateWindow(1)
+    c = TestClient(app)
+    assert {c.post(f"/proposals/nope-{i}/approve").status_code for i in range(5)} == {404}
+    assert c.post(f"/proposals/{_seed('p-real')}/approve").status_code == 200  # the operator is not locked out
+
+
+def test_after_a_failed_replay_run_again_works_at_once():
+    import asyncio as aio
+
+    aio.run(main._finish_replay("ValueError: bad line"))
+    assert hub.replay_finished_at is None
