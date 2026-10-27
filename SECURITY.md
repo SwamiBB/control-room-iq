@@ -237,7 +237,7 @@ present in this POC:
   with the external review feedback; versioning, ProblemDetails and pagination are reserved for a
   post-submission iteration.
 
-The intended production topology is in [`docs/END-TO-END-ARCHITECTURE.md`](docs/END-TO-END-ARCHITECTURE.md)
+The intended production topology is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 §9. The gap between the POC and production is a configuration delta on the same Bicep modules, not a
 rewrite.
 

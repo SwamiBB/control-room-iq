@@ -40,7 +40,7 @@ never `approve` — see [`services/api/api/timing.py`](../services/api/api/timin
 Every number that reaches air comes from the stats engine. Agents may quote but never compute. A number
 in the English line that the stats engine did not produce is flagged to the operator before firing.
 
-- Rule: [`docs/END-TO-END-ARCHITECTURE.md`](END-TO-END-ARCHITECTURE.md) §2, principle P1.
+- Rule: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) §2, principle P1.
 - Flag field: `OverlayProposal.unsourced_numbers` — see schema line 556.
 - Variant checks: [`services/api/api/variant_checks.py`](../services/api/api/variant_checks.py) — rejects
   invented numbers, changed names, cites outside the moment, banned topics (referee / betting / injury),

@@ -250,10 +250,11 @@ control-room-iq/
 └── docs/             # Architecture, design, gallery terms, calibration, handoffs
 ```
 
-Start with [docs/PROJECT-SUMMARY.md](docs/PROJECT-SUMMARY.md) (status, decisions, document index) and
-[docs/END-TO-END-ARCHITECTURE.md](docs/END-TO-END-ARCHITECTURE.md) (components, runtime flows, contracts,
-deployment, acceptance scenario). [docs/GALLERY-TERMS.md](docs/GALLERY-TERMS.md) maps gallery roles to the screens and lists the on-screen
-words (running order, fire, drop, goal routine).
+Start with [docs/ENTERPRISE-OVERVIEW.md](docs/ENTERPRISE-OVERVIEW.md) (enterprise claim with code
+pointers) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (principles, components, runtime flows,
+contracts, deployment, quality gates, decision log). [docs/GALLERY-TERMS.md](docs/GALLERY-TERMS.md)
+maps gallery roles to the screens and lists the on-screen words (running order, fire, drop, goal
+routine).
 
 ## Limits
 

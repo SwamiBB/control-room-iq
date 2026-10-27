@@ -6,7 +6,7 @@
 
 ## Scope and limitations
 
-This review examined the architecture described in `docs/ARCHITECTURE.md`, `docs/END-TO-END-ARCHITECTURE.md`, `docs/THREAT-MODEL.md`, and `docs/adr/`, then compared key claims with the inspected API and infrastructure source.
+This review examined the architecture described in `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.md`, `docs/THREAT-MODEL.md`, and `docs/adr/`, then compared key claims with the inspected API and infrastructure source.
 
 No application, test suite, build, linter, or live deployment was run. Findings are based on source and documentation inspection; runtime impact should be verified with focused tests and deployment checks. This is an AI-assisted review record, not a substitute for security approval or engineering validation.
 
@@ -72,7 +72,7 @@ Findings that **are still accurate on the current `main`**: operator-route authe
 3. **High — Make Event Hubs publishing and recovery reliable.** Keep the producer open for the consumer lifetime, configure durable checkpoints, and test multiple moment publications plus restart/replay behavior.
 4. **Medium — Make audit guarantees match implementation.** Either provide durable retry/recovery, visible failure handling, and paginated history, or describe the decision log as best-effort rather than complete.
 5. **Medium — Define the scaling boundary.** API run state is in-process, while the architecture discusses multiple API replicas. Scaling or restarting without shared state and connection-aware routing can produce inconsistent operator and viewer experiences.
-6. **Medium — Align architecture documentation with deployed resources.** Update [ARCHITECTURE.md](ARCHITECTURE.md) and [END-TO-END-ARCHITECTURE.md](END-TO-END-ARCHITECTURE.md) to distinguish implemented, deferred, and target components—especially the agent runner, scheduler, and checkpoint-based recovery.
+6. **Medium — Align architecture documentation with deployed resources.** Update [ARCHITECTURE.md](ARCHITECTURE.md) and [ARCHITECTURE.md](ARCHITECTURE.md) to distinguish implemented, deferred, and target components—especially the agent runner, scheduler, and checkpoint-based recovery.
 
 ## STRIDE summary
 
