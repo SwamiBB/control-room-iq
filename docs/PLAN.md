@@ -7,7 +7,7 @@ on Friday, October 23. Everything after Friday is quality, not scope.
 
 | Role | Owns | Day-one deliverable |
 | --- | --- | --- |
-| Lead (AI CoE) | Architecture, Foundry evaluations + tracing, pitch, video | Scope sign-off, repo, evaluation plan |
+| Lead | Architecture, Foundry evaluations + tracing, pitch, video | Scope sign-off, repo, evaluation plan |
 | Pipeline engineer | Simulator hardening, ingest/stats, Event Hubs, Cosmos, Bicep/azd, CI | `azd up` succeeds; simulator streams to Event Hubs |
 | Agents engineer | Agent Framework agents, prompts, model router, squad authoring | Explainer + narrator live on Foundry against replayed moments |
 | Front-end engineer | Operator console, viewer, overlay rendering, Logic Apps approval, Speech | Console shows live proposals from local replay |
@@ -19,7 +19,7 @@ on Friday, October 23. Everything after Friday is quality, not scope.
 | Tue Oct 20 | Scope, repo, sandbox request, local pipeline runs offline | `pytest` green; console shows fallback proposals from a replay |
 | Wed Oct 21 | Azure foundation | `azd up` green; events flow sim → Event Hubs → ingest → Cosmos; explainer on Foundry |
 | Thu Oct 22 | All four agents on Foundry; approval loop end to end; viewer personas + 4 languages | Operator approves a proposal and the viewer sees it in ES |
-| Fri Oct 23 | **End-to-end demo** on the public URL; faithfulness evaluation running | 10-minute internal demo with TPS reviewer; evaluation scores on console |
+| Fri Oct 23 | **End-to-end demo** on the public URL; faithfulness evaluation running | 10-minute demo with a reviewer; evaluation scores on console |
 | Sat Oct 24 | Hardening: failure recovery demo, SLA auto-hold via Logic Apps, Speech audio description | Kill an agent mid-match; feed keeps running and the log shows it |
 | Sun Oct 25 | Polish: overlay graphics, heatmap layer, squad-authoring agent, README/ARCHITECTURE final | Someone outside the team can run it from the README |
 | Mon Oct 26 | Video (<2 min), pitch text, testing instructions, repo cleanup | Video uploaded; dry-run of the submission form |

@@ -71,6 +71,7 @@ module apps 'modules/apps.bicep' = {
     cosmosEndpoint: data.outputs.cosmosEndpoint
     foundryProjectEndpoint: ai.outputs.projectEndpoint
     openAiEndpoint: ai.outputs.openAiEndpoint
+    contentSafetyEndpoint: ai.outputs.contentSafetyEndpoint
     apiExists: apiExists
     ingestExists: ingestExists
     webExists: webExists

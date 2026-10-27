@@ -149,9 +149,6 @@ Honesty on scope is part of the enterprise story.
   `crq-moments` Event Hub and a separate agent worker consuming them. The current implementation runs the whole
   pipeline (simulator → stats → agents → proposals → approvals → overlay) in-process inside the API container,
   which the live deployment does successfully. The second worker is deferred to a post-submission iteration.
-- **Deterministic placement scheduler.** `scheduler.py` is the "Landing shortly" row in the README table.
-  Proposals are timed by arrival; collision resolution, preemption, and `t_in_ms/t_out_ms` placement arrive
-  with that module.
 - **Direct model fallback.** `MODEL_FALLBACK_DEPLOYMENT` is provisioned by Bicep (`infra/modules/ai.bicep`
   deploys the `gpt-4.1-mini` fallback) and injected into the API container, but the current fallback path for
   each agent is its deterministic template, not a direct call to this deployment. Wiring the direct fallback is

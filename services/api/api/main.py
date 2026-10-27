@@ -51,6 +51,7 @@ from opentelemetry.trace import Link, SpanContext, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from .clock import PlayClock
+from .content_safety import check_override, close_content_safety
 from .decision_store import DecisionStore, decision_store_from_env
 from .delivery import HIGH_STAKES_KINDS, Delivery, DeliveryPlan, apply_delivery, choose_delivery
 from .exports import decisions_to_csv, history_to_csv
@@ -59,6 +60,15 @@ from .fan_card import build_fan_card
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
 from .goal_package import build_goal_package, is_code_built
+from .guards import (
+    DECISIONS_PER_MINUTE,
+    MAX_REPLAY_SPEED,
+    OVERRIDES_PER_MINUTE,
+    REPLAY_COOLDOWN_S,
+    DailyBudget,
+    RateWindow,
+    retry_after,
+)
 from .metrics import GalleryMetrics, gallery_metrics
 from .packets import ViewerPrefs, attach_fan_card, build_packet, parse_viewer, with_perspective
 from .perspective import perspective
@@ -75,6 +85,7 @@ from .preview import (
 )
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
+from .scheduler import Placement, hold_advice, place
 from .timing import (
     EXPIRY_ACTOR,
     SLA_ACTOR,
@@ -105,6 +116,7 @@ async def lifespan(_: FastAPI):
         hub.store = None
     if sink:
         await sink.close()
+    await close_content_safety()
 
 
 logger = logging.getLogger(__name__)
@@ -164,6 +176,15 @@ class Hub:
         self.moment_slots = asyncio.Semaphore(MAX_PARALLEL_MOMENTS)
         self.goal_phases: set[str] = set()  # moves that ended in a goal: their other cards are superseded (#50)
         self.moment_traces: dict[str, SpanContext] = {}  # moment_id -> its trace, which decisions and airings link to
+        # The console is open during judging (synthetic data only): limits far above what a person at it does.
+        self.decision_rate = RateWindow(DECISIONS_PER_MINUTE)
+        self.override_rate = RateWindow(OVERRIDES_PER_MINUTE)
+        self.replay_finished_at: float | None = None  # time.monotonic() when the last replay ended
+        self.budget = DailyBudget()
+        # The replay moves the clock to the next event before waiting out the gap; this is how far the match
+        # itself still is from it, so placement and queued graphics use the live play time (`live_ms`).
+        self.pace_left_ms = 0.0
+        self.air_tasks: set[asyncio.Task] = set()  # queued graphics waiting for their slot
         self.tracking: TrackingFeed | None = None  # the match's positions for the viewers, if it has a tracking file
         self.tracking_index: int | None = None  # the frame last sent
         self.tracking_sent_at = 0.0  # time.monotonic() of that send
@@ -182,7 +203,9 @@ class Hub:
         self.moments.clear()
         self.deliveries.clear()
         self.state = None
-        self.match_state = None  # cleared immediately: /recap and perspective must not see the previous match's state behind the new meta while the new folder loads
+        # Cleared at once: /recap and perspective must not see the previous match's state behind the new meta while
+        # the new folder loads.
+        self.match_state = None
         self.new_run()  # "Run again" is a new run in the persisted log
         self.replay_speed = None
         self.state_published_at = 0.0
@@ -193,9 +216,14 @@ class Hub:
         self.tracking, self.tracking_index, self.tracking_sent_at = None, None, 0.0
 
     def cancel_moments(self) -> None:
-        for task in self.moment_tasks:
+        for task in self.moment_tasks | self.air_tasks:  # queued graphics of the old match must not air either
             task.cancel()
         self.moment_tasks.clear()
+        self.air_tasks.clear()
+
+    def live_ms(self) -> int:
+        """Play time as the match is now, not the next event's time the clock already reads."""
+        return self.clock.play_ms - int(self.pace_left_ms)
 
     async def broadcast_operators(self, msg: dict) -> None:
         for ws in list(self.operators):
@@ -241,6 +269,7 @@ class Hub:
 
 hub = Hub()
 pipeline = MomentPipeline()
+templates = MomentPipeline(with_models=False)  # once the day's model budget is spent
 
 
 # ---------- approval loop ----------
@@ -322,22 +351,64 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry, run_id: str, link
     with tracer.start_as_current_span("crq.air", links=links, attributes={
             "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
             "crq.approval_id": approval.entry_id, "crq.run_id": run_id}) as span:
-        audits = await _send(p, approval)
-        for source in ("variant", "template", "base", "override"):
-            span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
-        for a in audits:  # what each viewer group got, and why not its own version
-            span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
-                                         "crq.source": a["source"], "crq.failures": a["failures"]})
+        slot = _place(p)  # against what is on air now: the card may have waited on the desk
+        p.t_in_ms, p.t_out_ms = slot.t_in_ms, slot.t_out_ms
+        p.replaces = list(dict.fromkeys([*p.replaces, *slot.replaces]))
+        span.set_attributes({"crq.wait_ms": slot.t_in_ms - hub.live_ms(), "crq.late": slot.late,
+                             "crq.cuts": len(slot.replaces), "crq.placement": slot.reason or "on air at once"})
+        packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
+        hub.packets.append(packet)  # on the schedule now, so the next placement sees it
+        # The console's running order shows the slot it was given now, not the one from when it reached the desk.
+        await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
+        if packet.t_in_ms > hub.live_ms() and hub.replay_speed is not None:
+            # Viewers show a packet as it arrives, so a queued one is sent when the match reaches its slot.
+            task = _background(_send_when_due(p, packet, links))
+            hub.air_tasks.add(task)
+            task.add_done_callback(hub.air_tasks.discard)
+            return
+        _record_audits(span, await _send(p, packet))
 
 
-async def _send(p: OverlayProposal, approval: DecisionLogEntry) -> list[dict]:
-    packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
-    hub.packets.append(packet)
+def _place(p: OverlayProposal) -> Placement:
+    def moment_of(proposal_id: str) -> str | None:
+        return q.moment_id if (q := hub.proposals.get(proposal_id)) else None
+
+    return place(p, hub.packets, hub.live_ms(), hub.moments.get(p.moment_id), moment_of,
+                 clock_running=hub.replay_speed is not None)
+
+
+def _record_audits(span, audits: list[dict]) -> None:
+    for source in ("variant", "template", "base", "override"):
+        span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
+    for a in audits:  # what each viewer group got, and why not its own version
+        span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
+                                     "crq.source": a["source"], "crq.failures": a["failures"]})
+
+
+async def _send_when_due(p: OverlayProposal, packet: OverlayPacket, links: list[Link]) -> None:
+    """Waits for the match to reach the packet's slot, then sends it. A graphic that something placed after it
+    replaces is never sent, and comes off the schedule (so it isn't counted as aired). When the replay stops, a
+    waiting graphic that nothing replaces goes at once rather than never."""
+    while (speed := hub.replay_speed) is not None and (left := packet.t_in_ms - hub.live_ms()) > 0:
+        await asyncio.sleep(min(1.0, max(0.05, left / 1000 / speed)))
+    if packet not in hub.packets:
+        return  # a new match
+    if any(packet.cue_id in q.replaces for q in hub.packets if q is not packet):
+        hub.packets.remove(packet)
+        return
+    with tracer.start_as_current_span("crq.air", links=links, attributes={
+            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
+            "crq.approval_id": packet.approval_id, "crq.queued": True}) as span:
+        _record_audits(span, await _send(p, packet))
+
+
+async def _send(p: OverlayProposal, packet: OverlayPacket) -> list[dict]:
+    p.status = ProposalStatus.AIRED  # only now: a queued graphic is approved until it is actually on air
+    await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     await hub.feed.publish("packet", packet)
     audits = await hub.broadcast_viewers(packet, _delivery_plan(p))
     hub.deliveries += audits
     await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id, "deliveries": audits})
-    p.status = ProposalStatus.AIRED
     return audits
 
 
@@ -374,13 +445,35 @@ def _without_override(d: Decision | None) -> Decision:
     return d or Decision()
 
 
+def _limit(window: RateWindow, what: str) -> None:
+    if (wait := window.take()) is not None:
+        raise HTTPException(429, f"too many {what}; try again in {round(wait)} s", headers=retry_after(wait))
+
+
+def _limit_decision(proposal_id: str, *windows: tuple[RateWindow, str]) -> None:
+    """Counts only a decision on a real card still open: requests for made-up or already decided cards are
+    refused by _decide without using the shared limit, so they can't lock the operator out."""
+    p = hub.proposals.get(proposal_id)
+    if p is None or p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
+        return
+    windows = windows or ((hub.decision_rate, "decisions"),)
+    # Every window is checked before any is taken from, so a refusal from one doesn't use up another.
+    for window, what in windows:
+        if (wait := window.wait()) is not None:
+            raise HTTPException(429, f"too many {what}; try again in {round(wait)} s", headers=retry_after(wait))
+    for window, _ in windows:
+        window.take()
+
+
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)
 async def approve(proposal_id: str, d: Decision | None = None):
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.APPROVED, _without_override(d))
 
 
 @app.post("/proposals/{proposal_id}/hold", response_model=OverlayProposal)
 async def hold(proposal_id: str, d: Decision | None = None):
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.HELD, _without_override(d))
 
 
@@ -388,11 +481,15 @@ async def hold(proposal_id: str, d: Decision | None = None):
 async def override(proposal_id: str, d: Decision):
     if not d.override_line:
         raise HTTPException(422, "override_line required")
+    _open_proposal(proposal_id, ProposalStatus.OVERRIDDEN, d)  # a missing or decided card: no paid check, no limit
+    _limit_decision(proposal_id, (hub.override_rate, "overrides"), (hub.decision_rate, "decisions"))
+    await check_override(d.override_line)  # before anything is recorded or aired; fails closed in Azure
     return await _decide(proposal_id, ProposalStatus.OVERRIDDEN, d)
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=OverlayProposal)
 async def reject(proposal_id: str, d: Decision | None = None):
+    _limit_decision(proposal_id)
     return await _decide(proposal_id, ProposalStatus.REJECTED, _without_override(d))
 
 
@@ -427,6 +524,7 @@ async def decide_package(package_id: str, action: str, d: Decision | None = None
     open_items = [p for p in items if p.status in (ProposalStatus.PROPOSED, ProposalStatus.HELD)]
     if not open_items:
         raise HTTPException(409, "package already decided")
+    _limit(hub.decision_rate, "decisions")  # one click on a real, open package, however many items it fires
     return [await _decide(p.proposal_id, PACKAGE_ACTIONS[action], d) for p in open_items]
 
 
@@ -599,6 +697,14 @@ async def replay(req: ReplayRequest):
                                  "the simulator")
     if hub.replay_task and not hub.replay_task.done():
         raise HTTPException(409, "a replay is already running")
+    # Over HTTP, no faster than the console's fastest (50x): a faster replay would produce moments, and spend the
+    # day's model budget, faster than anyone could watch.
+    if max(req.speed, req.decision_speed or 0) > MAX_REPLAY_SPEED:
+        raise HTTPException(422, f"replay speed is at most {MAX_REPLAY_SPEED:g}x")
+    if hub.replay_finished_at is not None and (wait := REPLAY_COOLDOWN_S - (time.monotonic()
+                                                                          - hub.replay_finished_at)) > 0:
+        raise HTTPException(429, f"the last replay just ended; start another in {round(wait)} s",
+                            headers=retry_after(wait))
     hub.replay_speed = None
     hub.replay_task = _background(_replay(req))
     return {"started": True}
@@ -622,6 +728,8 @@ async def _replay(req: ReplayRequest) -> None:
 
 async def _finish_replay(error: str | None) -> None:
     hub.replay_speed = None
+    if error is None:  # after a failed replay, "Run again" works at once
+        hub.replay_finished_at = time.monotonic()
     await hub.broadcast_operators({"type": "replay", "finished": True, "speed": None, "error": error,
                                    "clock": hub.clock.snapshot()})
 
@@ -702,15 +810,18 @@ async def _pace(gap_ms: int, req: ReplayRequest) -> None:
     moment instead of the next event, and a decision taken mid-gap speeds it back up. The slices are real
     time, so a long gap at high speed costs no more wakeups than a short one.
     """
-    left = float(max(0, gap_ms))
-    while left > 0:
-        speed = _effective_speed(req)
-        await _announce_speed(speed)
-        step = min(left, PACING_SLICE_MS * speed)
-        await asyncio.sleep(step / 1000 / speed)
-        left -= step
-        # The clock already reads the next event's time; the match itself is `left` short of it.
-        await _send_tracking(hub.clock.play_ms - int(left))
+    left = hub.pace_left_ms = float(max(0, gap_ms))
+    try:
+        while left > 0:
+            speed = _effective_speed(req)
+            await _announce_speed(speed)
+            step = min(left, PACING_SLICE_MS * speed)
+            await asyncio.sleep(step / 1000 / speed)
+            left = hub.pace_left_ms = left - step
+            # The clock already reads the next event's time; the match itself is `left` short of it.
+            await _send_tracking(hub.live_ms())
+    finally:
+        hub.pace_left_ms = 0.0
 
 
 TRACKING_SEND_S = 0.2  # at most this often in real time: every frame at real time (4 a second), a sample faster
@@ -840,6 +951,7 @@ def _clock(m: Moment) -> str:
 
 
 GOAL_TOOK_OVER = "No graphic proposed: the goal on the same move took over"
+BUDGET_PAUSE = "Templates used: today's model budget ({limit} moments) is spent; the agents resume tomorrow (UTC)"
 
 
 def _taken_by_goal(m: Moment) -> bool:
@@ -855,6 +967,8 @@ async def _handle_moment(m: Moment) -> None:
         """The card goes on the desk as soon as the producer writes it; the translations follow (#90)."""
         nonlocal called, queued, dropped
         called = True
+        if not with_models:
+            card.notes.append(BUDGET_PAUSE.format(limit=hub.budget.limit))
         hub.moments[m.moment_id] = m
         # A record before the versions exist, so a preview or a fire in the meantime has the line, the deaf fan's
         # card and the templates; a viewer's own version falls back until the translations arrive.
@@ -871,7 +985,11 @@ async def _handle_moment(m: Moment) -> None:
             "crq.template": card.proposal.fallback})
 
     try:
-        res = await pipeline.process(m, meta=hub.meta, on_card=on_card)
+        with_models = hub.budget.take()
+        trace.get_current_span().set_attribute("crq.models", with_models)
+        res = await (pipeline if with_models else templates).process(m, meta=hub.meta, on_card=on_card)
+        if not with_models and not any(n.startswith("Templates used") for n in res.notes):
+            res.notes.append(BUDGET_PAUSE.format(limit=hub.budget.limit))
         if not called:  # a pipeline without the early hand-over (test stand-ins): the card goes on the desk now
             await on_card(res)
     except Exception as ex:
@@ -934,6 +1052,11 @@ async def _queue_proposal(p: OverlayProposal) -> None:
     warn_at, hold_at = sla_times(proposed_at, hub.auto_hold_s, hub.warn_s)
     p = p.model_copy(update={"proposed_at": proposed_at, "proposed_play_ms": hub.clock.play_ms,
                              "warn_at": warn_at, "hold_at": hold_at})
+    # Where it would go if fired now, so the running order shows a real slot; placed again when it is fired.
+    slot = _place(p)
+    advice = p.hold_advice if p.hold_advice.recommend_hold else hold_advice(hub.moments.get(p.moment_id),
+                                                                            hub.live_ms())
+    p = p.model_copy(update={"t_in_ms": slot.t_in_ms, "t_out_ms": slot.t_out_ms, "hold_advice": advice})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     _background(_auto_hold(p.proposal_id))

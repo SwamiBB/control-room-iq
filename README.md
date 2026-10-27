@@ -17,7 +17,7 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
 | Foundry evaluation | Groundedness 4.4 (cards) · 3.8 (on-air lines) · 4.2 ES · 4.0 HI; relevance 4.6–5.0; violence 0–1.2 of 7; 50 outputs from 10 moments, 1–5 scale. Fluency is 2.5–3.3 by design: cards are broadcast fragments, not sentences ([details](evals/results/latest.md)) |
 | Planted falsehoods | 10 real lines with one number changed. A number the match data doesn't contain: 5 of 5 caught by the code check before air. A real number from the wrong place: the code check can't tell; the groundedness judge scores it 2.0 (real lines 3.8–4.6) |
-| From the gallery | *"When a goal is scored there's a ton of things you want to do — replay, stats, a line on screen — orchestrated for you in seconds. The kind of thing worth taking further."* — John Hickey, Senior Director, R&D and KVM Systems, Black Box Corporation (Limerick) |
+| From the gallery | *"When a goal is scored there's a ton of things you want to do — replay, stats, a line on screen — orchestrated for you in seconds. The kind of thing worth taking further."* — a senior director of R&D for control-room systems |
 
 All match data is synthetic. Clubs, players and venues are fictional.
 
@@ -165,7 +165,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 
 | Piece | How it is used | Status |
 | --- | --- | --- |
-| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
+| Placement rules (`services/api/api/scheduler.py`, code) | One graphic per layer in the earliest free gap, one story per 30 s on the main layers, a goal or red card cuts the lower third and stat panel, a new caption cuts the running one, past `max_delay` a higher-priority graphic cuts what blocks it, hold advice when pressure is rising. A queued graphic is sent when the match reaches its slot | Built |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
 | Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
 | Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
@@ -257,8 +257,10 @@ words (running order, fire, drop, goal routine).
 
 ## Limits
 
-- No sign-in or roles yet: anyone who can reach the API can fire a graphic, and the operator's name is
-  free text. Roles through Microsoft Entra ID come with the producer takeover above.
+- The demo is open by design during judging (no sign-in, synthetic data), guarded by an override content
+  check that fails closed, rate limits far above a person's pace, and a daily model budget that falls back to
+  templates ([SECURITY.md](SECURITY.md#known-limits)). The operator's name is free text. Roles through
+  Microsoft Entra ID come with the producer takeover above.
 - All match data is synthetic. Distance covered counts only runs with the ball until the tracking
   totals are wired in.
 - Spanish and Hindi templates and labels still need a native-speaker review.
