@@ -17,7 +17,7 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
 | Foundry evaluation | Groundedness 4.4 (cards) · 3.8 (on-air lines) · 4.2 ES · 4.0 HI; relevance 4.6–5.0; violence 0–1.2 of 7; 50 outputs from 10 moments, 1–5 scale. Fluency is 2.5–3.3 by design: cards are broadcast fragments, not sentences ([details](evals/results/latest.md)) |
 | Planted falsehoods | 10 real lines with one number changed. A number the match data doesn't contain: 5 of 5 caught by the code check before air. A real number from the wrong place: the code check can't tell; the groundedness judge scores it 2.0 (real lines 3.8–4.6) |
-| From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
+| From the gallery | *"When a goal is scored there's a ton of things you want to do — replay, stats, a line on screen — orchestrated for you in seconds. The kind of thing worth taking further."* — John Hickey, Senior Director, R&D and KVM Systems, Black Box Corporation (Limerick) |
 
 All match data is synthetic. Clubs, players and venues are fictional.
 
