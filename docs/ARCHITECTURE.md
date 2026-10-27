@@ -78,7 +78,7 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph S1[1 · Ingest]
-    SIM[Simulator<br/>engine.py] -->|events| EH1[[Event Hub<br/>match-events]]
+    SIM[Simulator<br/>engine.py] -->|events| EH1[[Event Hub<br/>crq-events]]
   end
 
   subgraph S2[2 · Interpret]
@@ -522,7 +522,7 @@ ROUTER_QUALITY=...   ROUTER_BALANCED=...   ROUTER_COST=...
 AZURE_AI_PROJECT_ENDPOINT=...
 AZURE_AI_FALLBACK_DEPLOYMENT=gpt-4.1-mini
 APPLICATIONINSIGHTS_CONNECTION_STRING=...
-EVENTHUB_NAMESPACE=...   EVENTHUB_NAME=match-events   EVENTHUB_OVERLAY=crq-overlay
+EVENTHUB_NAMESPACE=...   EVENTHUB_EVENTS=crq-events   EVENTHUB_MOMENTS=crq-moments   EVENTHUB_OVERLAY=crq-overlay
 COSMOS_ENDPOINT=...      COSMOS_DATABASE=control-room-iq
 ```
 

@@ -186,8 +186,9 @@ exactly what the operator will see.
 
 ### 5.1 Roles
 
-Five agents, each registered by name in Foundry Agent Service and bound to one model-router deployment
-(`agents/config.py`, `AGENT_ROUTING`):
+Five agents, each bound to one model-router deployment (`agents/config.py`, `AGENT_ROUTING`). The same
+agents can be registered in the Foundry Agent Service for portal inspection via
+`python -m agents.register_agents` on demand; the deployment does not auto-register them.
 
 | Agent | Input | Output | Router deployment | Prompt |
 | --- | --- | --- | --- | --- |
@@ -242,8 +243,9 @@ plus the API's proposal queue, which the producer receives as `on_air` so it can
 
 Agent Framework is used through `Agent(client=OpenAIChatClient(...), instructions=..., response_format=...)`
 with Entra ID credentials; each agent's client targets its routing mode's router deployment (`router-quality`,
-`router-balanced` or `router-cost`, from `deployment_for`). In Foundry Agent Service the
-same agents are registered by name so they can be inspected, evaluated, and traced from the portal.
+`router-balanced` or `router-cost`, from `deployment_for`). The same agents can be registered in the
+Foundry Agent Service by running `python -m agents.register_agents` so they can be inspected and traced
+from the portal; the hosted demo does not register them automatically.
 
 ### 5.3 Timeouts and fallbacks
 
@@ -300,13 +302,14 @@ the console's renderer in `web/src/views` is the reference implementation.
 
 ## 8. Personalization
 
-A viewer's preferences are the query string of its WebSocket: `persona` (analyst, fan, accessibility),
-`lang` (en, es, hi, ar), and optional `club` and `player` focus. The personalizer produces every requested
-(persona, lang) pair per moment in one call; the API picks the matching variant per socket at publish
-time, so adding a viewer costs nothing in model calls. Arabic is rendered right to left. Accessibility
-variants are voiced by Azure AI Speech (neural voices per language) and delivered as `audio_url`; the text
-is always sent as well. Focus (`club`, `player`) is passed to the personalizer so the fan variant can lead
-with the viewer's player when that player is involved and otherwise stays neutral.
+A viewer's preferences are the query string of its WebSocket: `persona` (newcomer, fan, analyst),
+`access` (none, deaf), `lang` (en, es, hi), and `allegiance` (home, away, neutral). The personalizer
+produces every requested English persona × access pair per moment in one call and the localizer renders
+them in Spanish and Hindi; the API picks the matching variant per socket at publish time, so adding a
+viewer costs nothing in model calls. Deaf-access viewers also receive a code-built strike cue within a
+second and a structured caption card built from the moment's facts. Allegiance (`home`, `away`,
+`neutral`) is applied by code so facts are identical across sides. Audio description and Azure AI
+Speech were in the preliminary scope and were deliberately dropped so the deaf fan is served well first.
 
 ## 9. Evaluation (`evals/`)
 

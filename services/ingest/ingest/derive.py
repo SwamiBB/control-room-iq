@@ -15,8 +15,8 @@ TREND_DELTA = 0.1
 TREND_MIN_SHOTS = 2
 
 
-# Match intelligence (organizers' expectation ii; docs/internal/HANDOFF-2026-10-24-match-intelligence.md). A crossing raises
-# a ThresholdIndicator on MatchState.thresholds and on the moment it belongs to.
+# Match intelligence (organizers' expectation ii; see docs/internal/HANDOFF-2026-10-24-match-intelligence.md).
+# A crossing raises a ThresholdIndicator on MatchState.thresholds and on the moment it belongs to.
 TOP_SPEED_KMH = 32.0  # a run at or above this is a speed moment
 SPRINT_KMH = 25.0  # a carry at or above this counts as a sprint
 DISTANCE_KM = (5.0, 10.0)  # running-distance milestones (needs tracking: carry-only distance is far too low)
