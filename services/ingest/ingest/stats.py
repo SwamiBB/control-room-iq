@@ -87,7 +87,7 @@ class StateFolder:
     _poss_ms: dict[str, int] = field(default_factory=dict)
     _last_poss_team: str | None = None
     _last_t: int = 0
-    _recent: deque = field(default_factory=lambda: deque(maxlen=60))  # (t_ms, team, weight)
+    _recent: deque = field(default_factory=lambda: deque(maxlen=60))  # (play_ms, team, weight)
     _pressure_min: dict[int, int] = field(default_factory=dict)
     _moment_n: int = 0
     _p1_end: int = 0
@@ -161,7 +161,7 @@ class StateFolder:
                 ps.passes_completed += 1
             if ev.attrs.get("key_pass"):
                 ps.key_passes += 1
-            self._recent.append((ev.t_ms, ev.team, 0.15 if ev.attrs.get("progressive") else 0.05))
+            self._recent.append((s.play_ms, ev.team, 0.15 if ev.attrs.get("progressive") else 0.05))
             moments += self._rate_pass(ev, ps, ts, ok)
         elif ev.type == EventType.CARRY and ps:
             if self.tracking is None:  # without tracking only runs with the ball count (too low to quote)
@@ -193,7 +193,7 @@ class StateFolder:
             ps.xg = round(ps.xg + xg, 3)
             if ev.outcome in ("goal", "saved"):
                 ts.shots_on_target += 1
-            self._recent.append((ev.t_ms, ev.team, 0.5 + xg))
+            self._recent.append((s.play_ms, ev.team, 0.5 + xg))
             speed = ev.attrs.get("speed_kmh")
             if speed:
                 ps.max_shot_speed_kmh = max(ps.max_shot_speed_kmh, speed)
@@ -234,7 +234,7 @@ class StateFolder:
                 moments.append(self._moment(ev, MomentKind.PRESSURE_SPIKE, 0.5, summary))
         elif ev.type == EventType.TACKLE and ps:
             ps.tackles += 1
-            self._recent.append((ev.t_ms, ev.team, 0.1))
+            self._recent.append((s.play_ms, ev.team, 0.1))
         elif ev.type == EventType.POSSESSION_CHANGE:
             if s.current_phase and s.current_phase.team != ev.team and not s.current_phase.ended_with:
                 s.current_phase.ended_with = "turnover"
@@ -256,8 +256,9 @@ class StateFolder:
         elif ev.type == EventType.MATCH_END:
             moments.append(self._moment(ev, MomentKind.MATCH_END, 1.0, "Full time"))
 
-        # momentum: weighted recent actions, decayed over the last ~3 minutes
-        now = ev.t_ms
+        # momentum: weighted recent actions, decayed over the last ~3 minutes. Uses play_ms so events from
+        # the first half don't get a negative age (and so a weight > 1) in the opening minutes of the second.
+        now = s.play_ms
         num = sum(w * self._sign(t) * max(0.0, 1 - (now - tm) / 180000) for tm, t, w in self._recent)
         den = sum(w * max(0.0, 1 - (now - tm) / 180000) for tm, t, w in self._recent) or 1
         mom = round(max(-1.0, min(1.0, num / den)), 3)

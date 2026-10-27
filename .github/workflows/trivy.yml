@@ -62,7 +62,7 @@ jobs:
           output: trivy-results.sarif
           exit-code: "0"
       # Forked PRs get a read-only token and can't upload; their results stay in the job log.
-      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always() && hashFiles('trivy-results.sarif') != '' && !github.event.pull_request.head.repo.fork
         with:
           sarif_file: trivy-results.sarif
@@ -100,7 +100,7 @@ jobs:
           format: sarif
           output: trivy-image.sarif
           exit-code: "0"
-      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: always() && hashFiles('trivy-image.sarif') != '' && !github.event.pull_request.head.repo.fork
         with:
           sarif_file: trivy-image.sarif

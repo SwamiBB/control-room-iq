@@ -314,29 +314,38 @@ async def _run(agent, payload: dict, model, fallback, info: dict | None = None):
 
 
 async def _call(agent, payload: dict, model, fallback, info: dict):
+    name = getattr(agent, "name", "agent")
+    started = time.perf_counter()
     try:
-        started = time.perf_counter()
         res = await asyncio.wait_for(agent.run(json.dumps(payload, default=str)), timeout=settings.agent_timeout_s)
         info["latency_ms"] = round((time.perf_counter() - started) * 1000)
         info["model_served"] = getattr(getattr(res, "raw_representation", None), "model", None)
         text = getattr(res, "text", None) or str(res)
-        return (model.model_validate_json(text) if model else text.strip()), None
+        out = model.model_validate_json(text) if model else text.strip()
+        # Logged once the reply has passed validation, so a malformed reply never reads as a success.
+        logger.info("Agent %s replied in %.1f s (%s)", name, info["latency_ms"] / 1000,
+                    info["model_served"] or "model not reported")
+        return out, None
     except Exception as ex:  # noqa: BLE001 - any failure falls back; recorded for the decision log
-        name = getattr(agent, "name", "agent")
         # A timeout has an empty message, which left only "TimeoutError: " in the decision log (#39).
         reason = (f"timed out after {settings.agent_timeout_s:g} s" if isinstance(ex, TimeoutError)
                   else f"{type(ex).__name__}: {ex}")
-        logger.warning("Agent %s fell back to its template: %s", name, brief(reason))  # logs go to App Insights
+        logger.warning("Agent %s fell back to its template after %.1f s: %s", name,
+                       time.perf_counter() - started, brief(reason))  # logs go to App Insights
         return fallback(), f"{name}: {reason}"
 
 
 class MomentPipeline:
-    def __init__(self) -> None:
-        self.explainer = make_agent("explainer", _prompt("explainer"), ExplanationOut)
-        self.narrator = make_agent("narrator", _prompt("narrator"))
-        self.personalizer = make_agent("personalizer", _prompt("personalizer"), VariantsOut)
-        self.localizer = make_agent("localizer", _prompt("localizer"), VariantsOut)
-        self.producer = make_agent("producer", _prompt("producer"), ProducerDecision)
+    def __init__(self, with_models: bool = True) -> None:
+        """`with_models=False` builds no agents: every agent uses its template (the day's model budget is spent)."""
+        def agent(*args):
+            return make_agent(*args) if with_models else None
+
+        self.explainer = agent("explainer", _prompt("explainer"), ExplanationOut)
+        self.narrator = agent("narrator", _prompt("narrator"))
+        self.personalizer = agent("personalizer", _prompt("personalizer"), VariantsOut)
+        self.localizer = agent("localizer", _prompt("localizer"), VariantsOut)
+        self.producer = agent("producer", _prompt("producer"), ProducerDecision)
 
     async def process(self, m: Moment, on_air: list[dict] | None = None,
                       requests: list[VariantRequest] | None = None, meta: MatchMeta | None = None,

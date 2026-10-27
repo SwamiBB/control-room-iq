@@ -7,6 +7,7 @@ os.environ["CRQ_OFFLINE"] = "1"
 
 import asyncio  # noqa: E402
 import json  # noqa: E402
+import re  # noqa: E402
 from typing import get_args  # noqa: E402
 
 import pytest  # noqa: E402
@@ -190,16 +191,51 @@ class _SlowAgent:
         await asyncio.sleep(1)
 
 
-def test_a_timeout_is_readable_and_logged(monkeypatch, caplog):
+def test_success_and_timeout_agent_calls_are_logged(caplog, monkeypatch):
     import dataclasses
     import logging
 
     from agents import workflow
+
+    class _OKAgent:
+        name = "explainer"
+
+        async def run(self, text: str):
+            return type("R", (), {"text": json.dumps({
+                "moment_id": "mo-1",
+                "headline": "h",
+                "why_it_matters": "w",
+                "pattern": "chaos",
+                "cites": ["e-1"],
+                "confidence": 0.8,
+                "meta": {"routing": "quality"},
+            }), "raw_representation": type("X", (), {"model": "test-model"})()})()
+
+    class _BadJSONAgent:
+        name = "narrator"
+
+        async def run(self, text: str):
+            return type("R", (), {"text": "not json", "raw_representation": None})()
+
     monkeypatch.setattr(workflow, "settings", dataclasses.replace(workflow.settings, agent_timeout_s=0.01))
+    with caplog.at_level(logging.INFO, logger="agents.workflow"):
+        value, err = asyncio.run(workflow._run(_OKAgent(), {}, workflow.ExplanationOut, lambda: "template"))
+    assert err is None and value.headline == "h"
+    assert re.search(r"Agent explainer replied in \d+\.\d s \(test-model\)", caplog.text)
+
+    # A reply that fails validation is a fallback, never logged as a reply.
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="agents.workflow"):
+        value, err = asyncio.run(workflow._run(_BadJSONAgent(), {}, workflow.ExplanationOut, lambda: "template"))
+    assert value == "template" and "replied in" not in caplog.text
+    assert "Agent narrator fell back to its template after" in caplog.text
+
+    caplog.clear()
     with caplog.at_level(logging.WARNING, logger="agents.workflow"):
         value, err = asyncio.run(workflow._run(_SlowAgent(), {}, None, lambda: "template"))
     assert value == "template" and err == "localizer: timed out after 0.01 s"
-    assert "Agent localizer fell back to its template: timed out after 0.01 s" in caplog.text
+    assert re.search(r"Agent localizer fell back to its template after \d+\.\d s: timed out after 0\.01 s",
+                     caplog.text)
 
 
 @pytest.mark.parametrize(("layer", "cap_s"), [("lower_third", 12), ("stat_panel", 20), ("full_screen", 25)])

@@ -17,34 +17,57 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 | Security scans | CodeQL + Trivy + Dependabot, green on `main`; actions pinned to commit SHAs |
 | Foundry evaluation | Groundedness 4.4 (cards) · 3.8 (on-air lines) · 4.2 ES · 4.0 HI; relevance 4.6–5.0; violence 0–1.2 of 7; 50 outputs from 10 moments, 1–5 scale. Fluency is 2.5–3.3 by design: cards are broadcast fragments, not sentences ([details](evals/results/latest.md)) |
 | Planted falsehoods | 10 real lines with one number changed. A number the match data doesn't contain: 5 of 5 caught by the code check before air. A real number from the wrong place: the code check can't tell; the groundedness judge scores it 2.0 (real lines 3.8–4.6) |
-| From the gallery | "[one sentence from a working control-room operator]" — [name, role] |
+| From the gallery | *"When a goal is scored there's a ton of things you want to do — replay, stats, a line on screen — orchestrated for you in seconds. The kind of thing worth taking further."* — a senior director of R&D for control-room systems |
 
 All match data is synthetic. Clubs, players and venues are fictional.
 
-<!-- Before submission: fill every [bracket] or delete the row; never guess a figure. Check the walkthrough
-     against the final console and update the Status column in "Built on Microsoft Foundry and Azure". -->
-
 ## For enterprise reviewers
 
-The Best Enterprise Solution category rewards *"reliability, transparency, and controls required for
-production."* Three claims, each enforced in code — see [docs/ENTERPRISE-OVERVIEW.md](docs/ENTERPRISE-OVERVIEW.md) for the full map
-and [SECURITY.md](SECURITY.md) for the full posture.
+**Judges, start here:** [docs/ENTERPRISE-OVERVIEW.md](docs/ENTERPRISE-OVERVIEW.md) is the evidence index;
+[SECURITY.md](SECURITY.md) is the full posture.
+
+Three claims, each enforced in code:
 
 - **The gate is in the schema, not in a setting.** `OverlayPacket` requires `approval_id`, `approved_by`
-  and `approved_at`; the renderer refuses anything else. There is no auto-approve path and no bypass flag.
-  See [`packages/schemas/crq_schemas/__init__.py:560`](packages/schemas/crq_schemas/__init__.py) and
+  and `approved_at`; the renderer refuses anything else. There is no auto-approve path, no autopilot
+  timer, no risk threshold that lets a line air on its own, no bypass flag.
+  See [`packages/schemas/crq_schemas/__init__.py:577`](packages/schemas/crq_schemas/__init__.py) and
   [`services/api/tests/test_gate.py`](services/api/tests/test_gate.py).
 - **Numbers from code, words from models.** Agents may quote numbers but never compute them. Variants are
   gated by code checks (invented numbers, name drift, banned content, actually-translated, faithfulness).
   See [`services/api/api/variant_checks.py`](services/api/api/variant_checks.py).
 - **Model choice is auditable.** A per-agent router (quality / balanced / cost) records the served model
   on every proposal and on its agent's trace span, one trace per moment. Every decision is in an
-  append-only log, downloadable at `GET /decisions.csv`.
-  See [`services/agents/agents/config.py`](services/agents/agents/config.py).
+  append-only log, persisted to Cosmos DB, downloadable at `GET /decisions.csv`.
+  See [`services/agents/agents/config.py`](services/agents/agents/config.py) and
+  [`services/api/api/decision_store.py`](services/api/api/decision_store.py).
 
-Enterprise substrate: managed identity + OIDC (no secrets in the repo), CodeQL + Trivy + Dependabot on
-every PR, every GitHub action pinned to a full commit SHA, offline mode as a first-class path so the demo
-survives model quota failure.
+### Enterprise controls, in place today
+
+| Area | Control | Where to look |
+| --- | --- | --- |
+| **Trust boundary** | Structural approval triple on every packet; the renderer refuses packets without it, and the SLA timer can hold but never approve | [SECURITY.md §Trust boundary](SECURITY.md#the-trust-boundary-at-a-glance) |
+| **SLA hold** | A proposal untouched for 20 seconds is held, never aired; stale holds expire; neither can air | [`services/api/api/timing.py`](services/api/api/timing.py) |
+| **Audit trail** | Every decision (approve / override / hold / SLA hold / reject) appended to Cosmos DB and downloadable as CSV; one OpenTelemetry trace per moment with the served model recorded on every span | [`services/api/api/decision_store.py`](services/api/api/decision_store.py), [`services/agents/agents/workflow.py`](services/agents/agents/workflow.py) |
+| **Identity** | Managed identity end-to-end; `disableLocalAuth: true` on Cosmos, Event Hubs and Foundry; shared keys and admin accounts off on Storage and ACR; OIDC from GitHub Actions, no secrets in the repo | [SECURITY.md §4](SECURITY.md#4-identity-and-secrets), [`infra/modules/data.bicep`](infra/modules/data.bicep), [`infra/modules/core.bicep`](infra/modules/core.bicep) |
+| **Supply chain** | CodeQL, Trivy and Dependabot on every push and PR; every GitHub action pinned to a full commit SHA with CVE-2026-33634 cited as the reason; tool versions pinned | [SECURITY.md §5](SECURITY.md#5-supply-chain), [`.github/workflows/`](.github/workflows/) |
+| **Hardened images** | Non-root container users; `requireInfrastructureEncryption` on Storage; 7-day blob delete retention; blob reads/writes/deletes forwarded to Log Analytics | [SECURITY.md §Deployment posture](SECURITY.md#9-deployment-posture) |
+| **API exposure** | The API container has `ingress.external: false`; nginx is the one public door; ingest has no ingress at all | [SECURITY.md §Deployment posture](SECURITY.md#9-deployment-posture), [`infra/modules/apps.bicep`](infra/modules/apps.bicep) |
+| **Degrade, never stall** | Every agent has a timeout and a deterministic template fallback; offline mode runs the whole pipeline with no Azure dependency; the fallback path is marked on the proposal and in `/metrics` | [`services/agents/agents/workflow.py`](services/agents/agents/workflow.py), [`GET /metrics`](services/api/api/metrics.py) |
+| **Availability monitoring** | 5-minute Application Insights URL ping test on `/healthz` from three US regions, with a metric alert that fires when two of three locations fail in a 5-minute window | [`infra/modules/apps.bicep`](infra/modules/apps.bicep) (`healthzPing`, `healthzAlert`) |
+| **Evaluations** | Foundry groundedness, relevance and fluency per language on a 50-output run from 10 moments, with 10 planted falsehoods (5 absent-number traps caught by the code check before air) | [`evals/results/latest.md`](evals/results/latest.md) |
+| **Documented posture** | Full [SECURITY.md](SECURITY.md) with trust-boundary diagram and deployment-posture section; [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) with 11 named threats and their current mitigation; [docs/RUNBOOK.md](docs/RUNBOOK.md) for operational response | [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), [docs/RUNBOOK.md](docs/RUNBOOK.md) |
+
+### Deferred to a post-submission iteration (named honestly)
+
+- **Entra ID sign-in and roles** — the current build has no operator authentication; anyone who can reach
+  the API can fire a graphic. The producer-takeover feature depends on roles landing first.
+- **Private endpoints and VNet integration** — Cosmos, Event Hubs and Foundry are reachable at their
+  default public endpoints with Entra ID RBAC only. Private endpoints + `publicNetworkAccess: 'Disabled'`
+  are required for a production deployment with real viewer data.
+- **Logic App for the SLA hold** — the hold runs as an in-process `asyncio` timer in both environments.
+  The intended production replacement is a Cosmos change feed → Logic App → `POST /hold` with the
+  `sla-timer` actor, deferred to post-submission.
 
 ## What it is
 
@@ -142,7 +165,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 
 | Piece | How it is used | Status |
 | --- | --- | --- |
-| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
+| Placement rules (`services/api/api/scheduler.py`, code) | One graphic per layer in the earliest free gap, one story per 30 s on the main layers, a goal or red card cuts the lower third and stat panel, a new caption cuts the running one, past `max_delay` a higher-priority graphic cuts what blocks it, hold advice when pressure is rising. A queued graphic is sent when the match reaches its slot | Built |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
 | Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
 | Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |
@@ -234,8 +257,10 @@ words (running order, fire, drop, goal routine).
 
 ## Limits
 
-- No sign-in or roles yet: anyone who can reach the API can fire a graphic, and the operator's name is
-  free text. Roles through Microsoft Entra ID come with the producer takeover above.
+- The demo is open by design during judging (no sign-in, synthetic data), guarded by an override content
+  check that fails closed, rate limits far above a person's pace, and a daily model budget that falls back to
+  templates ([SECURITY.md](SECURITY.md#known-limits)). The operator's name is free text. Roles through
+  Microsoft Entra ID come with the producer takeover above.
 - All match data is synthetic. Distance covered counts only runs with the ball until the tracking
   totals are wired in.
 - Spanish and Hindi templates and labels still need a native-speaker review.
