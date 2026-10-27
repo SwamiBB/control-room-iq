@@ -128,3 +128,28 @@ def test_a_fast_goal_from_a_half_chance_keeps_its_badge_on_the_goal():
     goal = next(m for m in ms if m.kind == MomentKind.GOAL)
     assert [t.kind for t in goal.metrics.thresholds] == ["shot_speed"]
     assert [t.kind for t in f.state.thresholds] == ["shot_speed"]
+
+
+def _at(type_, period, t_ms, play_ms, team, player, **kw) -> MatchEvent:
+    n = next(_seq)
+    return MatchEvent(event_id=f"e{n}", match_id=META.match_id, seq=n, play_ms=play_ms, t_ms=t_ms, period=period,
+                      type=type_, team=team, player=player, x=60.0, y=50.0, **kw)
+
+
+def test_momentum_does_not_carry_first_half_actions_into_the_second_half():
+    f = _folder()
+    late_1h = 2_700_000  # the home side ends the half on top
+    _moments(f, [_at(EventType.SHOT, 1, late_1h - 1_000 * i, late_1h - 1_000 * i, HOME, H[0], outcome="saved",
+                     attrs={"xg": 0.1})
+                 for i in range(5, 0, -1)])
+    # four minutes into the second half (period clock 240 s): only the away side has done anything since
+    _moments(f, [_at(EventType.PASS, 2, 240_000, late_1h + 240_000, AWAY, A[0], outcome="success",
+                     attrs={"receiver": A[1]})])
+    assert f.state.momentum[-1] < 0, "first-half actions are more than 3 minutes of play old: they no longer count"
+
+
+def test_pass_accuracy_counts_passes_without_a_distance():
+    f = _folder()
+    _moments(f, [_ev(EventType.PASS, 1_000, HOME, H[0], outcome="success", attrs={"receiver": H[1]}),
+                 _ev(EventType.PASS, 2_000, HOME, H[0], outcome="fail", attrs={"receiver": H[1]})])
+    assert f.state.home.pass_accuracy_pct == 50.0

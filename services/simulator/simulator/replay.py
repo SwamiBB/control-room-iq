@@ -8,6 +8,8 @@ go backwards, which also guarantees no outcome is delivered before its strike.
 ReplayDriver releases the scheduled items on a match clock with play / pause / resume / speed / jump. The
 clock and sleep are injectable so tests run instantly. On a jump it calls `on_seek(index)` so the consumer
 can fold the skipped events silently before live play resumes.
+
+Not used by the API or the CLI yet (only by its tests): the API paces its own replay on PlayClock.
 """
 
 from __future__ import annotations

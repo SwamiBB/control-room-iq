@@ -38,3 +38,11 @@ def test_recap_rejects_windows_other_than_10_20_30():
 
 def test_recap_before_kickoff_is_not_found():
     assert TestClient(app).get("/recap").status_code == 404
+
+
+def test_a_new_match_does_not_recap_the_last_one_while_it_loads():
+    from simulator.cli import build_meta
+
+    _live_match(40 * MIN, [_point(35 * MIN, "last match")])
+    hub.new_match(build_meta(5))  # the new folder is still loading (built in a worker thread)
+    assert TestClient(app).get("/recap").status_code == 404

@@ -1,10 +1,13 @@
 """Control Room IQ API: operator console, approval loop, overlay feed, viewer feeds.
 
-Local mode (default): `uvicorn api.main:app --reload` then POST /matches/replay with a match file to
-run the full pipeline in-process (simulator -> stats -> agents -> proposals -> approvals -> overlay).
-Azure mode: ingest/agents run as separate Container Apps; this service consumes `crq-moments` and
-publishes approved items to `crq-overlay`. Both modes share the same in-memory hub below, which is
-swapped for Cosmos DB persistence via `store.py`.
+`uvicorn api.main:app --reload`, then POST /matches/replay with a match file: the API runs the whole pipeline
+in-process (match file -> stats -> agents -> proposals -> approvals -> overlay). It runs the same way in Azure,
+where approved packets also go to the `crq-overlay` Event Hub (feed.py).
+
+Not wired yet: the API does not consume `crq-moments` (the ingest app publishes moments there, but nothing reads
+them, so an Event Hubs-fed match produces no proposals), and its proposals, decisions and deliveries live only
+in the in-memory hub below, so an API restart loses them. Cosmos DB holds what ingest writes (matches, state
+snapshots, moments).
 """
 
 from __future__ import annotations
@@ -115,7 +118,7 @@ MAX_PARALLEL_MOMENTS = 3  # agent pipelines allowed to run at once beside the re
 
 
 class Hub:
-    """In-memory state + fan-out. Replace with Cosmos + Event Hubs in Azure mode (store.py)."""
+    """In-memory state + fan-out: proposals, decisions, packets and deliveries are not persisted."""
 
     def __init__(self) -> None:
         self.reset()
@@ -162,6 +165,7 @@ class Hub:
         self.moments.clear()
         self.deliveries.clear()
         self.state = None
+        self.match_state = None  # set again once the new match's folder is built, never the last match's
         self.replay_speed = None
         self.state_published_at = 0.0
         self.cancel_moments()  # the old match's agents must not post into the new one
