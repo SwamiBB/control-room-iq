@@ -456,8 +456,13 @@ def _limit_decision(proposal_id: str, *windows: tuple[RateWindow, str]) -> None:
     p = hub.proposals.get(proposal_id)
     if p is None or p.status not in (ProposalStatus.PROPOSED, ProposalStatus.HELD):
         return
-    for window, what in windows or ((hub.decision_rate, "decisions"),):
-        _limit(window, what)
+    windows = windows or ((hub.decision_rate, "decisions"),)
+    # Every window is checked before any is taken from, so a refusal from one doesn't use up another.
+    for window, what in windows:
+        if (wait := window.wait()) is not None:
+            raise HTTPException(429, f"too many {what}; try again in {round(wait)} s", headers=retry_after(wait))
+    for window, _ in windows:
+        window.take()
 
 
 @app.post("/proposals/{proposal_id}/approve", response_model=OverlayProposal)

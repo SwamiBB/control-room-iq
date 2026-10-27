@@ -168,3 +168,12 @@ def test_after_a_failed_replay_run_again_works_at_once():
 
     aio.run(main._finish_replay("ValueError: bad line"))
     assert hub.replay_finished_at is None
+
+
+def test_an_override_refused_for_too_many_decisions_doesn_t_use_up_the_override_limit():
+    hub.decision_rate, hub.override_rate = RateWindow(0), RateWindow(1)
+    c = TestClient(app)
+    r = c.post(f"/proposals/{_seed('p-o1')}/override", json={"override_line": "A fine line"})
+    assert r.status_code == 429 and "decisions" in r.json()["detail"]
+    hub.decision_rate = RateWindow(5)  # decisions free up
+    assert c.post(f"/proposals/{_seed('p-o2')}/override", json={"override_line": "A fine line"}).status_code == 200

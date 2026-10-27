@@ -48,14 +48,20 @@ class RateWindow:
         self.limit, self.window_s, self.clock = limit, window_s, clock
         self._events: deque[float] = deque()
 
-    def take(self) -> float | None:
-        """Records an event and returns None, or returns the seconds to wait when the window is full."""
+    def wait(self) -> float | None:
+        """The seconds to wait if the window is full, else None. Records nothing."""
         now = self.clock()
         while self._events and now - self._events[0] >= self.window_s:
             self._events.popleft()
-        if len(self._events) >= self.limit:
-            return self.window_s - (now - self._events[0])
-        self._events.append(now)
+        if len(self._events) < self.limit:
+            return None
+        return self.window_s - (now - self._events[0]) if self._events else self.window_s
+
+    def take(self) -> float | None:
+        """Records an event and returns None, or returns the seconds to wait when the window is full."""
+        if (left := self.wait()) is not None:
+            return left
+        self._events.append(self.clock())
         return None
 
 
