@@ -332,8 +332,9 @@ class MomentPipeline:
         intel = intel_context(m, _name_of(meta))
 
         info: dict = {}
-        out, err = await _run(self.explainer, {"moment": moment_json, "intel": intel}, ExplanationOut, lambda: None,
-                              info)
+        teams = _teams(meta)
+        out, err = await _run(self.explainer, {"moment": moment_json, "intel": intel, "teams": teams}, ExplanationOut,
+                              lambda: None, info)
         if out is None:
             expl = fallback_explanation(m)
         else:
@@ -341,7 +342,8 @@ class MomentPipeline:
         if err:
             failures.append(err)
         line, err = await _run(self.narrator, {"moment": moment_json, "explanation": expl.model_dump(),
-                                               "intel": intel}, None, lambda: fallback_line(m, expl))
+                                               "intel": intel, "teams": teams}, None, lambda: fallback_line(m, expl))
+        line = club_names(line, meta)
         if err:
             failures.append(err)
 
@@ -386,7 +388,8 @@ class MomentPipeline:
                 return None, None
             info3: dict = {}
             decision, err = await _run(self.producer, {"moment": moment_json, "explanation": expl.model_dump(),
-                                                       "line": line, "intel": intel, "on_air": on_air or []},
+                                                       "line": line, "intel": intel, "teams": teams,
+                                                       "on_air": on_air or []},
                                        ProducerDecision, lambda: None, info3)
             if decision is None:
                 return fallback_proposal(m, expl, line), err
@@ -403,6 +406,8 @@ class MomentPipeline:
 
         proposal, e3 = await _proposal()
         proposal = with_intel(proposal, m, _name_of(meta))
+        if proposal is not None:
+            proposal = proposal.model_copy(update={"line": club_names(proposal.line, meta)})
         if e3:
             failures.append(e3)
         moment_intel = intel_payload(intel_for(m), _prefer(m), _name_of(meta))
@@ -414,6 +419,7 @@ class MomentPipeline:
                                 failures=failures, intel=moment_intel, notes=notes)
         # Every version is written from the line that airs, to fit its graphic.
         variants, variant_errors = await _variants(proposal.line, max_chars_for(proposal.layer, proposal.line))
+        variants = [v.model_copy(update={"text": club_names(v.text, meta)}) for v in variants]
         failures += [e for e in variant_errors if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
                             failures=failures, intel=moment_intel, notes=notes)
@@ -445,6 +451,20 @@ def _names(meta: MatchMeta | None) -> list[str]:
     if meta is None:
         return []
     return [t.name for t in (meta.home, meta.away)] + [p.name for t in (meta.home, meta.away) for p in t.players]
+
+
+def _teams(meta: MatchMeta | None) -> dict[str, str]:
+    """Team id -> club name, so the agents can name clubs the way viewers know them (#40)."""
+    return {t.team_id: t.name for t in (meta.home, meta.away)} if meta else {}
+
+
+def club_names(text: str, meta: MatchMeta | None) -> str:
+    """A team id or code an agent wrote anyway ("puts har ahead", "HAR lead") becomes the club's name, so the line
+    airs as viewers know it and every language agrees on the name (#40). Only whole words: "Harbor" stays."""
+    for t in (meta.home, meta.away) if meta else ():
+        for code in {t.team_id, t.short_name}:
+            text = re.sub(rf"(?<!\w){re.escape(code)}(?!\w)", t.name, text, flags=re.IGNORECASE)
+    return text
 
 
 def _name_of(meta: MatchMeta | None) -> NameOf:

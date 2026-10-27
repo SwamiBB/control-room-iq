@@ -87,3 +87,14 @@ def test_untranslated_text_fails():
 
 def test_base_language_variant_is_not_checked_for_translation():
     assert _failures(BASE + ". The score is 1 to 0.", lang="en") == []
+
+
+def test_a_club_the_english_line_names_must_be_kept_by_that_name():
+    # #40: the English said a code while the Spanish expanded it, so the languages named the club differently.
+    ctx = _ctx(base="Northfield United press high for Ade Pike's mistake")
+    kept = NarrativeVariant(moment_id="mo-1", persona="fan", lang="es", cites=["e-1"],
+                            text="Northfield United presiona arriba tras el error de Ade Pike")
+    renamed = NarrativeVariant(moment_id="mo-1", persona="fan", lang="es", cites=["e-1"],
+                               text="Los visitantes presionan arriba tras el error de Ade Pike")
+    assert check_variant(kept, ctx) == []
+    assert "names" in check_variant(renamed, ctx)

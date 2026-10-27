@@ -2,7 +2,15 @@
 
 from api.variant_checks import build_context, check_variant, unsourced_numbers
 from api_factories import match_state, moment, proposal
-from crq_schemas import MomentKind, MomentMetrics, NarrativeVariant, OverlayLayer, PassQuality, TeamStats
+from crq_schemas import (
+    MomentKind,
+    MomentMetrics,
+    NarrativeVariant,
+    OverlayLayer,
+    PassQuality,
+    ShotRecord,
+    TeamStats,
+)
 from simulator.cli import build_meta
 
 META = build_meta(42)
@@ -64,3 +72,14 @@ def test_numbers_in_the_english_line_are_checked_against_the_data():
 
 def test_no_moment_no_flag():
     assert unsourced_numbers("anything 99", None) == []
+
+
+def test_the_moment_s_own_shot_xg_is_from_the_data():
+    """The template goal card quotes the shot's xG from the moment summary; it must not be flagged (#3 of Oct 27)."""
+    shot = ShotRecord(event_id="e-goal", play_ms=0, period=1, t_ms=0, team="har", player="har-09", xg=0.45,
+                      outcome="goal", speed_kmh=88.1)
+    m = moment(kind=MomentKind.GOAL, event_ids=["e-goal"], state=match_state(shots=[shot]))
+    assert unsourced_numbers("GOAL Finn Oakes (foot, xG 0.45)", m) == []
+    assert unsourced_numbers("Struck at 88.1 km/h", m) == []
+    assert unsourced_numbers("GOAL Finn Oakes (foot, xG 0.54)", m) == ["0.54"]  # another shot's number still flags
+
