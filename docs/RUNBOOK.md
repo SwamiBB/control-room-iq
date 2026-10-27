@@ -36,10 +36,13 @@ Invoke-RestMethod "$BASE/metrics" | ConvertTo-Json -Depth 5
 
 What matters:
 
-- `turnaround.median_s` under 20 means Foundry is answering; over 25 means timeouts are pushing proposals
-  to the template fallback.
+- `turnaround.median_s` is **operator decision time** — the median seconds from a card landing on the desk
+  to the operator firing it (see `services/api/api/metrics.py` where the median is computed over the
+  desk → fire interval). It is **not** a Foundry-health signal. For Foundry health look at the signals
+  below.
 - `errors.fallback_proposals` growing means Foundry is failing agent calls (quota, auth, model router);
-  check the Foundry portal.
+  cross-check with the "fell back to its template after N s" log lines added in #102 and the
+  `crq.agent` / `crq.call_failed` spans in Application Insights.
 - `errors.check_failures.*` non-zero means variant checks are rejecting agent output; usually a numbers
   drift. Not an incident; the console shows the amber chip and the operator either overrides or holds.
 - `workload.sla_holds` climbing with `operator_decisions` flat means nobody is driving the desk.
@@ -58,8 +61,9 @@ and the `Cosmos DB Built-in Data Contributor` role assignment in `infra/modules/
 
 ### Foundry quota or model router outage
 
-Signal: `fallback_proposals` climbs; `median_s` jumps to the agent timeout (12 s); every lineage chip on
-`/operator-demo` greys out.
+Signal: `fallback_proposals` climbs; agent calls hit the 12 s per-call timeout (`AGENT_TIMEOUT_S`),
+visible in the "fell back to its template after N s" log lines (#102) and in the `crq.agent` spans whose
+`crq.call_failed` attribute is set; every lineage chip on `/operator-demo` greys out.
 
 Response:
 

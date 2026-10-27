@@ -5,8 +5,10 @@ Why: `azd up` provisions and deploys in one command; event-driven scaling is nat
 a day of setup the team does not have.
 Status (Oct 27): KEDA scaling is not built. Each app runs a fixed replica count, and ingest stays at one
 replica until the consumer has a checkpoint store (`infra/modules/apps.bicep`).
-Consequences: the Cloud Native category story is Container Apps + Event Hubs + Logic Apps + Cosmos,
-not Kubernetes; an AKS variant could be added after the hackathon.
+Consequences: the Cloud Native category story is Container Apps + Event Hubs + Cosmos (plus Azure AI
+Content Safety on operator overrides and an Application Insights availability test, both added later),
+not Kubernetes; an AKS variant could be added after the hackathon. The Logic App for the 20-second SLA
+hold is deferred — the hold runs as an in-process `asyncio` timer in both environments.
 
 Update (2026-10-27, post PR #106): three controls previously flagged as missing on this ADR's path have
 landed on the API side without changing the Container Apps / scaling decision:

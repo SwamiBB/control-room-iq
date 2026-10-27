@@ -250,7 +250,7 @@ control-room-iq/
 │   ├── agents/       # Explainer, narrator, producer, personalizer, localizer (Agent Framework) + prompts
 │   └── api/          # FastAPI: running order, decisions, goal routine, preview, checks, metrics, feeds
 ├── web/              # React + TypeScript: graphics operator console and viewer
-├── evals/            # Foundry evaluation runner and datasets
+├── evals/            # Foundry evaluation runner and latest results (no datasets/ folder; planted falsehoods are built inline in run_eval.py)
 ├── infra/            # Bicep modules + azd
 └── docs/             # Architecture, design, gallery terms, calibration, handoffs
 ```
