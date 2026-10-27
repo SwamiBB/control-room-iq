@@ -142,7 +142,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 
 | Piece | How it is used | Status |
 | --- | --- | --- |
-| Placement rules (scheduler, code) | Collisions per layer, one story per 30 s, goal or red card bumps the lower third, hold advice from the pressure trend | Landing shortly; until then a fired graphic airs on arrival |
+| Placement rules (`services/api/api/scheduler.py`, code) | One graphic per layer in the earliest free gap, one story per 30 s on the main layers, a goal or red card cuts the lower third and stat panel, a new caption cuts the running one, past `max_delay` a higher-priority graphic cuts what blocks it, hold advice when pressure is rising. A queued graphic is sent when the match reaches its slot | Built |
 | Microsoft Agent Framework | Five agents (explainer, narrator, producer, personalizer, localizer), each with a timeout and a deterministic fallback | Built |
 | Model router | One deployment per routing mode: quality (explainer, producer), balanced (narrator), cost (personalizer, localizer), at low reasoning effort; the served model is recorded on every card | Built: about 15 s from moment to card on the demo window |
 | Foundry Agent Service | The five agents registered so they can be inspected in the portal (`python -m agents.register_agents`) | Built |

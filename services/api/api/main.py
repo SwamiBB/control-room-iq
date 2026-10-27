@@ -85,6 +85,7 @@ from .preview import (
 )
 from .recap import RECAP_WINDOWS, build_recap
 from .schedule import ScheduleView, build_schedule
+from .scheduler import Placement, hold_advice, place
 from .timing import (
     EXPIRY_ACTOR,
     SLA_ACTOR,
@@ -338,22 +339,55 @@ async def _air(p: OverlayProposal, approval: DecisionLogEntry, run_id: str, link
     with tracer.start_as_current_span("crq.air", links=links, attributes={
             "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
             "crq.approval_id": approval.entry_id, "crq.run_id": run_id}) as span:
-        audits = await _send(p, approval)
-        for source in ("variant", "template", "base", "override"):
-            span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
-        for a in audits:  # what each viewer group got, and why not its own version
-            span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
-                                         "crq.source": a["source"], "crq.failures": a["failures"]})
+        slot = _place(p)  # against what is on air now: the card may have waited on the desk
+        p.t_in_ms, p.t_out_ms = slot.t_in_ms, slot.t_out_ms
+        p.replaces = list(dict.fromkeys([*p.replaces, *slot.replaces]))
+        span.set_attributes({"crq.wait_ms": slot.t_in_ms - hub.clock.play_ms, "crq.late": slot.late,
+                             "crq.cuts": len(slot.replaces), "crq.placement": slot.reason or "on air at once"})
+        packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
+        hub.packets.append(packet)  # on the schedule now, so the next placement sees it
+        p.status = ProposalStatus.AIRED
+        if packet.t_in_ms > hub.clock.play_ms and hub.replay_speed is not None:
+            # Viewers show a packet as it arrives, so a queued one is sent when the match reaches its slot.
+            _background(_send_when_due(p, packet, links))
+            return
+        _record_audits(span, await _send(p, packet))
 
 
-async def _send(p: OverlayProposal, approval: DecisionLogEntry) -> list[dict]:
-    packet = attach_fan_card(build_packet(p, approval, hub.clock), _fan_card(p))
-    hub.packets.append(packet)
+def _place(p: OverlayProposal) -> Placement:
+    def moment_of(proposal_id: str) -> str | None:
+        return q.moment_id if (q := hub.proposals.get(proposal_id)) else None
+
+    return place(p, hub.packets, hub.clock.play_ms, hub.moments.get(p.moment_id), moment_of)
+
+
+def _record_audits(span, audits: list[dict]) -> None:
+    for source in ("variant", "template", "base", "override"):
+        span.set_attribute(f"crq.groups.{source}", sum(a["source"] == source for a in audits))
+    for a in audits:  # what each viewer group got, and why not its own version
+        span.add_event("delivered", {"crq.group": f'{a["persona"]}.{a["access"]}.{a["lang"]}',
+                                     "crq.source": a["source"], "crq.failures": a["failures"]})
+
+
+async def _send_when_due(p: OverlayProposal, packet: OverlayPacket, links: list[Link]) -> None:
+    """Waits for the match to reach the packet's slot, then sends it, unless a new match or a graphic that
+    replaces it got there first. When the replay stops, it goes at once rather than never."""
+    while hub.replay_speed is not None and hub.clock.play_ms < packet.t_in_ms:
+        await asyncio.sleep(0.2)
+    if packet not in hub.packets or any(packet.cue_id in q.replaces for q in hub.packets
+                                        if q is not packet and q.t_in_ms <= hub.clock.play_ms):
+        return
+    with tracer.start_as_current_span("crq.air", links=links, attributes={
+            "crq.moment_id": p.moment_id, "crq.proposal_id": p.proposal_id, "crq.layer": p.layer.value,
+            "crq.approval_id": packet.approval_id, "crq.queued": True}) as span:
+        _record_audits(span, await _send(p, packet))
+
+
+async def _send(p: OverlayProposal, packet: OverlayPacket) -> list[dict]:
     await hub.feed.publish("packet", packet)
     audits = await hub.broadcast_viewers(packet, _delivery_plan(p))
     hub.deliveries += audits
     await hub.broadcast_operators({"type": "deliveries", "proposal_id": p.proposal_id, "deliveries": audits})
-    p.status = ProposalStatus.AIRED
     return audits
 
 
@@ -985,6 +1019,11 @@ async def _queue_proposal(p: OverlayProposal) -> None:
     warn_at, hold_at = sla_times(proposed_at, hub.auto_hold_s, hub.warn_s)
     p = p.model_copy(update={"proposed_at": proposed_at, "proposed_play_ms": hub.clock.play_ms,
                              "warn_at": warn_at, "hold_at": hold_at})
+    # Where it would go if fired now, so the running order shows a real slot; placed again when it is fired.
+    slot = _place(p)
+    advice = p.hold_advice if p.hold_advice.recommend_hold else hold_advice(hub.moments.get(p.moment_id),
+                                                                            hub.clock.play_ms)
+    p = p.model_copy(update={"t_in_ms": slot.t_in_ms, "t_out_ms": slot.t_out_ms, "hold_advice": advice})
     hub.proposals[p.proposal_id] = p
     await hub.broadcast_operators({"type": "proposal", "proposal": p.model_dump(mode="json")})
     _background(_auto_hold(p.proposal_id))

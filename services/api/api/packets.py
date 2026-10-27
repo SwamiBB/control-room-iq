@@ -45,9 +45,9 @@ def parse_viewer(persona: str, access: Access) -> tuple[Persona, Access]:
 def packet_slot(p: OverlayProposal, now_play_ms: int) -> tuple[int, int]:
     """Play-time window for the packet.
 
-    Uses the scheduler's t_in/t_out when it has placed the proposal. Until scheduler.py lands, an
-    unplaced proposal airs now for its proposed duration; this is not collision-aware. A package item
-    starts its `package_offset_ms` after the package is fired (the scorer's stats wait for the replay).
+    The scheduler (scheduler.py) places every proposal when it is fired, so this is its t_in/t_out. The
+    fallback, for a proposal built without it: air now for its proposed duration, a package item its
+    `package_offset_ms` later.
     """
     if p.t_out_ms > p.t_in_ms:
         return p.t_in_ms, p.t_out_ms
