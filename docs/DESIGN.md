@@ -314,13 +314,14 @@ Speech were in the preliminary scope and were deliberately dropped so the deaf f
 
 ## 9. Evaluation (`evals/`)
 
-`evals/run_eval.py` runs the live agents against the reference match's moments and submits the outputs
-to Foundry evaluators inline — groundedness / faithfulness (does every claim follow from the cited
-events and snapshot), relevance (does it address the moment), and fluency per language. There is no
-intermediate `evals/datasets/<match>.jsonl` file; planted-falsehood probes are built in the runner
-itself. Scores land in [`evals/results/latest.md`](../evals/results/latest.md); the proposal carries a
-`faithfulness` score the operator sees on the card. The planted-error row and category counts are
-reported honestly as a diagnostic on one reference match, not a proof.
+`evals/run_eval.py` runs the live agents against **the synthetic reference match**
+(`data/reference/match-042.jsonl`, produced by the simulator — no other data source is used) and
+submits the outputs to Foundry evaluators inline — groundedness / faithfulness (does every claim follow
+from the cited events and snapshot), relevance (does it address the moment), and fluency per language.
+There is no intermediate `evals/datasets/<match>.jsonl` file; planted-falsehood probes are built in the
+runner itself. Scores land in [`evals/results/latest.md`](../evals/results/latest.md); the proposal
+carries a `faithfulness` score the operator sees on the card. The planted-error row and category counts
+are reported honestly as a diagnostic on one synthetic reference match, not a proof.
 
 ## 10. Failure modes
 
