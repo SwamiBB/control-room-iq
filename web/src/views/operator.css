@@ -309,3 +309,85 @@ button:disabled.fire, button:disabled.primary { background: var(--brand-dim); co
 .moments article { font-size: 13px; }
 .moments .meta { font-size: 11px; opacity: 0.6; font-variant-numeric: tabular-nums; }
 .moments p { margin: 2px 0; }
+
+/* ---- architecture overlay (/operator-demo only) --------------------------- */
+/* Everything from here down applies only when the route is /operator-demo, so the production
+   /operator view is unaffected. The overlay is for judges and the submission video. */
+
+.gallery.demo { padding-top: 36px; }
+
+.arch-badge {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 4px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand);
+  background: rgba(240, 195, 90, 0.09);
+  border: 1px solid rgba(240, 195, 90, 0.35);
+  border-radius: 999px;
+  pointer-events: auto;
+  cursor: help;
+}
+.arch-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 6px rgba(240, 195, 90, 0.6);
+  animation: arch-dot-pulse 2.4s ease-in-out infinite;
+}
+@keyframes arch-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) { .arch-badge-dot { animation: none; } }
+
+.arch-sub {
+  margin: 2px 0 -2px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--brand);
+  opacity: 0.75;
+  font-style: normal;
+}
+
+/* ---- agent lineage chip --------------------------------------------------- */
+
+.lineage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 2px;
+  margin: 6px 0 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.015);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+.lineage-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: help;
+}
+.lineage-agent.on { color: var(--ink); font-weight: 700; }
+.lineage-agent.off { color: var(--muted); opacity: 0.5; }
+.lineage-agent.quality.on { background: rgba(240, 195, 90, 0.14); color: var(--brand); }
+.lineage-agent.balanced.on { background: rgba(76, 188, 138, 0.14); color: #7fd8a8; }
+.lineage-agent.cost.on { background: rgba(167, 139, 250, 0.14); color: #c7b8f7; }
+.lineage-arrow { opacity: 0.4; margin: 0 2px; }
+.lineage-note { margin-left: 8px; opacity: 0.6; font-style: italic; letter-spacing: 0; }

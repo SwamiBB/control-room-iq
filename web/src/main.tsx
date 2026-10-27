@@ -17,7 +17,9 @@ function Home() {
       <h1>Control Room IQ</h1>
       <p>An AI operator for the live production control room.</p>
       <nav>
-        <Link to="/operator">Operator console</Link> · <Link to="/viewer">Viewer experience</Link> ·{" "}
+        <Link to="/operator">Operator console</Link> ·{" "}
+        <Link to="/operator-demo">Operator with architecture overlay</Link> ·{" "}
+        <Link to="/viewer">Viewer experience</Link> ·{" "}
         <Link to="/multiview">Multiviewer</Link>
       </nav>
     </main>
@@ -32,6 +34,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         {/* Keyed per route: the boundaries sit in the same place, so without a key a caught error on one page
             would follow the operator to the next. */}
         <Route path="/operator" element={<ErrorBoundary key="operator" name="Operator console"><Operator /></ErrorBoundary>} />
+        <Route path="/operator-demo" element={<ErrorBoundary key="operator-demo" name="Operator console"><Operator demo /></ErrorBoundary>} />
         <Route path="/viewer" element={<ErrorBoundary key="viewer" name="Viewer"><Viewer /></ErrorBoundary>} />
         <Route path="/multiview" element={<ErrorBoundary key="multiview" name="Multiviewer"><Multiview /></ErrorBoundary>} />
       </Routes>
