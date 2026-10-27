@@ -75,15 +75,16 @@ templates and the console note says why.
 
 ## Microsoft and Azure technologies
 
-Microsoft Foundry (Agent Framework, three model-router deployments, evaluations, OpenTelemetry
+Microsoft Foundry (Agent Framework, Foundry Agent Service with the five agents registered via
+`python -m agents.register_agents`, three model-router deployments, evaluations, OpenTelemetry
 tracing), **Azure AI Content Safety** (overrides checked before they air), Azure Event Hubs, Azure
 Container Apps, Azure Cosmos DB (persisting the decision log), Application Insights with an
 availability test on `/healthz` from three US regions, managed identity + OIDC (no secrets in the
 repo), `disableLocalAuth` on Cosmos / Event Hubs / Foundry, Bicep + Azure Developer CLI, GitHub
 Actions with CodeQL + Trivy + Dependabot + every action pinned to a commit SHA, and **GitHub Copilot
 code review** on pull requests (findings carried in `docs/COPILOT-REVIEWS.md`). An Azure Logic App for
-the SLA hold, Foundry Agent Service portal registration, KEDA scaling on Event Hubs lag, and private
-endpoints on the data plane are reserved for a post-submission iteration.
+the SLA hold, KEDA scaling on Event Hubs lag, and private endpoints on the data plane are reserved for
+a post-submission iteration.
 
 ## Problem it solves
 
@@ -122,8 +123,9 @@ auditable decisions.
 - **Model router.** Corrected "a single deployment with a routing mode per agent" to "three
   deployments, one per routing mode" (which is the Foundry truth; mode is a deployment setting).
 - **KEDA.** Removed from the Container Apps row; listed in the deferred bucket.
-- **Foundry Agent Service portal registration.** Removed as a current claim; listed deferred
-  (`register_agents.py` not in the repo).
+- **Foundry Agent Service.** The five agents are registered in the portal via
+  `python -m agents.register_agents` (`services/agents/agents/register_agents.py`); upgraded from
+  "deferred" in an earlier draft to a working control.
 - **Operator quote.** Replaced the fabricated placeholder with John Hickey's cleared quote.
 - **GitHub Copilot agent mode → GitHub Copilot code review.** Used accurately (see
   `docs/COPILOT-REVIEWS.md` and the "Fix the review of #N" commits).

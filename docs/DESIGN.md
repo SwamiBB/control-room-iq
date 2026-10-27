@@ -187,8 +187,9 @@ exactly what the operator will see.
 ### 5.1 Roles
 
 Five agents, each bound to one model-router deployment (`agents/config.py`, `AGENT_ROUTING`). The same
-agents can be registered in the Foundry Agent Service for portal inspection via
-`python -m agents.register_agents` on demand; the deployment does not auto-register them.
+agents are also registered in the Foundry Agent Service via `python -m agents.register_agents` so each
+one is visible in the Foundry portal with its routing mode and instructions. The script is idempotent;
+unchanged agents are skipped, changed ones get a new version.
 
 | Agent | Input | Output | Router deployment | Prompt |
 | --- | --- | --- | --- | --- |
@@ -243,9 +244,9 @@ plus the API's proposal queue, which the producer receives as `on_air` so it can
 
 Agent Framework is used through `Agent(client=OpenAIChatClient(...), instructions=..., response_format=...)`
 with Entra ID credentials; each agent's client targets its routing mode's router deployment (`router-quality`,
-`router-balanced` or `router-cost`, from `deployment_for`). The same agents can be registered in the
-Foundry Agent Service by running `python -m agents.register_agents` so they can be inspected and traced
-from the portal; the hosted demo does not register them automatically.
+`router-balanced` or `router-cost`, from `deployment_for`). The same five agents are also registered in
+the Foundry Agent Service via `python -m agents.register_agents` so each is visible in the portal with
+its routing mode and instructions, inspectable and traceable alongside the live runs.
 
 ### 5.3 Timeouts and fallbacks
 
