@@ -75,3 +75,39 @@ def test_an_error_queueing_the_card_fails_the_moment_rather_than_skipping_the_tr
     else:
         raise AssertionError("a queueing error must not be swallowed")
     assert translated == []
+
+
+# ---- unsourced_numbers: AI check only, not for template fallbacks or code-built lines -----------------
+
+def _queue_sync(p):
+    """Run _queue_card and return the queued lead proposal from the hub."""
+    from api.main import _queue_card
+    hub.proposals.clear()
+    m = moment()
+    asyncio.run(_queue_card(p, m))
+    return next(iter(hub.proposals.values()))
+
+
+def test_template_fallback_line_is_not_flagged_as_unsourced():
+    """A template line's numbers are authored in fallback_text.py; flagging them would be a false positive."""
+    p = proposal("p-tpl", line="Big chance Kai Reed saved (xG 0.678)", fallback=True)
+    lead = _queue_sync(p)
+    assert lead.unsourced_numbers == []  # 0.678 is not in the moment state, but a template is trustworthy
+
+
+def test_code_built_line_is_not_flagged_as_unsourced():
+    """A code-built line (speed milestone, scorer stats, package item) comes from our own code."""
+    from crq_schemas import AgentMeta
+    p = proposal("p-code", line="Ade Pike hits 32.1 km/h",
+                 meta=AgentMeta(routing="template", model_served=None, latency_ms=None))
+    lead = _queue_sync(p)
+    assert lead.unsourced_numbers == []
+
+
+def test_model_authored_line_is_still_checked():
+    """When a router deployment produced the line, unsourced numbers must still be flagged."""
+    from crq_schemas import AgentMeta
+    p = proposal("p-ai", line="Kai Reed denied, xG 0.42",
+                 meta=AgentMeta(routing="quality", model_served="gpt-5.6-sol-2026-07-09", latency_ms=1200))
+    lead = _queue_sync(p)
+    assert "0.42" in lead.unsourced_numbers  # the AI invented this number, flag it

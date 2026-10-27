@@ -5,6 +5,7 @@ param tags object
 param identityId string
 param acrLoginServer string
 param logAnalyticsId string
+param appInsightsId string
 param appInsightsConnectionString string
 param eventHubNamespaceFqdn string
 param cosmosEndpoint string
@@ -82,7 +83,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         env: commonEnv
         resources: { cpu: json('1.0'), memory: '2Gi' }
       } ]
-      // One replica: proposals, decisions and viewer sockets live in memory in the API.
+      // One replica: the current run's proposals and viewer sockets live in memory in the API (decisions are
+      // also persisted to Cosmos DB).
       scale: { minReplicas: 1, maxReplicas: 1 }
     }
   }
@@ -134,4 +136,53 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+// Availability test: an unauthenticated GET /healthz every 5 minutes from three Azure regions in the US.
+// nginx proxies /healthz to the API (which has no public ingress), so a 200 means the whole chain is up.
+// The alert fires if two of three locations report failure in a 5-minute window. No action group is wired;
+// adding email or Teams notifications is a post-submission iteration (see docs/RUNBOOK.md § 'Demo URL dark').
+resource healthzPing 'Microsoft.Insights/webtests@2022-06-15' = {
+  name: 'webtest-healthz-${app}-${suffix}'
+  location: location
+  tags: union(tags, { 'hidden-link:${appInsightsId}': 'Resource' })
+  properties: {
+    SyntheticMonitorId: 'webtest-healthz-${app}-${suffix}'
+    Name: '/healthz'
+    Enabled: true
+    Frequency: 300
+    Timeout: 30
+    Kind: 'ping'
+    RetryEnabled: true
+    Locations: [
+      { Id: 'us-ca-sjc-azr' }
+      { Id: 'us-tx-sn1-azr' }
+      { Id: 'us-va-ash-azr' }
+    ]
+    Configuration: {
+      WebTest: '<WebTest Name="/healthz" Enabled="True" Timeout="30" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010" Description="" CredentialUserName="" CredentialPassword="" PreAuthenticate="True" Proxy="default" StopOnError="False" ResultsLocale=""><Items><Request Method="GET" Guid="a5f10126-0000-0000-0000-000000000001" Version="1.1" Url="https://${web.properties.configuration.ingress.fqdn}/healthz" ThinkTime="0" Timeout="30" ParseDependentRequests="False" FollowRedirects="True" RecordResult="True" Cache="False" ResponseTimeGoal="0" Encoding="utf-8" ExpectedHttpStatusCode="200" ExpectedResponseUrl="" ReportingName="" IgnoreHttpStatusCode="False" /></Items></WebTest>'
+    }
+  }
+}
+
+resource healthzAlert 'Microsoft.Insights/metricAlerts@2018-03-01' = {
+  name: 'alert-healthz-${app}-${suffix}'
+  location: 'global'
+  tags: tags
+  properties: {
+    description: '/healthz is failing from the public ingress. Check Container Apps revision health and Foundry quota (see docs/RUNBOOK.md).'
+    severity: 2
+    enabled: true
+    scopes: [ appInsightsId, healthzPing.id ]
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
+      webTestId: healthzPing.id
+      componentId: appInsightsId
+      failedLocationCount: 2
+    }
+    actions: []
+  }
+}
+
 output webUrl string = 'https://${web.properties.configuration.ingress.fqdn}'
+output webtestId string = healthzPing.id
