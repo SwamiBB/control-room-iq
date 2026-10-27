@@ -55,7 +55,7 @@ Three claims, each enforced in code:
 | **API exposure** | The API container has `ingress.external: false`; nginx is the one public door; ingest has no ingress at all | [SECURITY.md §Deployment posture](SECURITY.md#9-deployment-posture), [`infra/modules/apps.bicep`](infra/modules/apps.bicep) |
 | **Degrade, never stall** | Every agent has a timeout and a deterministic template fallback; offline mode runs the whole pipeline with no Azure dependency; the fallback path is marked on the proposal and in `/metrics` | [`services/agents/agents/workflow.py`](services/agents/agents/workflow.py), [`GET /metrics`](services/api/api/metrics.py) |
 | **Evaluations** | Foundry groundedness, relevance and fluency per language on a 50-output run from 10 moments, with 10 planted falsehoods (5 absent-number traps caught by the code check before air) | [`evals/results/latest.md`](evals/results/latest.md) |
-| **Documented posture** | 237-line [SECURITY.md](SECURITY.md) with Mermaid trust-boundary diagram, deployment-posture section, honest "What is deferred to production" list | [SECURITY.md](SECURITY.md) |
+| **Documented posture** | Full [SECURITY.md](SECURITY.md) with trust-boundary diagram and deployment-posture section; [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) with 11 named threats and their current mitigation; [docs/RUNBOOK.md](docs/RUNBOOK.md) for operational response | [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), [docs/RUNBOOK.md](docs/RUNBOOK.md) |
 
 ### Deferred to a post-submission iteration (named honestly)
 
