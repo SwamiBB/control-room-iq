@@ -196,3 +196,112 @@ def test_the_persisted_log_as_csv_with_its_runs(monkeypatch):
 @pytest.mark.parametrize("bad", ["", "r-1;drop", "../etc", "R" * 50])
 def test_a_run_that_is_not_a_run_id_is_refused(bad):
     assert TestClient(app).get(f"/decisions.csv?run={bad}").status_code == 422
+
+
+# ---------- review fixes (#100) ----------
+
+def test_an_expiry_from_the_previous_run_is_never_filed_under_the_new_one(monkeypatch):
+    """_expire_stale broadcasts per expired card; "Run again" landing mid-loop must not relabel the rest."""
+    from api.main import _expire_stale
+    from api.timing import shelf_life_ms
+    from simulator.cli import build_meta
+
+    recorder = Recorder()
+    monkeypatch.setattr(hub, "store", recorder)
+    for pid in ("p-stale-1", "p-stale-2"):
+        p = proposal(pid, status="held", proposed_play_ms=0)
+        p.max_delay_ms = 1
+        hub.proposals[pid] = p
+    hub.clock.play_ms = shelf_life_ms(hub.proposals["p-stale-1"]) + 10_000
+    first_run = hub.run_id
+    real_broadcast = hub.broadcast_operators
+
+    async def run_again_mid_loop(msg):
+        if msg["type"] == "proposal" and hub.run_id == first_run:
+            hub.new_match(build_meta(42))
+        await real_broadcast(msg)
+
+    monkeypatch.setattr(hub, "broadcast_operators", run_again_mid_loop)
+    asyncio.run(_expire_stale())
+    assert [(e.proposal_id, run) for e, run, _ in recorder.added] == [("p-stale-1", first_run)]
+    assert hub.decisions == []  # nothing from the old run in the new run's log
+
+
+def test_a_cosmos_db_failure_on_read_is_a_503_not_a_500(monkeypatch):
+    class Down(FakeContainer):
+        def query_items(self, query, parameters):
+            raise RuntimeError("403 Forbidden")
+
+    monkeypatch.setattr(hub, "store", DecisionStore(Down()))
+    res = TestClient(app).get("/decisions.csv?run=all")
+    assert res.status_code == 503 and "could not be read" in res.json()["detail"]
+
+
+def test_a_document_that_no_longer_reads_is_skipped_not_fatal(monkeypatch, caplog):
+    container = FakeContainer()
+    container.items = [{**_entry(1).model_dump(mode="json"), "id": "r-1-a", "run_id": "r-1", "seq": 1},
+                       {"id": "r-1-broken", "run_id": "r-1", "seq": 2, "at": "2026-10-23T15:00:00Z"}]
+    monkeypatch.setattr(hub, "store", DecisionStore(container))
+    with caplog.at_level(logging.WARNING, logger="api.exports"):
+        rows = TestClient(app).get("/decisions.csv?run=all").text.splitlines()
+    assert len(rows) == 2 and "r-1-broken skipped" in caplog.text
+
+
+def test_within_a_run_the_order_is_the_sequence_even_in_the_same_second():
+    container = FakeContainer()
+    whole = {**_entry(1).model_dump(mode="json"), "at": "2026-10-23T15:00:05Z"}
+    later = {**_entry(2).model_dump(mode="json"), "at": "2026-10-23T15:00:05.400000Z"}
+    container.items = [{**later, "id": "b", "run_id": "r-1", "seq": 2}, {**whole, "id": "a", "run_id": "r-1", "seq": 1},
+                       {**whole, "id": "c", "run_id": "r-0", "seq": 1, "at": "2026-10-23T14:00:00Z"}]
+    store = DecisionStore(container)
+    assert [d["id"] for d in asyncio.run(store.history())] == ["c", "a", "b"]  # runs by start, then sequence
+
+
+def test_history_orders_runs_by_run_start_not_first_decision_time():
+    container = FakeContainer()
+    docs = [
+        {**_entry(1).model_dump(mode="json"), "id": "later-run", "run_id": "r-20261023T150002-bbb", "seq": 1,
+         "at": "2026-10-23T15:00:03Z"},
+        {**_entry(2).model_dump(mode="json"), "id": "earlier-run", "run_id": "r-20261023T150001-aaa", "seq": 1,
+         "at": "2026-10-23T15:00:10Z"},
+    ]
+    container.items = docs
+    assert [d["id"] for d in asyncio.run(DecisionStore(container).history())] == ["earlier-run", "later-run"]
+
+
+def test_a_malformed_timestamp_does_not_break_history_sorting():
+    container = FakeContainer()
+    container.items = [
+        {**_entry(1).model_dump(mode="json"), "id": "valid", "run_id": "r-1", "seq": 1},
+        {"id": "invalid-time", "run_id": "r-2", "seq": 1, "at": "not-a-date"},
+    ]
+    assert len(asyncio.run(DecisionStore(container).history())) == 2
+
+
+def test_the_history_read_is_capped(monkeypatch):
+    seen = {}
+
+    class Spy(FakeContainer):
+        def query_items(self, query, parameters):
+            seen["query"], seen["params"] = query, parameters
+            return super().query_items(query, parameters)
+
+    asyncio.run(DecisionStore(Spy()).history("r-1"))
+    assert seen["query"].startswith("SELECT TOP @limit") and {"name": "@limit", "value": 5000} in seen["params"]
+
+
+def test_a_decision_after_shutdown_is_logged_not_silently_dropped(caplog):
+    async def run():
+        store = DecisionStore(FakeContainer())
+        store.start()
+        await store.close()
+        store.add(_entry(9), "r-1", 9)
+
+    with caplog.at_level(logging.ERROR, logger="api.decision_store"):
+        asyncio.run(run())
+    assert "r-1-d-00000009 not persisted: the API is shutting down" in caplog.text
+
+
+def test_the_browser_can_read_the_run_header():
+    res = TestClient(app).get("/decisions.csv", headers={"Origin": "https://example.org"})
+    assert "x-crq-run-id" in res.headers.get("access-control-expose-headers", "")

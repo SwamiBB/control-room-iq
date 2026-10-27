@@ -101,8 +101,8 @@ async def lifespan(_: FastAPI):
         hub.store = store
     yield
     if store:
+        await store.close()  # drains first; anything recorded after that is logged as not persisted
         hub.store = None
-        await store.close()
     if sink:
         await sink.close()
 
@@ -116,7 +116,8 @@ if not logging.getLogger().handlers:
 telemetry.configure("crq-api")
 app = FastAPI(title="Control Room IQ API", version="0.2.0", lifespan=lifespan)
 telemetry.instrument_app(app)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["x-crq-run-id"])
 
 
 MAX_PARALLEL_MOMENTS = 3  # agent pipelines allowed to run at once beside the replay
@@ -134,11 +135,15 @@ class Hub:
         self.store: DecisionStore | None = None  # outlives reset() and new_match(): it holds every run
         self.reset()
 
+    def new_run(self) -> None:
+        """The persisted log tells runs of the same match apart, and numbers each run's decisions from 1."""
+        self.run_id, self.decision_seq = _new_run_id(), 0
+
     def reset(self) -> None:
         self.now: Callable[[], datetime] = lambda: datetime.now(UTC)
         self.proposals: dict[str, OverlayProposal] = {}
         self.decisions: list[DecisionLogEntry] = []
-        self.run_id, self.decision_seq = _new_run_id(), 0  # the persisted log tells runs of the same match apart
+        self.new_run()
         self.results: dict[str, dict] = {}  # moment_id -> explanation/line/variants/fan_card
         self.packets: list[OverlayPacket] = []  # canonical packets as aired, before per-viewer variants
         self.moments: dict[str, Moment] = {}  # moment_id -> moment, for variant checks and template lines
@@ -177,7 +182,7 @@ class Hub:
         self.moments.clear()
         self.deliveries.clear()
         self.state = None
-        self.run_id, self.decision_seq = _new_run_id(), 0  # "Run again" is a new run in the persisted log
+        self.new_run()  # "Run again" is a new run in the persisted log
         self.replay_speed = None
         self.state_published_at = 0.0
         self.cancel_moments()  # the old match's agents must not post into the new one
@@ -339,6 +344,8 @@ async def _expire_stale() -> list[OverlayProposal]:
     """Held graphics the match has moved past leave the running order, with a log row for each."""
     expired = stale_proposals(hub.proposals.values(), hub.clock.play_ms, hub.now())
     for p in expired:
+        if hub.proposals.get(p.proposal_id) is not p:
+            continue  # "Run again" landed during a broadcast below: the card belongs to the previous run
         seconds = shelf_life_ms(p) // 1000
         _record_decision(p, ProposalStatus.EXPIRED,
                          Decision(actor=EXPIRY_ACTOR,
@@ -479,7 +486,11 @@ async def decisions_csv(run: Annotated[str | None, Query(pattern=RUN_PATTERN)] =
                                  "x-crq-run-id": hub.run_id})
     if hub.store is None:
         raise HTTPException(503, "the persisted decision log needs Cosmos DB, which this API is running without")
-    docs = await hub.store.history(None if run == "all" else run)
+    try:
+        docs = await hub.store.history(None if run == "all" else run)
+    except Exception as ex:  # noqa: BLE001 - an outage or a role problem: say so, don't 500
+        logger.exception("reading the persisted decision log failed")
+        raise HTTPException(503, f"the persisted decision log could not be read ({type(ex).__name__})") from ex
     name = "decisions-all.csv" if run == "all" else f"decisions-{run}.csv"
     return Response(history_to_csv(docs), media_type="text/csv",
                     headers={"content-disposition": f'attachment; filename="{name}"'})

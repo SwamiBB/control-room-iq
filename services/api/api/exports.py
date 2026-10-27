@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from collections.abc import Iterable
 
 from crq_schemas import DecisionLogEntry
+
+logger = logging.getLogger(__name__)
 
 CSV_HEADER = ["entry_id", "match_id", "proposal_id", "action", "actor", "at", "reasoning", "package_id"]
 # Spreadsheets execute cells starting with these as formulas; actor and reasoning are free text.
@@ -36,6 +39,11 @@ def history_to_csv(docs: Iterable[dict]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow([*CSV_HEADER, "run_id", "seq"])
-    writer.writerows([*_row(DecisionLogEntry.model_validate(d)), d.get("run_id", ""), str(d.get("seq", ""))]
-                     for d in docs)
+    for d in docs:
+        try:
+            entry = DecisionLogEntry.model_validate(d)
+        except ValueError:  # one unreadable document must not hide the rest of the trail
+            logger.warning("decision document %s skipped: it no longer matches DecisionLogEntry", d.get("id"))
+            continue
+        writer.writerow([*_row(entry), d.get("run_id", ""), str(d.get("seq", ""))])
     return buf.getvalue()

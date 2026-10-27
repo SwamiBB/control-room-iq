@@ -12,8 +12,10 @@ which leaves the API exactly as it was. Entra ID only, with the workload's manag
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+from datetime import UTC, datetime
 
 from agents.config import settings
 from crq_schemas import DecisionLogEntry
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 CONTAINER = "decisions"  # partition key /match_id (infra/modules/data.bicep)
 MAX_PENDING = 10_000  # decisions waiting to be written; beyond this, Cosmos DB is down and they are logged and dropped
 CLOSE_WAIT_S = 5.0
+MAX_HISTORY = 5_000  # newest decisions returned by one history read; each read is a cross-partition query
 
 
 class DecisionStore:
@@ -31,6 +34,7 @@ class DecisionStore:
         self._client, self._credential = client, credential
         self._queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=MAX_PENDING)
         self._worker: asyncio.Task | None = None
+        self._closed = False
 
     def start(self) -> None:
         """Start the writer; call from the running event loop (the API's lifespan)."""
@@ -39,6 +43,9 @@ class DecisionStore:
     def add(self, entry: DecisionLogEntry, run_id: str, seq: int) -> None:
         """Queue one decision for writing. Never blocks and never raises: the decision has already been made."""
         doc = entry.model_dump(mode="json") | {"id": f"{run_id}-{entry.entry_id}", "run_id": run_id, "seq": seq}
+        if self._closed:
+            logger.error("decision %s not persisted: the API is shutting down", doc["id"])
+            return
         try:
             self._queue.put_nowait(doc)
         except asyncio.QueueFull:
@@ -55,15 +62,27 @@ class DecisionStore:
                 self._queue.task_done()
 
     async def history(self, run_id: str | None = None) -> list[dict]:
-        """Every persisted decision, or one run's, in the order they were made. Cross-partition: the volume is small.
-        Sorted here rather than in the query, which would need a composite index for two keys."""
-        query, params = "SELECT * FROM c", []
-        if run_id:
-            query, params = "SELECT * FROM c WHERE c.run_id = @run", [{"name": "@run", "value": run_id}]
+        """The newest MAX_HISTORY persisted decisions, or one run's, in the order they were made: within a run by its
+        sequence (two decisions can share a timestamp), runs by when they started. Sorted here, since ordering by
+        two keys in the query would need a composite index."""
+        where = " WHERE c.run_id = @run" if run_id else ""
+        query = f"SELECT TOP @limit * FROM c{where} ORDER BY c._ts DESC"
+        params = [{"name": "@limit", "value": MAX_HISTORY}] + ([{"name": "@run", "value": run_id}] if run_id else [])
         # No enable_cross_partition_query: the async client queries across partitions by default and passes that
         # keyword on to the HTTP session, which rejects it (found by the live check against Cosmos DB).
         docs = [d async for d in self._container.query_items(query=query, parameters=params)]
-        return sorted(docs, key=lambda d: (d.get("at", ""), d.get("run_id", ""), d.get("seq", 0)))
+        started: dict[str, datetime] = {}
+        first_decision: dict[str, datetime] = {}
+        for d in docs:
+            run_id = d.get("run_id", "")
+            at = _when(d)
+            first_decision[run_id] = min(at, first_decision.get(run_id, at))
+        for run_id, at in first_decision.items():
+            try:
+                started[run_id] = datetime.strptime(run_id[2:17], "%Y%m%dT%H%M%S").replace(tzinfo=UTC)
+            except ValueError:
+                started[run_id] = at
+        return sorted(docs, key=lambda d: (started[d.get("run_id", "")], d.get("run_id", ""), d.get("seq", 0)))
 
     async def close(self) -> None:
         """Write what is queued (briefly), then release the client."""
@@ -71,12 +90,24 @@ class DecisionStore:
             await asyncio.wait_for(self._queue.join(), CLOSE_WAIT_S)
         except TimeoutError:
             logger.warning("%d decisions not persisted at shutdown", self._queue.qsize())
+        self._closed = True
         if self._worker:
             self._worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._worker  # no write left half-done when the client closes
         if self._client:
             await self._client.close()
         if self._credential:
             await self._credential.close()
+
+
+def _when(doc: dict) -> datetime:
+    """The decision's time as a datetime: the stored text can't be sorted as text (a whole second has no fraction)."""
+    try:
+        value = datetime.fromisoformat(doc.get("at", ""))
+    except ValueError:
+        return datetime.max.replace(tzinfo=UTC)
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
 def decision_store_from_env() -> DecisionStore | None:
