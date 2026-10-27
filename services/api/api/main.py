@@ -199,7 +199,9 @@ class Hub:
         self.moments.clear()
         self.deliveries.clear()
         self.state = None
-        self.match_state = None  # cleared immediately: /recap and perspective must not see the previous match's state behind the new meta while the new folder loads
+        # Cleared at once: /recap and perspective must not see the previous match's state behind the new meta while
+        # the new folder loads.
+        self.match_state = None
         self.new_run()  # "Run again" is a new run in the persisted log
         self.replay_speed = None
         self.state_published_at = 0.0

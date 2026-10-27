@@ -98,8 +98,9 @@ Signal: unexpected `/decisions.csv` entries; `operator_decisions` climbing witho
 Response:
 
 1. Container Apps revision restart clears in-memory state. The audit trail stays in Cosmos.
-2. Pre-authored rate limiting is not in this build (see `SECURITY.md` deferred list). The practical
-   mitigation is restart-plus-watch; durations of actual judging are short enough that one restart suffices.
+2. The API's rate limits answer a flood with 429 (120 decisions and 20 overrides a minute, counted only on
+   real, open cards), and the daily model budget (`CRQ_DAILY_AI_MOMENTS`) switches moments to templates
+   once spent. If the desk is still being disrupted, restart the revision and watch.
 
 ## Keys and secrets
 
