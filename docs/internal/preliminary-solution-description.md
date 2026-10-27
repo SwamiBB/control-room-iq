@@ -1,4 +1,16 @@
-# Control Room IQ — Solution Description
+# Control Room IQ — Preliminary Solution Description (October 20, 2026)
+
+> **Superseded.** This is the preliminary scoping draft from the start of the build week. It no longer
+> matches the shipped product in several places (dropped scope: Arabic language and audio-description
+> accessibility — the shipped product serves EN / ES / HI and the deaf fan; four agents → five;
+> single-router-deployment → three deployments one per routing mode; "GitHub Copilot agent mode" →
+> GitHub Copilot code review). It is kept here as historical team context, not as a submission artefact.
+>
+> **For the current product description see:**
+> - [README.md](../../README.md) — top-level overview, enterprise controls block, live demo URLs
+> - [docs/ENTERPRISE-OVERVIEW.md](../ENTERPRISE-OVERVIEW.md) — enterprise claim with code pointers
+> - [docs/ARCHITECTURE.md](../ARCHITECTURE.md) — logical architecture, deployment topology
+> - [submission/project-page-description-draft.md](../../submission/project-page-description-draft.md) — the paste-into-form draft
 
 Version 0.1 · October 20, 2026 · Inside the Game: Developer Hackathon (Microsoft × Premier League)
 

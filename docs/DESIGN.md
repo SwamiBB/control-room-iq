@@ -1,9 +1,9 @@
 # Control Room IQ — Design
 
-Version 0.1 · October 20, 2026. Companion to [ARCHITECTURE.md](ARCHITECTURE.md) (structure and
-infrastructure) and [SOLUTION.md](SOLUTION.md) (what and why). This document covers how each part
-behaves: data contracts, the state engine, the agents and their orchestration, the approval loop, the
-overlay feed, personalization, evaluation, failure handling, and the user interfaces.
+Companion to [ARCHITECTURE.md](ARCHITECTURE.md) (structure and infrastructure) and
+[ENTERPRISE-OVERVIEW.md](ENTERPRISE-OVERVIEW.md) (what and why, judge-facing). This document covers how
+each part behaves: data contracts, the state engine, the agents and their orchestration, the approval
+loop, the overlay feed, personalization, evaluation, failure handling, and the user interfaces.
 
 ## 1. Design principles
 
