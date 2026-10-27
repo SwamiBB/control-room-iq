@@ -61,6 +61,10 @@ one. The model the router selected is recorded on every span and on every propos
   [`packages/schemas/crq_schemas/__init__.py:371`](../packages/schemas/crq_schemas/__init__.py)).
 - Trace: one OpenTelemetry trace per moment; each agent call is a span carrying its routing mode and
   the model the router chose (`crq.model_served`), which also goes into `meta.model_served`.
+- Live: the Application Insights **Agents (Preview)** dashboard for this project shows per-agent run
+  counts for all five agents, the three model-router deployments, token consumption and `invoke_agent`
+  traces with the `crq.moment` span name
+  ([evidence screenshot, 2026-10-27](evidence/application-insights-agents-dashboard-2026-10-27.png)).
 
 ### 4. Full audit trail
 

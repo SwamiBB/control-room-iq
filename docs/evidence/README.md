@@ -102,6 +102,13 @@ Log Analytics over the Application Insights the apps send to (KQL over `AppDepen
 
 **Per moment** (`crq.moment`, one trace each): 69 moments, 33 of them with a card proposed to the operator.
 
+**Live view, same project.** The Application Insights *Agents (Preview)* dashboard
+([`application-insights-agents-dashboard-2026-10-27.png`](application-insights-agents-dashboard-2026-10-27.png))
+shows per-agent run counts, the three model-router deployments (`router-quality`, `router-balanced`,
+`router-cost`), token consumption and a Traces panel listing `invoke_agent` dependencies on the
+`crq.moment` span — the same shape the KQL above returns. The visible run counts are smaller than this
+section's table because they are over a shorter window.
+
 ## 7. Supply chain
 
 `gh run list --branch main`: CodeQL and Trivy succeed on every push to `main`. The CI job's status is in the

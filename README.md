@@ -178,7 +178,7 @@ expires once the match has moved past it. The timer and the expiry rule can hold
 | Azure Event Hubs | Match events in, approved overlay packets out (`crq-overlay`) | Built |
 | Azure Container Apps | Ingest, API and web | Built |
 | Azure Cosmos DB (serverless) | The decision log: every decision appended once, per replay run, by the API's managed identity; `/decisions.csv?run=all` reads it back | Built |
-| Application Insights + OpenTelemetry | One trace per moment: every agent call with its routing mode, the model the router chose, tokens and failures; decisions and airings linked back to it. Connected to the Foundry project's Traces view; Entra ID only | Built |
+| Application Insights + OpenTelemetry | One trace per moment: every agent call with its routing mode, the model the router chose, tokens and failures; decisions and airings linked back to it. Connected to the Foundry project's Traces view; Entra ID only. See the live [Agents (Preview) dashboard screenshot](docs/evidence/application-insights-agents-dashboard-2026-10-27.png). | Built |
 | Managed identity, Bicep, `azd`, GitHub Actions | No keys; one-command provisioning; CI on every push; deployed to Azure | Built |
 
 ## Quick start (local, no Azure)
