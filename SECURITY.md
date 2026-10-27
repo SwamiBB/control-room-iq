@@ -182,7 +182,8 @@ Operational metrics at `GET /metrics`: turnaround, error rate, operator workload
 - **Offline mode as a first-class path.** `CRQ_OFFLINE=1` runs every service with template outputs; the
   demo survives model quota failure or an Azure outage without changing the operator's visible path.
 - **Per-agent timeout** (`AGENT_TIMEOUT_S`, default 12 s) and a deterministic template fallback mean no
-  agent can stall the pipeline. Fallback reasons are recorded on the `EvaluationRecord`.
+  agent can stall the pipeline. Fallback reasons are recorded as the moment's `failures` (shown to the
+  operator on the proposal card) and on the trace span (`crq.failure_reasons` attribute).
 - **Local adapters** behind identical repository and event interfaces mean Cosmos or Event Hubs can be
   swapped for in-process alternatives during development.
 

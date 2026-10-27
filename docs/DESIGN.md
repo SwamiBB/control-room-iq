@@ -314,15 +314,13 @@ Speech were in the preliminary scope and were deliberately dropped so the deaf f
 
 ## 9. Evaluation (`evals/`)
 
-Offline: a match is replayed, and every (moment, explanation, line, variants) tuple is written to
-`evals/datasets/<match>.jsonl` together with the cited events and the state snapshot. A Foundry evaluation
-run scores each narrative with groundedness/faithfulness (does every claim follow from the cited events
-and snapshot), relevance (does it address the moment), and fluency per language. Scores
-are written to the `evaluations` container and joined to proposals by `moment_id`, which is how the
-console shows a faithfulness number next to each proposal. Online (demo): the same evaluator is called
-asynchronously after the narrator step so the score arrives within a few seconds of the proposal.
-A nightly GitHub Actions job runs the offline evaluation and fails the build if mean faithfulness drops
-below 0.85 on the reference match.
+`evals/run_eval.py` runs the live agents against the reference match's moments and submits the outputs
+to Foundry evaluators inline — groundedness / faithfulness (does every claim follow from the cited
+events and snapshot), relevance (does it address the moment), and fluency per language. There is no
+intermediate `evals/datasets/<match>.jsonl` file; planted-falsehood probes are built in the runner
+itself. Scores land in [`evals/results/latest.md`](../evals/results/latest.md); the proposal carries a
+`faithfulness` score the operator sees on the card. The planted-error row and category counts are
+reported honestly as a diagnostic on one reference match, not a proof.
 
 ## 10. Failure modes
 
