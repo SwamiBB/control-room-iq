@@ -688,7 +688,11 @@ function AgentLineage({ p }: { p: Proposal }) {
     { name: "PERSONALIZER", mode: "cost", on: live && !codeBuilt, title: "English versions per persona × access. router-cost." },
     { name: "LOCALIZER", mode: "cost", on: live && !codeBuilt, title: "Spanish and Hindi variants. router-cost." },
   ];
-  const source = codeBuilt ? "Built in code — no agents ran" : template ? "Template fallback — agents did not land in time" : null;
+  const source = codeBuilt
+    ? "Built in code — no agents ran"
+    : template
+    ? "Template fallback — a model did not produce this line (timeout, decline, or offline mode)"
+    : null;
   return (
     <div className="lineage" title={source ?? "The agent pipeline that produced this proposal."}>
       {agents.map((a, i) => (
