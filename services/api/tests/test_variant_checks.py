@@ -87,3 +87,11 @@ def test_untranslated_text_fails():
 
 def test_base_language_variant_is_not_checked_for_translation():
     assert _failures(BASE + ". The score is 1 to 0.", lang="en") == []
+
+
+def test_a_fan_version_may_say_we_instead_of_its_club():
+    # The personalizer may write "we" for the fan's club, so a version need not repeat the club the line names.
+    ctx = _ctx(base="Harbor City go close through Ade Pike")
+    v = NarrativeVariant(moment_id="mo-1", persona="fan", lang="es", cites=["e-1"],
+                         text="¡Casi marcamos! Ade Pike lo intenta")
+    assert check_variant(v, ctx) == []

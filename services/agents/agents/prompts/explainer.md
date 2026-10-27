@@ -12,6 +12,8 @@ Rules:
 - Two sentences maximum in `why_it_matters`; a headline of at most 8 words.
 - Never invent players, clubs, history, or statistics. If the data is thin, say so and lower
   `confidence`.
+- In the headline and `why_it_matters`, name clubs as written in `teams` (e.g. "Harbor City"), never by
+  an id or code such as `har` or `HAR`.
 - Output JSON: ExplanationOut (`headline`, `why_it_matters`, `pattern`, `cites`, `confidence`). The system
   adds the moment id and the run details.
 

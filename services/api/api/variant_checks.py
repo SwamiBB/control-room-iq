@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal, max_chars_for
 from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
 
+from .fallback_text import moment_shot
+
 BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8
 DEVANAGARI_MIN_SHARE = 0.3
@@ -55,7 +57,11 @@ def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     stats = [player.goals, player.shots, player.xg, player.passes, player.top_speed_kmh] if player else []
     # Match intelligence (speeds, distances, pass ratings) is ground truth too, so a variant may quote it.
     accuracy = [a for a in team_pass_accuracy(state).values() if a is not None]  # also in the agents' intel input
-    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy]
+    # The moment's own shot xG: it is in the moment's summary ("GOAL Finn Oakes (foot, xG 0.45)"), which the template
+    # card quotes, and on the deaf fan's card. Without it the template was flagged as quoting a number not in the data.
+    # (Its speed is already in the intel numbers.)
+    shot = [s.xg] if (s := moment_shot(m)) else []
+    return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy, *shot]
 
 
 def _players(meta: MatchMeta | None) -> list[tuple[str, str]]:
