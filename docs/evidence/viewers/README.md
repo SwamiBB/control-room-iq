@@ -99,7 +99,7 @@ Galleries: [Newcomer](#newcomer-gallery) · [Fan](#fan-gallery) · [Analyst](#an
 
 Open a block to see the home, away and neutral viewers side by side. Select an image for the full-size file.
 
-<details>
+<details open>
 <summary><b>Newcomer · Standard · English</b></summary>
 
 <table>
@@ -171,7 +171,7 @@ Open a block to see the home, away and neutral viewers side by side. Select an i
 
 Open a block to see the home, away and neutral viewers side by side. Select an image for the full-size file.
 
-<details>
+<details open>
 <summary><b>Fan · Standard · English</b></summary>
 
 <table>
@@ -243,7 +243,7 @@ Open a block to see the home, away and neutral viewers side by side. Select an i
 
 Open a block to see the home, away and neutral viewers side by side. Select an image for the full-size file.
 
-<details>
+<details open>
 <summary><b>Analyst · Standard · English</b></summary>
 
 <table>
