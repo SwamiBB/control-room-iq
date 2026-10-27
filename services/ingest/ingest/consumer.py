@@ -1,7 +1,9 @@
-"""Event Hubs consumer for the ingest service (runs on Azure Container Apps, KEDA-scaled).
+"""Event Hubs consumer for the ingest service (runs on Azure Container Apps as one fixed replica; scaling on
+Event Hubs load is deferred until the consumer has a checkpoint store, see infra/modules/apps.bicep).
 
 Reads `crq-events`, folds into MatchState, writes state snapshots and moments to Cosmos DB, and
-publishes moments to `crq-moments` for the agents runner. Local mode (`python -m ingest.consumer
+publishes moments to `crq-moments`. Nothing consumes `crq-moments` yet: the API runs the agents on its own
+in-process replay, so moments from this path do not reach the operator desk. Local mode (`python -m ingest.consumer
 --file data/match.jsonl`) does the same fold without Azure and prints moments.
 
 Failures are logged, not silent: a record ingest can't use (not JSON, not a MatchEvent or MatchMeta, or an
