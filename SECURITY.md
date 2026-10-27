@@ -226,6 +226,11 @@ present in this POC:
 - **Foundry public access disabled**; access via private endpoint only (`publicNetworkAccess` is
   currently `Enabled` in `infra/modules/ai.bicep`).
 - **Entra ID sign-in** on the operator and viewer apps (the stated next step; see Known limits).
+- **Per-service workload identities with narrower RBAC.** The API, ingest and web apps currently share
+  one user-assigned managed identity (`id-crq-poc-eastus2-01`) which holds Event Hubs Data Owner at
+  namespace scope and Cosmos DB Data Contributor at account scope. Splitting into three identities with
+  per-container, per-hub and per-container-scoped role assignments is a Bicep rewrite reserved for a
+  post-submission iteration.
 
 The intended production topology is in [`docs/END-TO-END-ARCHITECTURE.md`](docs/END-TO-END-ARCHITECTURE.md)
 §9. The gap between the POC and production is a configuration delta on the same Bicep modules, not a
