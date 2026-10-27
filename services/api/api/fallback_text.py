@@ -6,7 +6,7 @@ score, which also satisfies the deaf-access rule. Native-speaker review wanted f
 
 from __future__ import annotations
 
-from crq_schemas import Lang, MatchMeta, Moment, MomentKind
+from crq_schemas import Lang, MatchMeta, Moment, MomentKind, ShotRecord
 
 _TEMPLATES: dict[MomentKind, dict[str, str]] = {
     MomentKind.GOAL: {"en": "GOAL! {player} ({team}). Score {score}",
@@ -40,9 +40,15 @@ _BIG_CHANCE_RESULTS: dict[str, dict[str, str]] = {
 }
 
 
+def moment_shot(m: Moment) -> ShotRecord | None:
+    """The moment's own shot in the stats engine's shot ledger: the template line, the fan card and the number check
+    all read this one."""
+    return next((s for s in m.state.shots if s.event_id in m.event_ids), None)
+
+
 def _shot_outcome(m: Moment) -> str | None:
-    """How the moment's own shot ended, from the stats engine's shot ledger (as the fan card reads it)."""
-    shot = next((s for s in m.state.shots if s.event_id in m.event_ids), None)
+    """How the moment's own shot ended."""
+    shot = moment_shot(m)
     return shot.outcome if shot else None
 
 

@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from crq_schemas import MatchMeta, MatchState, Moment, NarrativeVariant, OverlayProposal, max_chars_for
 from ingest.intel import intel_for, intel_numbers, team_pass_accuracy
 
+from .fallback_text import moment_shot
+
 BASE_LANG = "en"  # language of the proposal line the operator approves
 FAITHFULNESS_MIN = 0.8
 DEVANAGARI_MIN_SHARE = 0.3
@@ -55,9 +57,10 @@ def _state_numbers(state: MatchState, m: Moment) -> list[float]:
     stats = [player.goals, player.shots, player.xg, player.passes, player.top_speed_kmh] if player else []
     # Match intelligence (speeds, distances, pass ratings) is ground truth too, so a variant may quote it.
     accuracy = [a for a in team_pass_accuracy(state).values() if a is not None]  # also in the agents' intel input
-    # The moment's own shot: its xG is in the moment's summary ("GOAL Finn Oakes (foot, xG 0.45)"), which the template
+    # The moment's own shot xG: it is in the moment's summary ("GOAL Finn Oakes (foot, xG 0.45)"), which the template
     # card quotes, and on the deaf fan's card. Without it the template was flagged as quoting a number not in the data.
-    shot = [n for s in state.shots if s.event_id in m.event_ids for n in (s.xg, s.speed_kmh) if n is not None]
+    # (Its speed is already in the intel numbers.)
+    shot = [s.xg] if (s := moment_shot(m)) else []
     return [*teams, minute, minute + 1, *stats, *intel_numbers(intel_for(m)), *accuracy, *shot]
 
 
@@ -69,12 +72,6 @@ def _mentions(text: str, name: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text) is not None
 
 
-def _clubs(meta: MatchMeta | None) -> list[tuple[str, str]]:
-    """A club the English line names must be kept, by that name, in every version (#40). Unlike a player, a club a
-    version adds for context ("para Harbor City") is allowed: it doesn't change who did what."""
-    return [(t.name, t.name) for t in ((meta.home, meta.away) if meta else ())]
-
-
 def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) -> CheckContext:
     allowed = [_value(t) for t in _number_tokens(p.line)] + (_state_numbers(m.state, m) if m else [])
     players = _players(meta)
@@ -83,7 +80,6 @@ def build_context(p: OverlayProposal, m: Moment | None, meta: MatchMeta | None) 
              if _mentions(p.line, full) or (surname_counts[s] == 1 and _mentions(p.line, s))]
     others = [n for full, s in players if (full, s) not in named
               for n in ((full, s) if surname_counts[s] == 1 else (full,))]
-    named += [club for club in _clubs(meta) if _mentions(p.line, club[0])]
     cited = frozenset(m.event_ids) | {e.event_id for e in p.evidence} if m else frozenset()
     return CheckContext(base_line=p.line, allowed_numbers=tuple(float(a) for a in allowed),
                         required_players=tuple(named), other_players=tuple(others), cited=frozenset(cited),

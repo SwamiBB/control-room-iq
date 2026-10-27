@@ -364,6 +364,8 @@ class MomentPipeline:
             expl = Explanation(moment_id=m.moment_id, **out.model_dump(), meta=model_meta(info, "explainer"))
         if err:
             failures.append(err)
+        expl = expl.model_copy(update={"headline": club_names(expl.headline, meta),
+                                       "why_it_matters": club_names(expl.why_it_matters, meta)})
         line, err = await _run(self.narrator, {"moment": moment_json, "explanation": expl.model_dump(),
                                                "intel": intel, "teams": teams}, None, lambda: fallback_line(m, expl))
         line = club_names(line, meta)
@@ -429,8 +431,11 @@ class MomentPipeline:
 
         proposal, e3 = await _proposal()
         proposal = with_intel(proposal, m, _name_of(meta))
+        written = proposal.line if proposal is not None else ""
         if proposal is not None:
-            proposal = proposal.model_copy(update={"line": club_names(proposal.line, meta)})
+            alternatives = [a.model_copy(update={"line": club_names(a.line, meta)}) for a in proposal.alternatives]
+            proposal = proposal.model_copy(update={"line": club_names(proposal.line, meta),
+                                                   "alternatives": alternatives})
         if e3:
             failures.append(e3)
         moment_intel = intel_payload(intel_for(m), _prefer(m), _name_of(meta))
@@ -441,7 +446,9 @@ class MomentPipeline:
             return MomentResult(moment=m, explanation=expl, line=line, variants=[], proposal=None,
                                 failures=failures, intel=moment_intel, notes=notes)
         # Every version is written from the line that airs, to fit its graphic.
-        variants, variant_errors = await _variants(proposal.line, max_chars_for(proposal.layer, proposal.line))
+        # The budget is the card as it was written to fit: a code expanded to a club name mustn't widen it for every
+        # version. A version pushed over it by its own expansion fails the length check and gets the template.
+        variants, variant_errors = await _variants(proposal.line, max_chars_for(proposal.layer, written))
         variants = [v.model_copy(update={"text": club_names(v.text, meta)}) for v in variants]
         failures += [e for e in variant_errors if e]
         return MomentResult(moment=m, explanation=expl, line=line, variants=variants, proposal=proposal,
@@ -483,11 +490,20 @@ def _teams(meta: MatchMeta | None) -> dict[str, str]:
 
 def club_names(text: str, meta: MatchMeta | None) -> str:
     """A team id or code an agent wrote anyway ("puts har ahead", "HAR lead") becomes the club's name, so the line
-    airs as viewers know it and every language agrees on the name (#40). Only whole words: "Harbor" stays."""
-    for t in (meta.home, meta.away) if meta else ():
-        for code in {t.team_id, t.short_name}:
-            text = re.sub(rf"(?<!\w){re.escape(code)}(?!\w)", t.name, text, flags=re.IGNORECASE)
-    return text
+    airs as viewers know it and every language agrees on the name (#40).
+
+    One pass over whole words, full club names first, so a club already named is left alone even when its code is
+    also one of its words ("Inter Milan" stays). Codes match in any case, since the agents wrote "Har" and "Nfu";
+    a club whose code is an ordinary word ("BAR", "NEW") would also change that word."""
+    if not meta:
+        return text
+    teams = (meta.home, meta.away)
+    names = {t.name.lower(): t.name for t in teams}
+    codes = {c.lower(): t.name for t in teams for c in (t.team_id, t.short_name)}
+    words = sorted({*names, *codes}, key=len, reverse=True)
+    pattern = rf"(?<!\w)(?:{'|'.join(map(re.escape, words))})(?!\w)"
+    # A function, not a replacement string: a club name is never read as a regex template.
+    return re.sub(pattern, lambda w: w[0] if w[0].lower() in names else codes[w[0].lower()], text, flags=re.IGNORECASE)
 
 
 def _name_of(meta: MatchMeta | None) -> NameOf:

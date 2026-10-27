@@ -20,6 +20,22 @@ def test_only_whole_words_change():
     assert club_names("Cato Hart for nfu.", META) == "Cato Hart for Northfield United."
 
 
+def test_a_club_already_named_is_left_alone_even_when_its_code_is_one_of_its_words():
+    from crq_schemas import MatchMeta
+
+    meta = MatchMeta.model_validate(META.model_dump() | {
+        "home": META.home.model_dump() | {"team_id": "inter", "short_name": "INT", "name": "Inter Milan"}})
+    assert club_names("Inter Milan lead; inter press", meta) == "Inter Milan lead; Inter Milan press"
+    assert club_names(club_names("INT lead", meta), meta) == "Inter Milan lead"  # running it twice changes nothing
+
+
+def test_a_club_name_is_never_read_as_a_pattern():
+    from crq_schemas import MatchMeta
+
+    meta = MatchMeta.model_validate(META.model_dump() | {"home": META.home.model_dump() | {"name": r"Back\slash FC"}})
+    assert club_names("har lead", meta) == r"Back\slash FC lead"
+
+
 def test_the_agents_get_the_id_to_name_map():
     assert _teams(META) == {"har": "Harbor City", "nfu": "Northfield United"}
     assert _teams(None) == {}
@@ -47,7 +63,10 @@ def test_a_code_an_agent_writes_anyway_never_airs():
             return type("R", (), {"text": self.reply, "raw_representation": None})()
 
     p = MomentPipeline()
-    p.explainer = Agent("explainer", fallback_explanation(m).model_dump_json())
+    explanation = fallback_explanation(m).model_copy(update={"headline": "HAR press high",
+                                                             "why_it_matters": "nfu cannot get out."})
+    p.explainer = Agent("explainer", explanation.model_dump_json(include={"headline", "why_it_matters", "pattern",
+                                                                         "cites", "confidence"}))
     p.narrator = Agent("narrator", "HAR go close as Nfu hold firm")
     p.producer = Agent("producer", json.dumps({"propose": True, "layer": "lower_third", "t_start_ms": 602_000,
                                                "t_end_ms": 612_000, "line": "har go close", "payload_json": "{}",
@@ -60,6 +79,8 @@ def test_a_code_an_agent_writes_anyway_never_airs():
     res = asyncio.run(p.process(m, meta=META, requests=[(Persona.FAN, "none", "en", {}),
                                                         (Persona.FAN, "none", "es", {})]))
     assert res.line == "Harbor City go close as Northfield United hold firm"
+    assert (res.explanation.headline, res.explanation.why_it_matters) == ("Harbor City press high",
+                                                                          "Northfield United cannot get out.")
     assert res.proposal.line == "Harbor City go close"
     assert {v.text for v in res.variants} == {"Harbor City so close!", "¡Harbor City, tan cerca!"}
     assert all(payload["teams"] == {"har": "Harbor City", "nfu": "Northfield United"}
