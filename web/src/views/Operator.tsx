@@ -508,7 +508,7 @@ export default function Operator({ demo = false }: { demo?: boolean } = {}) {
                   <span className="muted">{g.items.length} graphics, one click</span>
                   <PackageCountdown lead={g.items[0]} warned={Boolean(warnings[g.items[0].proposal_id])} />
                   <div className="routine-actions">
-                    <button className="fire" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
+                    <button className="primary" disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "approve")}>
                       Fire all {g.items.length}
                     </button>
                     <button disabled={routineBusy(g)} onClick={() => actPackage(g.packageId!, "hold")}>Hold</button>
@@ -681,12 +681,14 @@ function AgentLineage({ p }: { p: Proposal }) {
   const codeBuilt = isCodeBuilt(p);
   const template = isTemplateFallback(p);
   const live = !codeBuilt && !template;
+  // `live` already excludes codeBuilt; the five chips light together because the proposal does not
+  // surface each agent's individual outcome. The overall title (below) names what "lit" actually means.
   const agents = [
     { name: "EXPLAINER", mode: "quality", on: live, title: "Why the moment matters, with cites. router-quality." },
     { name: "NARRATOR", mode: "balanced", on: live, title: "The English on-air line (≤ 22 words). router-balanced." },
     { name: "PRODUCER", mode: "quality", on: live, title: "Layer, template and evidence. router-quality." },
-    { name: "PERSONALIZER", mode: "cost", on: live && !codeBuilt, title: "English versions per persona × access. router-cost." },
-    { name: "LOCALIZER", mode: "cost", on: live && !codeBuilt, title: "Spanish and Hindi variants. router-cost." },
+    { name: "PERSONALIZER", mode: "cost", on: live, title: "English versions per persona × access. router-cost." },
+    { name: "LOCALIZER", mode: "cost", on: live, title: "Spanish and Hindi variants. router-cost." },
   ];
   const source = codeBuilt
     ? "Built in code — no agents ran"
@@ -694,7 +696,7 @@ function AgentLineage({ p }: { p: Proposal }) {
     ? "Template fallback — a model did not produce this line (timeout, decline, or offline mode)"
     : null;
   return (
-    <div className="lineage" title={source ?? "The agent pipeline that produced this proposal."}>
+    <div className="lineage" title={source ?? "The agent chain this proposal attempted. Lit = Foundry call made for the chain; the proposal does not surface each agent's individual outcome."}>
       {agents.map((a, i) => (
         <span key={a.name} className={`lineage-agent ${a.mode} ${a.on ? "on" : "off"}`} title={a.title}>
           {a.name}
