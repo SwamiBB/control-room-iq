@@ -56,12 +56,12 @@ describe("layerName", () => {
 });
 
 describe("modelLabel", () => {
-  it("returns Template when the fallback wrote the line", () => {
-    expect(modelLabel({ fallback: true, meta: { routing: "router-quality", model_served: "gpt-4.1" } })).toBe("Template");
+  it("returns no label when the fallback wrote the line", () => {
+    expect(modelLabel({ fallback: true, meta: { routing: "router-quality", model_served: "gpt-4.1" } })).toBeNull();
   });
 
-  it("returns Template when routing is template", () => {
-    expect(modelLabel({ fallback: false, meta: { routing: "template", model_served: "gpt-4.1" } })).toBe("Template");
+  it("returns no label when routing is template", () => {
+    expect(modelLabel({ fallback: false, meta: { routing: "template", model_served: "gpt-4.1" } })).toBeNull();
   });
 
   it("returns the served model otherwise", () => {
@@ -205,8 +205,8 @@ describe("code-built items are not template fallbacks", () => {
     expect([fallbackLead, stats, ticker].filter(isTemplateFallback)).toEqual([fallbackLead]);
   });
 
-  it("labels the follow-ups Official stats, not Template", () => {
-    expect([lead, stats, ticker, fallbackLead].map(modelLabel)).toEqual(["gpt-5.6-terra", "Official stats", "Official stats", "Template"]);
+  it("labels the follow-ups Official stats, and the template-written lead not at all", () => {
+    expect([lead, stats, ticker, fallbackLead].map(modelLabel)).toEqual(["gpt-5.6-terra", "Official stats", "Official stats", null]);
   });
 });
 

@@ -53,7 +53,6 @@ export const HEADINGS: Record<string, T> = {
   caption: { en: "Caption", es: "Subtítulo", hi: "कैप्शन" },
   // Badges on a graphic
   unverified: { en: "Unverified", es: "Sin verificar", hi: "असत्यापित" },
-  template: { en: "Template", es: "Plantilla", hi: "टेम्पलेट" },
   in_english: { en: "in English", es: "en inglés", hi: "अंग्रेज़ी में" },
   // The strike cue's word, by cue kind
   "cue.chance": { en: "Shot", es: "Remate", hi: "शॉट" },

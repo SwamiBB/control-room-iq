@@ -286,7 +286,6 @@
 .overlay .detail .chip * { color: inherit; }
 .overlay .badges { display: inline-flex; gap: 0.5cqw; }
 .overlay .badge { font: 600 1cqw/1 var(--cond); padding: 0.2em 0.45em; margin: 0; letter-spacing: 0.1em; }
-.overlay .badge.fallback { color: #9aa5b4; }
 .overlay .badge.lang { color: #8fb3ff; }
 .overlay .badge.override { color: #f59e6b; }
 
@@ -508,7 +507,6 @@
 }
 
 .badge.override { color: #c2410c; }
-.badge.fallback { color: #6b7280; }
 .badge.lang { color: #1d4ed8; }
 
 .refused {
