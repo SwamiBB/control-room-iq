@@ -81,7 +81,7 @@ Container Apps, Azure Cosmos DB (persisting the decision log), Application Insig
 availability test on `/healthz` from three US regions, managed identity + OIDC (no secrets in the
 repo), `disableLocalAuth` on Cosmos / Event Hubs / Foundry, Bicep + Azure Developer CLI, GitHub
 Actions with CodeQL + Trivy + Dependabot + every action pinned to a commit SHA, and **GitHub Copilot
-code review** on pull requests (findings carried in `docs/COPILOT-REVIEW.md`). An Azure Logic App for
+code review** on pull requests (findings carried in `docs/COPILOT-REVIEWS.md`). An Azure Logic App for
 the SLA hold, Foundry Agent Service portal registration, KEDA scaling on Event Hubs lag, and private
 endpoints on the data plane are reserved for a post-submission iteration.
 
@@ -126,6 +126,6 @@ auditable decisions.
   (`register_agents.py` not in the repo).
 - **Operator quote.** Replaced the fabricated placeholder with John Hickey's cleared quote.
 - **GitHub Copilot agent mode → GitHub Copilot code review.** Used accurately (see
-  `docs/COPILOT-REVIEW.md` and the "Fix the review of #N" commits).
+  `docs/COPILOT-REVIEWS.md` and the "Fix the review of #N" commits).
 - **Deaf-fan latency.** Split the strike-cue (≤ 1 s, code) from the template caption (≤ 2 s on the
   result) from the operator-approved caption; the old wording merged them.
