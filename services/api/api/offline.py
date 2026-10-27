@@ -67,13 +67,14 @@ async def replay_offline(match_path: Path = DEFAULT_MATCH, min_importance: float
     pipeline = MomentPipeline()
     rows: list[Row] = []
     with match_path.open(encoding="utf-8") as f:
-        folder = StateFolder(MatchMeta.model_validate_json(f.readline()))
+        meta = MatchMeta.model_validate_json(f.readline())
+        folder = StateFolder(meta)
         for line in filter(str.strip, f):
             for m in folder.apply(MatchEvent.model_validate_json(line)):
                 if m.importance < min_importance:
                     rows.append(Row(m, None, []))  # recorded, never sent to the agents
                     continue
-                res = await pipeline.process(m)
+                res = await pipeline.process(m, meta=meta)
                 rows.append(Row(m, res.proposal, res.failures))
     return rows
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { intelChips } from "../intel";
-import { captionCardFor, kickerFor, cueTimer, holdMs, isApproved, isRestart, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
+import { ACCESS_HELP, PERSONA_HELP, captionCardFor, cueWord, kickerFor, cueTimer, holdMs, isApproved, isRestart, liveAt, mainSlot, nameLookup, nextStrip, queryFor, scoreText, settingsFromQuery, shotOf, withStanding, pruneExpired, withPacket, type Cue, type Held, type Packet } from "./Viewer";
 
 // The renderer's half of the gate: no approval fields, no drawing.
 const approved: Packet = {
@@ -70,6 +70,12 @@ describe("holdMs", () => {
 
   it("never drops below two seconds, even for an empty slot", () => {
     expect(holdMs({ ...approved, t_out_ms: approved.t_in_ms })).toBe(2000);
+  });
+
+  it("never runs past the layer's longest slot, whatever the packet says (#59)", () => {
+    expect(holdMs({ ...approved, t_out_ms: approved.t_in_ms + 600_000 })).toBe(12_000); // a lower third
+    expect(holdMs({ ...ticker, t_out_ms: ticker.t_in_ms + 600_000 })).toBe(45_000);
+    expect(holdMs({ ...approved, layer: "something_new", t_out_ms: approved.t_in_ms + 600_000 })).toBe(45_000);
   });
 });
 
@@ -213,6 +219,13 @@ describe("nameLookup (names in the chips)", () => {
     expect(chips[0].label).toBe("Pass by Oli Stone");
   });
 
+  it("puts the chip's words in the viewer's language, never the name (#54)", () => {
+    const name = nameLookup(withIntel);
+    expect(intelChips(withIntel.payload?.intel, name, "fan", "es")[0]).toMatchObject({ label: "Pase de Oli Stone", value: "31 m · Difícil" });
+    expect(intelChips(withIntel.payload?.intel, name, "newcomer", "hi")[0]).toMatchObject({ label: "Oli Stone का पास", value: "कठिन पास" });
+    expect(intelChips({ shot_speed_kmh: 88.1 }, name, "newcomer", "es")[0]).toMatchObject({ label: "Velocidad del remate", value: "Disparo firme" });
+  });
+
   it("falls back to payload.names, then to the id", () => {
     expect(nameLookup({ ...approved, payload: { names: { "riv-09": "Ana Ruiz" } } })("riv-09")).toBe("Ana Ruiz");
     expect(nameLookup(approved)("riv-09")).toBe("riv-09");
@@ -350,5 +363,24 @@ describe("isRestart (a new run, seen from the GET /state poll)", () => {
     expect(isRestart(was, was)).toBe(false); // the clock between events
     expect(isRestart(null, was)).toBe(false);
     expect(isRestart(null, null)).toBe(false);
+  });
+});
+
+describe("cueWord (the strike cue, #54)", () => {
+  it("says the cue in the viewer's language", () => {
+    expect(cueWord("chance", "en")).toBe("Shot");
+    expect(cueWord("goal", "hi")).toBe("गोल");
+    expect(cueWord("crowd_roar", "es")).toBe("Rugido de la grada");
+  });
+
+  it("says Play, in the viewer's language, for a kind it does not know", () => {
+    expect(cueWord("new_kind", "es")).toBe("Juego");
+  });
+});
+
+describe("the pickers' help", () => {
+  it("explains every persona and every access choice", () => {
+    for (const p of ["newcomer", "fan", "analyst"] as const) expect(PERSONA_HELP[p].length).toBeGreaterThan(20);
+    for (const a of ["none", "deaf"] as const) expect(ACCESS_HELP[a].length).toBeGreaterThan(10);
   });
 });

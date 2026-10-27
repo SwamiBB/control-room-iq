@@ -132,6 +132,23 @@ describe("errorMessage", () => {
   });
 });
 
+describe("errors a proxy or the wrong address cause (#59)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("says the API isn't answering when the dev server's proxy cannot reach it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("API unreachable", { status: 502 })));
+    const err = await fetchMetrics().catch((e) => e);
+    expect(errorMessage(err, "load the gallery metrics")).toContain("isn't answering");
+  });
+
+  it("says the address may not be the API when a 2xx reply is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<!doctype html><html></html>", { status: 200 })));
+    const err = await fetchMetrics().catch((e) => e);
+    expect(errorMessage(err, "load the gallery metrics")).toBe(
+      "Couldn't load the gallery metrics: the reply to /metrics wasn't the API's JSON, so this address may not be the API (200).");
+  });
+});
+
 describe("startReplay", () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -143,7 +160,7 @@ describe("startReplay", () => {
   };
 
   it("sends the picked speed for the dead air, over the demo window", async () => {
-    const body = await sent("window", 50);
+    const body = await sent({ scope: "window", speed: 50 });
     expect(body.speed).toBe(50);
     expect(body.from_play_ms).toBe(DEMO_WINDOW.from_play_ms);
   });
@@ -167,7 +184,7 @@ describe("replay speeds", () => {
   it("sends 1 for real time", async () => {
     const fetch = vi.fn(async (_url: string, _init: any) => ({ ok: true, json: async () => ({}) }));
     vi.stubGlobal("fetch", fetch);
-    await startReplay("window", 1);
+    await startReplay({ speed: 1 });
     expect(JSON.parse(String(fetch.mock.calls[0][1].body)).speed).toBe(1);
   });
 });

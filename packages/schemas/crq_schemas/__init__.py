@@ -486,6 +486,23 @@ class OverlayLayer(StrEnum):
     PITCH_OVERLAY = "pitch_overlay"
 
 
+# The longest text each layer can show, agreed with the renderer. Every version of an aired line (any persona,
+# access or language) must fit its graphic's layer: the agents write to it, and the API's delivery check holds them
+# to it. Deliberately generous, so normal Spanish and Hindi expansion (about 25%) fits.
+LAYER_MAX_CHARS: dict[OverlayLayer, int] = {
+    OverlayLayer.LOWER_THIRD: 90, OverlayLayer.STAT_PANEL: 90, OverlayLayer.HEATMAP: 90, OverlayLayer.TICKER: 140,
+    OverlayLayer.FULL_SCREEN: 120, OverlayLayer.CAPTION: 160, OverlayLayer.PLAYER_TAG: 40,
+    OverlayLayer.PITCH_OVERLAY: 60,
+}
+
+
+def max_chars_for(layer: OverlayLayer, line: str) -> int:
+    """The longest a version of `line` may be on `layer`. A card line already over the layer's limit (a template
+    fallback carries the narrator's full sentence) sets the limit itself: a version need not be shorter than the
+    line it translates, and could not keep every name and number otherwise."""
+    return max(LAYER_MAX_CHARS.get(layer, 90), len(line))
+
+
 class ProposalStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"

@@ -31,7 +31,7 @@ flowchart TB
         EH3[(crq-overlay)]
     end
     subgraph ACA["Azure Container Apps · crq-dev-cae"]
-        ING[ingest<br/>state engine, moment detector<br/>KEDA on partition lag]
+        ING[ingest<br/>state engine, moment detector<br/>one replica]
         AGR[agents-runner<br/>MomentPipeline]
         API[api<br/>FastAPI · approval loop · WebSockets]
         WEB[web<br/>React console + viewer]
@@ -62,7 +62,7 @@ flowchart TB
 | Container | Runtime | Responsibility | Scales on |
 | --- | --- | --- | --- |
 | simulator | ACA Job (or local CLI) | Generate and replay matches; publish to `crq-events` | Manual / per match |
-| ingest | Container App, Python | Consume events, fold state, raise moments, persist, publish to `crq-moments` | Event Hubs unprocessed events (KEDA, threshold 64) |
+| ingest | Container App, Python | Consume events, fold state, raise moments, persist, publish to `crq-moments` | Fixed at one replica; scaling on Event Hubs lag is deferred until the consumer has a checkpoint store |
 | agents-runner | Container App, Python | Consume moments, run `MomentPipeline` (five agents) on Foundry, call evaluation, hand results to API | Event Hubs lag on `crq-moments` |
 | api | Container App, Python (FastAPI) | Proposal queue, approval loop, decision log, WebSocket fan-out, overlay publishing | HTTP concurrency (1–3 replicas) |
 | web | Container App, nginx | Static React app | 1–2 replicas |
@@ -151,9 +151,9 @@ Pydantic models in `packages/schemas` (see DESIGN.md §2). Overlay `payload` per
 | Foundry Agent Service | Foundry project `crq` | Agents registered by name for portal inspection, evaluation, and tracing |
 | Model router (`model-router` 2025-11-18): `router-quality`, `router-balanced`, `router-cost` | All agent calls | One deployment per routing mode, since the mode is a deployment setting; each agent calls its own (`AGENT_ROUTING`), with `reasoning_effort` low; selected model recorded on the card and in spans |
 | Fixed fallback deployment (`gpt-4.1-mini`) | `MODEL_FALLBACK_DEPLOYMENT` | Deployed, not yet called (#35): today a failed or timed-out call falls back to the template |
-| Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language, content safety |
+| Evaluations (`azure-ai-projects` ≥ 2.3) | `evals/`, agents-runner | Groundedness/faithfulness, relevance, fluency per language |
 | Tracing | All services | OpenTelemetry via Agent Framework instrumentation → Application Insights |
-| Content safety | Foundry resource | Applied to all generated text |
+| Content filtering | Foundry deployment defaults | Default content filters configured on each Foundry deployment apply to every call; a dedicated Azure AI Content Safety resource is reserved for a post-submission iteration |
 
 ## 6. Deployment
 
@@ -168,16 +168,14 @@ flowchart LR
         EHNS[Event Hubs ns]
         COSM[Cosmos DB]
         FND[Foundry + project<br/>router-quality · router-balanced · router-cost · gpt-4.1-mini]
-        LAPP[Logic App]
         LOGS[Log Analytics + App Insights]
-        KV[Key Vault<br/>local-dev secrets only]
     end
 ```
 
 `infra/main.bicep` (subscription scope) creates the resource group and four modules: `core`
 (identity, logs, App Insights, ACR, storage), `data` (Event Hubs, Cosmos with RBAC), `ai` (Foundry
 resource, project, the three model-router deployments and the fallback, role assignments), `apps` (Container Apps environment and
-the three apps with KEDA rules). `azure.yaml` maps the services to Dockerfiles so `azd deploy` builds and
+the three apps, each with a fixed replica count). `azure.yaml` maps the services to Dockerfiles so `azd deploy` builds and
 pushes images and sets the image on each app. GitHub Actions `deploy.yml` runs the same two commands on
 push to `main` using an OIDC federated credential; no secrets are stored.
 
@@ -189,9 +187,9 @@ Environments: `dev` (sandbox, the demo) only. Naming `crq-<env>-<resource>`, tag
 | Quality | Target | How |
 | --- | --- | --- |
 | Responsiveness | Target: proposal on console ≤ 10 s after the event (measured Oct 26: 15.3 s average); overlay timing exact on the match clock | Async pipeline, concurrent agents, 12 s timeouts, match-clock scheduling |
-| Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, KEDA scaling, checkpointed consumers |
+| Resilience | Feed continues through any single agent or model failure | Template fallbacks, failure log, checkpointed consumers |
 | Explainability | Every line traceable to events; faithfulness measured | Cited event IDs, state snapshots per moment, Foundry evaluation per narrative |
-| Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, Logic App auto-hold |
+| Control | No graphic airs without operator action or an explicit SLA rule | Approval state machine, append-only decision log, in-process 20-second auto-hold |
 | Security | No keys; least privilege | Managed identity, Entra-only data planes, five scoped role assignments |
 | Observability | Every moment and decision visible end to end | OpenTelemetry spans (service → agent → model), App Insights, health endpoints |
 | Portability | Any rendering partner or viewer client can consume the output | Overlay contract on Event Hubs and WebSocket; JSON schemas versioned |

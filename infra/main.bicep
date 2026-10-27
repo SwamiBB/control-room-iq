@@ -7,8 +7,15 @@ param environmentName string
 param location string = 'eastus2'
 // The {instance} part of every name; bump it if a globally unique name is taken.
 param instance string = '01'
-param ownerAlias string = 'aicoe'
+param ownerAlias string = 'platform'
 param expires string = '2026-11-30'
+// Whether each app exists already; azd fills these from SERVICE_*_RESOURCE_EXISTS (main.parameters.json).
+param apiExists bool = false
+param ingestExists bool = false
+param webExists bool = false
+// Record prompt and response text in traces (CRQ_TRACE_CONTENT). On because all match data is synthetic; a
+// deployment with real viewer data sets it false.
+param traceContent string = 'true'
 
 // Naming convention: resource group {app}-rg-{env}-{region}-{instance}, resources {type}-{app}-{env}-{region}-{instance}.
 var app = 'crq'
@@ -36,7 +43,15 @@ module data 'modules/data.bicep' = {
 module ai 'modules/ai.bicep' = {
   name: 'ai'
   scope: rg
-  params: { app: app, suffix: suffix, location: location, tags: tags, identityPrincipalId: core.outputs.identityPrincipalId }
+  params: {
+    app: app
+    suffix: suffix
+    location: location
+    tags: tags
+    identityPrincipalId: core.outputs.identityPrincipalId
+    appInsightsId: core.outputs.appInsightsId
+    appInsightsConnectionString: core.outputs.appInsightsConnectionString
+  }
 }
 
 module apps 'modules/apps.bicep' = {
@@ -50,11 +65,17 @@ module apps 'modules/apps.bicep' = {
     identityId: core.outputs.identityId
     acrLoginServer: core.outputs.acrLoginServer
     logAnalyticsId: core.outputs.logAnalyticsId
+    appInsightsId: core.outputs.appInsightsId
     appInsightsConnectionString: core.outputs.appInsightsConnectionString
     eventHubNamespaceFqdn: data.outputs.eventHubNamespaceFqdn
     cosmosEndpoint: data.outputs.cosmosEndpoint
     foundryProjectEndpoint: ai.outputs.projectEndpoint
     openAiEndpoint: ai.outputs.openAiEndpoint
+    contentSafetyEndpoint: ai.outputs.contentSafetyEndpoint
+    apiExists: apiExists
+    ingestExists: ingestExists
+    webExists: webExists
+    traceContent: traceContent
   }
 }
 

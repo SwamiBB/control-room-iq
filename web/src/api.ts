@@ -144,7 +144,12 @@ async function request(path: string, init?: RequestInit) {
     throw new ApiError(0, "no answer"); // the browser says only "Failed to fetch"
   }
   if (!r.ok) throw new ApiError(r.status, await detailOf(r));
-  return r.json();
+  try {
+    return await r.json();
+  } catch {
+    // A 2xx that is not JSON: usually the dev server's index.html for a path its proxy does not forward.
+    throw new ApiError(r.status, `the reply to ${path} wasn't the API's JSON, so this address may not be the API`);
+  }
 }
 
 const get = (path: string) => request(path);
@@ -153,7 +158,10 @@ const post = (path: string, body: Record<string, unknown>) =>
   request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 /** Where the console is sending its calls, as someone checking the API would look for it. */
-const apiWhere = () => API || location.host;
+const apiWhere = () => API || `behind ${location.host} (the dev server's proxy)`;
+
+/** No answer from the API itself: the network failed (0), or a proxy in front of it could not reach it. */
+const UNREACHABLE = new Set([0, 502, 503, 504]);
 
 /**
  * What the operator reads when a call fails: what was being tried, what went wrong, and what to check.
@@ -161,7 +169,7 @@ const apiWhere = () => API || location.host;
  */
 export function errorMessage(err: unknown, action: string): string {
   if (!(err instanceof ApiError)) return `Couldn't ${action}: ${err instanceof Error ? err.message : String(err)}`;
-  if (err.status === 0) {
+  if (UNREACHABLE.has(err.status)) {
     return `Couldn't ${action}: the API at ${apiWhere()} isn't answering. Check that it is running, then try again.`;
   }
   // Already decided, by someone else or the timer.
@@ -220,8 +228,9 @@ export const COMPRESSED_SPEEDS = REPLAY_SPEEDS.filter((s) => s !== REAL_TIME);
 
 export const speedLabel = (s: number) => (s === REAL_TIME ? "Real time · 1×" : `${s}×`);
 
-export const startReplay = (scope: ReplayScope = "window", speed: ReplaySpeed = 20,
-                            file = "data/reference/match-042.jsonl") =>
+/** Named options, not positional: the order of scope, speed and file has changed before, silently. */
+export const startReplay = ({ scope = "window", speed = 20, file = "data/reference/match-042.jsonl" }:
+  { scope?: ReplayScope; speed?: ReplaySpeed; file?: string } = {}) =>
   post("/matches/replay", { file, speed, ...(scope === "window" ? DEMO_WINDOW : {}) });
 
 export async function fetchDecisions(): Promise<DecisionEntry[]> {

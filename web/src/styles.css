@@ -1,4 +1,19 @@
-:root { --bg:#0e1116; --panel:#171b22; --ink:#e6e9ef; --muted:#8b93a1; --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; font-family: system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+:root {
+  --bg: #080b11;
+  --panel: #121720;
+  --ink: #ebe8e1;
+  --muted: #8b93a1;
+  --accent: #3b82f6;
+  --brand: #f0c35a;
+  --brand-dim: rgba(240, 195, 90, 0.15);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  font-family: system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
 body { margin: 0; }
 h1 { font-size: 1.1rem; margin: 0; } h2 { font-size: .9rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .home { padding: 3rem; } .home a { color: var(--accent); }
@@ -15,7 +30,7 @@ header { display: flex; gap: 1rem; align-items: center; padding: .75rem 1rem; ba
 .proposal { background: var(--panel); border-radius: 8px; padding: .75rem; margin-bottom: .75rem; border-left: 4px solid var(--warn); }
 .proposal.held { opacity: .7; border-left-color: var(--muted); }
 .proposal .meta, .moments .meta { color: var(--muted); font-size: .75rem; } .line { font-weight: 600; } .reasoning { color: var(--muted); font-size: .85rem; }
-.proposal input { width: 100%; box-sizing: border-box; background: #0e1116; color: var(--ink); border: 1px solid #333; padding: .4rem; border-radius: 4px; }
+.proposal input { width: 100%; box-sizing: border-box; background: #0e1116; color: var(--ink); border: 1px solid var(--border-soft); padding: .4rem; border-radius: 4px; }
 .actions { display: flex; gap: .5rem; margin-top: .5rem; } button { background: #2a3140; color: var(--ink); border: 0; padding: .4rem .8rem; border-radius: 4px; cursor: pointer; } button.approve { background: var(--ok); color: #000; }
 .moments article { margin-bottom: .75rem; } .moments small { color: var(--muted); }
 .viewer { max-width: 960px; margin: 0 auto; padding: 1rem; } .viewer select { background: var(--panel); color: var(--ink); border: 1px solid #333; padding: .3rem; }

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from functools import cache
 
-from .config import deployment_for, settings
+from .config import deployment_for, registered_name, settings
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,8 @@ def make_agent(name: str, instructions: str, response_format=None):
         return None
     from agent_framework import Agent
 
-    kwargs = {"name": name, "instructions": instructions}
+    # The id is the agent's registered Foundry name: Agent Framework puts it on the agent's trace spans.
+    kwargs = {"id": registered_name(name), "name": name, "instructions": instructions}
     # Agent() has no response_format argument; structured output goes through its default chat options.
     options = {"response_format": response_format} if response_format is not None else {}
     if settings.reasoning_effort:

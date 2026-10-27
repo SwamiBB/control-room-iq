@@ -36,7 +36,7 @@
 .pitch-view .shot circle { stroke: rgba(0, 0, 0, 0.45); stroke-width: 0.3; }
 .pitch-view .shot.goal circle { fill: #41d18b; }
 .pitch-view .shot.saved circle { fill: #f0b03c; }
-.pitch-view .shot.blocked circle { fill: #9aa3b7; }
+.pitch-view .shot.blocked circle { fill: #6ea8ff; } /* blue: never to be read as the grey of off target */
 .pitch-view .shot.off circle { fill: rgba(255, 255, 255, 0.45); }
 .pitch-view .shot.post circle { fill: #e8776a; }
 
@@ -77,7 +77,7 @@
 }
 .pitch-view .key.goal::before { background: #41d18b; }
 .pitch-view .key.saved::before { background: #f0b03c; }
-.pitch-view .key.blocked::before { background: #9aa3b7; }
+.pitch-view .key.blocked::before { background: #6ea8ff; }
 .pitch-view .key.off::before { background: #b9bfcc; }
 .pitch-view .note { margin-left: auto; opacity: 0.8; }
 

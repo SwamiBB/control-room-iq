@@ -3,6 +3,8 @@ param suffix string
 param location string
 param tags object
 param identityPrincipalId string
+param appInsightsId string
+param appInsightsConnectionString string
 
 // Microsoft Foundry resource (AIServices kind) with a project, a fallback model and one model router per routing mode.
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
@@ -77,6 +79,54 @@ resource aiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+resource appi 'Microsoft.Insights/components@2020-02-02' existing = {
+  name: last(split(appInsightsId, '/'))
+}
+
+// Connects the project to Application Insights so traces show under Observability > Traces. The project signs in
+// with its own managed identity, since the resource takes Entra ID only. A project allows one AppInsights connection.
+resource appiConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-09-01' = {
+  parent: project
+  name: 'appinsights'
+  properties: {
+    category: 'AppInsights'
+    target: appInsightsId
+    // Accepted by the service but not yet in the Bicep type definitions.
+    #disable-next-line BCP036
+    authType: 'ProjectManagedIdentity'
+    isSharedToAll: false
+    metadata: {
+      ApiType: 'Azure'
+      ResourceId: appInsightsId
+      ApplicationInsightsConnectionString: appInsightsConnectionString
+    }
+  }
+}
+
+// Monitoring Metrics Publisher for the project's identity, as the portal grants when you pick "Project managed
+// identity", so server-side traces can be ingested.
+resource projectAppiPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, project.id, 'metricspub')
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')
+    principalId: project.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Monitoring Reader for the project's identity: the Foundry portal reads the traces as the project, so without it
+// the agents' Monitor and Traces pages say "Setup incomplete" though the traces are there.
+resource projectAppiReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appi.id, project.id, 'monitoringreader')
+  scope: appi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
+    principalId: project.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource speechUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(speech.id, identityPrincipalId, 'speechuser')
   scope: speech
@@ -89,4 +139,6 @@ resource speechUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 output projectEndpoint string = 'https://${foundry.properties.customSubDomainName}.services.ai.azure.com/api/projects/${project.name}'
 output openAiEndpoint string = 'https://${foundry.properties.customSubDomainName}.openai.azure.com/'
+// Azure AI Content Safety on the same account: the API checks an operator's override line with it (Entra ID).
+output contentSafetyEndpoint string = 'https://${foundry.properties.customSubDomainName}.cognitiveservices.azure.com/'
 output speechEndpoint string = speech.properties.endpoint

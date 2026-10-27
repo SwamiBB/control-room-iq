@@ -15,9 +15,13 @@ dependencies = [
   "azure-identity>=1.24",  # 1.24 is the first to accept a credential name in AZURE_TOKEN_CREDENTIALS
   "azure-eventhub>=5.12",
   "azure-cosmos>=4.7",
+  "aiohttp>=3.9",  # the async Cosmos DB client (api/decision_store.py) needs it; only transitive before
   "python-dotenv>=1.0",
   "opentelemetry-sdk>=1.25",
   "azure-monitor-opentelemetry>=1.6",
+  # Security floors for transitive dependencies (Trivy): pulled in by the Azure and HTTP clients above.
+  "urllib3>=2.8.0",  # CVE-2026-97687, CVE-2026-97688, CVE-2026-97689
+  "msgpack>=1.2.1",  # GHSA-6v7p-g79w-8964
 ]
 
 [project.optional-dependencies]

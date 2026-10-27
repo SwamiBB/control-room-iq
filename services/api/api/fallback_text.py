@@ -6,7 +6,7 @@ score, which also satisfies the deaf-access rule. Native-speaker review wanted f
 
 from __future__ import annotations
 
-from crq_schemas import Lang, MatchMeta, Moment, MomentKind
+from crq_schemas import Lang, MatchMeta, Moment, MomentKind, ShotRecord
 
 _TEMPLATES: dict[MomentKind, dict[str, str]] = {
     MomentKind.GOAL: {"en": "GOAL! {player} ({team}). Score {score}",
@@ -25,6 +25,33 @@ _TEMPLATES: dict[MomentKind, dict[str, str]] = {
 }
 
 
+# A big chance's result beat says how it ended, as the English line does ("Big chance Kai Reed saved"): with
+# the strike's template it read the same before and after the save on Spanish and Hindi screens (#54).
+_BIG_CHANCE_RESULTS: dict[str, dict[str, str]] = {
+    "saved": {"en": "Big chance for {player} ({team}), saved. Score {score}",
+              "es": "Gran ocasión de {player} ({team}), atajada. Marcador {score}",
+              "hi": "{player} ({team}) का बड़ा मौका, बचा लिया गया। स्कोर {score}"},
+    "blocked": {"en": "Big chance for {player} ({team}), blocked. Score {score}",
+                "es": "Gran ocasión de {player} ({team}), bloqueada. Marcador {score}",
+                "hi": "{player} ({team}) का बड़ा मौका, ब्लॉक कर दिया गया। स्कोर {score}"},
+    "off_target": {"en": "Big chance for {player} ({team}), off target. Score {score}",
+                   "es": "Gran ocasión de {player} ({team}), fuera. Marcador {score}",
+                   "hi": "{player} ({team}) का बड़ा मौका, निशाने से बाहर। स्कोर {score}"},
+}
+
+
+def moment_shot(m: Moment) -> ShotRecord | None:
+    """The moment's own shot in the stats engine's shot ledger: the template line, the fan card and the number check
+    all read this one."""
+    return next((s for s in m.state.shots if s.event_id in m.event_ids), None)
+
+
+def _shot_outcome(m: Moment) -> str | None:
+    """How the moment's own shot ended."""
+    shot = moment_shot(m)
+    return shot.outcome if shot else None
+
+
 def _player_name(player_id: str | None, meta: MatchMeta | None) -> str:
     # Names are never translated or transliterated; an unknown id is shown as-is rather than guessed.
     players = [p for t in (meta.home, meta.away) for p in t.players] if meta else []
@@ -38,6 +65,8 @@ def _team_name(team_id: str | None, meta: MatchMeta | None) -> str:
 
 def template_line(m: Moment, lang: Lang, meta: MatchMeta | None) -> str | None:
     template = _TEMPLATES.get(m.kind, {}).get(lang)
+    if m.kind == MomentKind.BIG_CHANCE and m.beat == "result":
+        template = _BIG_CHANCE_RESULTS.get(_shot_outcome(m) or "", {}).get(lang, template)
     if template is None:
         return None
     score = f"{m.state.home.goals}–{m.state.away.goals}"

@@ -28,5 +28,6 @@ def test_api_owned_fields_from_the_agent_are_reset_on_arrival(monkeypatch):
     p = hub.proposals["p-ai"]
     assert (p.status, p.decided_by, p.decided_at, p.override_line) == (ProposalStatus.PROPOSED, None, None, None)
     assert (p.package_id, p.package_seq, p.package_offset_ms, p.item_label) == (None, 0, 0, "")
-    assert (p.t_in_ms, p.t_out_ms) == (5_000, 9_000)  # placement comes from the scheduler (code), so it stays
+    # Placement is the API scheduler's: the agent's own times are replaced by a slot from the play clock now.
+    assert (p.t_in_ms, p.t_out_ms) == (0, p.t_end_ms - p.t_start_ms)
     assert [q.proposal_id for q in hub.proposals.values() if q.package_id == "pk-p-goal"] == ["p-goal"]
