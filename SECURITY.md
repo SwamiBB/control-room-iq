@@ -227,7 +227,7 @@ present in this POC:
   currently `Enabled` in `infra/modules/ai.bicep`).
 - **Entra ID sign-in** on the operator and viewer apps (the stated next step; see Known limits).
 - **Per-service workload identities with narrower RBAC.** The API, ingest and web apps currently share
-  one user-assigned managed identity (`id-crq-poc-eastus2-01`) which holds Event Hubs Data Owner at
+  one user-assigned managed identity which holds Event Hubs Data Owner at
   namespace scope and Cosmos DB Data Contributor at account scope. Splitting into three identities with
   per-container, per-hub and per-container-scoped role assignments is a Bicep rewrite reserved for a
   post-submission iteration.
