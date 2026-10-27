@@ -99,7 +99,7 @@ flowchart TB
     PR --> SC[scheduler.py<br/>code]
     SC --> PB[Publisher checks]
     PB --> DB[(Cosmos DB)]
-    DB --> CON[Operator console<br/>approve · hold · reject · override · undo]
+    DB --> CON[Operator console<br/>fire · hold · drop · override]
     SLA[SLA timer 20 s<br/>in-process asyncio] -->|hold as sla-timer| DB
     CON -->|fire / drop / hold / override| PUB[Publish → OverlayPacket<br/>+ approval triple]
   end
@@ -124,11 +124,11 @@ flowchart TB
 | **Stats engine** (`services/ingest/stats.py`) | Code | Pranav | Builds `MatchState`: score, xG, PPDA, `xg_last_5min`, `shots_last_5min`, `pressure_trend` (3-min window), `momentum_label`, `zone(x,y)`, `last_stoppage`, `current_phase` + position trail, `shots` ledger with `chance_rank`, `recap_points` (importance ≥ 0.6) |
 | **Moment detector** | Code (rules) | Pranav | Raises moments with a bounded snapshot. A big chance is two beats: `strike` on `shot_taken` and `result` on `shot` |
 | **FanCue builder** (`services/api/fan_cue.py`) | Code, no model | Swami | Team, attack direction (home left→right in the first half, swapped after), zone, pulse `tap/pulse/wave/surge` from importance, crowd level |
-| **Workflow** (`services/agents/agents/workflow.py`) | Agent Framework graph | Siranjeevi | Per result-beat moment: Explain → Narrator, then Producer ∥ (Personalizer → Localizer), then the scheduler. One trace per `moment_id`. Per-node timeouts and template fallbacks |
+| **Workflow** (`services/agents/agents/workflow.py`) | Agent Framework graph (runs in-process in the API container) | Siranjeevi | Per result-beat moment: Explain → Narrator → Producer; the card goes on the desk early (API queues it as soon as the Producer returns); then Personalizer → Localizer write persona × access and language variants from the card's line. Placement is done by the API's scheduler (`services/api/api/scheduler.py`) when the card is placed and again when it is fired, not by the workflow. One trace per `moment_id`. Per-agent timeouts and deterministic template fallbacks |
 | **Explain agent** (`explainer`) | LLM via `router-quality` | Siranjeevi | `why_it_matters`, past / now / next, `control_vs_chaos`, `cites[]` |
 | **Narrator agent** (`narrator`) | LLM via `router-balanced` | Siranjeevi | The English on-air line (≤ 22 words) the graphics operator fires, which every other version is checked against; the half- and full-time recap |
 | **Producer agent** (`producer`) | LLM via `router-quality` | Siranjeevi | Recommendation, graphic, evidence lines, alternatives. **No timing**. `payload.intel` is overwritten by code after it runs |
-| **Scheduler** (`services/agents/scheduler.py`) | Pure Python, unit-tested | Siranjeevi | Layer, `t_in/t_out` (play-ms), collisions, preemption, SLA, hold advice (rules in §6.3) |
+| **Scheduler** (`services/api/api/scheduler.py`) | Pure Python, unit-tested, called by the API | Siranjeevi | Layer, `t_in/t_out` (play-ms), collisions, preemption on goal / red card, SLA, hold advice (rules in §6.3) |
 | **Personalizer agent** (`personalizer`) | LLM via `router-cost` | Siranjeevi | English only: one version per persona (newcomer, fan, analyst) × access (none, deaf) that was asked for. The deaf fan's `FanCard` is built in code (`api/fan_card.py`), not by an agent |
 | **Localizer agent** (`localizer`) | LLM via `router-cost` | Siranjeevi | Renders the checked English versions in es and hi in one call; numbers, units and names unchanged. Code keeps only the requested targets, copies the English cites and drops anything labeled English (`keep_localized`). Offline or on failure: the template line in that language, never English labeled as es/hi |
 | **Recap** (`GET /recap`) | Code | Swami | "What did I miss" (10/20/30 min) from `recap_points` and the shot ledger. Not an agent; the Narrator writes the half- and full-time recap text |
@@ -221,7 +221,7 @@ sequenceDiagram
     SLA->>API: POST /proposals/{id}/hold (actor sla-timer)
     API->>DB: status=held_by_sla, decided_by=sla. Nothing published
   end
-  Note over CON,API: Undo reverts the last decision (status → pending). It never takes anything off air. Reject (Drop) does.
+  Note over CON,API: Drop is the take-out verb; it is a decision in its own right and is recorded like approve/hold.
   Note over SLA,API: Warning 10 s before the hold. A held graphic that is no longer relevant expires. Neither ever fires.
 ```
 
@@ -306,7 +306,7 @@ flowchart LR
 
 Layers (closed enum): `lower_third`, `fullscreen`, `ticker`, `stat_panel`, `player_tag`, `caption`, `pitch_overlay`. **The caption layer never queues**; a new caption always cuts the running one.
 
-If the scheduler isn't ready, the API assigns timing by arrival and labels the block "unscheduled." The SLA still runs. Never fake a collision rule.
+The scheduler is called by the API every time a card is placed (and again when it fires), so there are no "unscheduled" cards in the running order. Never fake a collision rule.
 
 ### 6.4 Proposal state model
 
@@ -323,9 +323,6 @@ stateDiagram-v2
   pending --> superseded: higher-priority moment, same phase
   approved --> aired: renderer airs packet
   overridden --> aired
-  approved --> pending: undo
-  held --> pending: undo
-  rejected --> pending: undo
   note right of held_by_sla: never approves or airs
 ```
 
@@ -355,7 +352,6 @@ stateDiagram-v2
 | **FanCard** | `cue`, `pulse`, `caption` (template, ≤ 12 words), `detail` {chance_quality, text}, `context` {past, now, next}, `cites[]`, `display`, `lang`. **One card, built in code** (`api/fan_card.py`); the web translates its fixed words from a small en/es/hi table |
 | **NarrativeVariant** list | One per (persona, access, lang) asked for: English from the Personalizer, es/hi from the Localizer (English cites copied by code); `checks[]` per variant |
 | **RecapCard** | `headline`, `story[3–5]`, `what_must_change`, `cites[]` |
-| **EvaluationRecord** | `moment_id`, `beat`, `agent`, `prompt_version`, `snapshot`, `output`, `cites_resolved/total`, `numbers_ok`, `fallback_reason`, `variant_checks`, `faithfulness`, `model_served`, `routing`, `latency_ms`, `superseded`, `expected` |
 
 **Open contract items:** es/hi native-speaker review; whether `t_start_ms/t_end_ms` become display-only once the scheduler lands. (Decided Oct 23: one FanCard, facts in code.)
 
@@ -367,8 +363,7 @@ stateDiagram-v2
 | --- | --- |
 | Replay control | Start and pace the seeded reference match (`play_ms` clock, period display). Offline mode uses `data/reference/match-042.jsonl` |
 | `GET /proposals?status=pending` | Pending decisions, highest priority first, with evidence, faithfulness, `model_served`, `hold_advice`, SLA deadline |
-| `POST /proposals/{id}/approve \| hold \| reject \| override` | Operator decision (idempotent; actor + timestamp). `hold` is also called by `sla-timer` |
-| Undo | Reverts the last decision and writes an audit row |
+| `POST /proposals/{id}/approve \| hold \| reject \| override` | Operator decision (idempotent; actor + timestamp). `hold` is also called by `sla-timer`. Drop is the take-out verb; there is no undo endpoint |
 | `GET /schedule` | Timeline: layers × play time, with booked, proposed, queued and preempted blocks |
 | `GET /deliveries` | Per viewer group: checked variant, template or English |
 | `GET /decisions.csv` | Full decision log, including SLA holds and rejects |
@@ -394,7 +389,8 @@ flowchart TB
 
   subgraph RG[Azure resource group — East US 2]
     subgraph ACA[Azure Container Apps · fixed replicas]
-      APIAPP[API app<br/>FastAPI + ingest + agents]
+      APIAPP[API app<br/>FastAPI + Agent Framework in-process]
+      INGESTAPP[Ingest app<br/>consumes crq-events<br/>folds state, raises moments]
       WEBAPP[Web app<br/>console · renderer · viewers]
     end
     EHN[[Event Hubs namespace<br/>crq-events · crq-moments · crq-overlay]]
@@ -418,8 +414,11 @@ flowchart TB
   APIAPP --> R1 & R2 & R3
   APIAPP -.fallback.-> FB
   APIAPP --> AI
+  INGESTAPP <-->|crq-events| EHN
+  INGESTAPP --> AI
   WEBAPP <--->|REST + WS| APIAPP
   MI -.-> APIAPP
+  MI -.-> INGESTAPP
 ```
 
 | Resource | Configuration |
@@ -448,9 +447,9 @@ In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/
 
 ## 10. Observability, evaluation and audit
 
-- **Tracing:** OpenTelemetry → Application Insights + Foundry tracing. **One trace per `moment_id`.** Span attributes: `crq.agent`, `crq.routing`, `crq.model_served`, plus latency, tokens, prompt version and fallback status. `agent.run` is wrapped to capture `response.model` into `meta.model_served`.
-- **Evaluation:** `evals/run_eval.py` replays the reference match offline and runs Foundry evaluators for groundedness/faithfulness, relevance and fluency per language. It also runs the planted-falsehood catch count (`evals/datasets/reference-042.jsonl`, `planted-falsehoods.jsonl`) and writes `evals/results/latest.md` in README table format. It runs nightly. The README frames results honestly: diagnostic on one reference match, not proof.
-- **Audit:** every agent run writes an `EvaluationRecord`. Every decision (including undo and SLA hold) goes to the append-only `decisions` container and is downloadable as `/decisions.csv`. Every delivery is visible on `/deliveries`.
+- **Tracing:** OpenTelemetry → Application Insights + Foundry tracing. **One trace per `moment_id`.** Each agent call is a `crq.agent` span carrying `crq.routing`, `crq.model_served`, `crq.latency_ms` and `crq.call_failed`, written by `services/agents/agents/telemetry.py` and the workflow's `_run` wrapper around every agent call.
+- **Evaluation:** `evals/run_eval.py` runs the live agents against the reference match's moments and submits the outputs to Foundry evaluators for groundedness / faithfulness, relevance and fluency per language. The planted-falsehood probes are built inline in the runner (there is no separate `evals/datasets/` file). Results land in `evals/results/latest.md`. The README frames results honestly: diagnostic on one reference match, not proof.
+- **Audit:** every operator decision (approve / hold / override / drop / SLA hold / expiry / supersession) is appended to the Cosmos DB `decisions` container by `services/api/api/decision_store.py` on a best-effort append path (queue + retries; sustained failures logged and dropped — see §4 of ENTERPRISE-OVERVIEW), and is downloadable as `/decisions.csv`. Every delivery is visible on `/deliveries`.
 - **Operational metrics:** `GET /metrics` reports turnaround, error rate and operator workload.
 
 ---
@@ -463,8 +462,7 @@ In code: `AGENT_ROUTING` and `deployment_for(agent)` in `services/agents/agents/
 | Agent timeout (12 s per agent, `AGENT_TIMEOUT_S`; result-beat target ≤ 12 s, measured 15.3 s average) | Template-backed card and packet; `fallback_reason` recorded; no stall |
 | Variant fails checks, or the Localizer is slow or fails | Template in that language immediately, else the English line marked English. Never English labeled as es/hi. Never delay the English line |
 | Output fails validation | Log `fallback_reason`, publish the deterministic template. Unsupported content is never published |
-| Scheduler not ready | Arrival-time timing labeled "unscheduled". SLA still runs |
-| Cosmos or Event Hubs unavailable | Local adapters behind identical repository and event interfaces |
+| Cosmos or Event Hubs unavailable | Local adapters behind identical repository and event interfaces; decision persistence is best-effort append (retry then log) so Cosmos failures do not block firing |
 | Agent Framework fan-out mismatch | Temporary plain-Python orchestration behind the same interface |
 | Public URL unstable | Record the video locally; keep offline testing instructions |
 
@@ -546,18 +544,18 @@ azd up   # cloud, after offline acceptance passes
 | Step | Expected result |
 | --- | --- |
 | Start the offline replay from the console, no login | Health shows ready; scoreboard, period and clock move; pitch view shows the current phase trail |
-| Minute ~23 big chance | FanCue pulse ≤ 1 s and the strike highlighted on the pitch; template caption ≤ 2 s; pending proposal with evidence, faithfulness, routed model (or template label) and SLA countdown |
+| Minute ~23 big chance | FanCue pulse ≤ 1 s and the strike highlighted on the pitch; template caption ≤ 2 s; pending proposal with evidence, faithfulness, the routed model (`crq.model_served`), the agent lineage chip row, and the SLA countdown |
 | Inspect the reasoning panel | The model the router selected is visible on the card and on the correlated agent span |
 | Approve the proposal | OverlayPacket emitted with the approval triple and decided_by = operator; renderer airs the block; deaf fan receives the FanCard detail; /deliveries shows which groups got a variant and which a template |
 | Switch the viewer to Newcomer · Hindi · home supporter | The same approved moment renders in Hindi as a checked variant or a template line, with supporter framing applied by code |
 | Leave the next card untouched for 20 s | Card becomes held_by_sla with decided_by = sla; nothing becomes approved or aired; the hold appears in decisions.csv |
 | Minute ~31 stoppage with card | Viewer explains why play stopped (template outside English); operator sees the card proposal |
-| Reject a low-value proposal | Nothing airs; reject recorded with actor; undo restores pending, not air |
+| Drop a low-value proposal | Nothing airs; drop recorded with actor and timestamp |
 | Minute ~41 chance, then goal 1.4 s later | Chance proposal superseded ("held, goal followed"); goal becomes active with hold advice; goal card preempts the running lower third on the timeline |
 | Override the goal line | Operator text airs unverified, in English, with the badge; decision audited |
 | Half time and full time | Recap card with cites; GET /recap?minutes=20 returns the catch-up (Saturday) |
 | Remove the approval triple from a packet (test tool) | Renderer refuses it and logs the refusal |
-| Disable the model or quota | Templates preserve the same visible path without a stall; template labels appear on cards |
+| Disable the model or quota | Templates preserve the same visible path without a stall; the proposal's fallback note explains it and the delivery chips show which viewer groups got the template |
 | Inspect trace and evaluation | One correlated record per moment with model_served; no unresolved cite or unsupported number aired |
 
 If cloud mode fails, ship the offline slice and show Foundry traces and evaluation evidence only if they were produced.
