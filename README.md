@@ -10,7 +10,8 @@ Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
 
 | | |
 | --- | --- |
-| Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator |
+| Live demo (operator) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator-demo |
+| Testing instructions | [Judge walkthrough (about three minutes, no login)](#judge-walkthrough-about-three-minutes-no-login) |
 | Live demo (deaf Spanish viewer) | https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/viewer?persona=newcomer&access=deaf&lang=es&allegiance=neutral |
 | Video (under 2 minutes) | [link] |
 | Tests in CI | 541 passing (377 Python + 164 TypeScript) |
@@ -99,7 +100,8 @@ Three things set it apart:
 
 ## Judge walkthrough (about three minutes, no login)
 
-1. Open the live demo. The reference match (seed 42, Harbor City v Northfield United) replays from 41:00.
+1. Open the live demo: https://ca-crq-web-poc-eastus2-01.wittyground-1f27f60c.eastus2.azurecontainerapps.io/operator-demo  
+   The reference match (seed 42, Harbor City v Northfield United) replays from 41:00.
 2. Watch the **running order** fill. Each card shows the proposed line, its evidence from the event feed,
    the faithfulness score, the model that wrote it, and a **Holds in 10 s** countdown.
 3. Use **Preview for** on a card to see exactly what a Spanish deaf fan or a Hindi newcomer would get, and
