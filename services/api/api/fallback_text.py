@@ -6,7 +6,9 @@ score, which also satisfies the deaf-access rule. Native-speaker review wanted f
 
 from __future__ import annotations
 
-from crq_schemas import Lang, MatchMeta, Moment, MomentKind, ShotRecord
+from crq_schemas import Lang, MatchMeta, Moment, MomentKind, Persona, ShotRecord
+
+from .goal_package import match_minute
 
 _TEMPLATES: dict[MomentKind, dict[str, str]] = {
     MomentKind.GOAL: {"en": "GOAL! {player} ({team}). Score {score}",
@@ -40,6 +42,22 @@ _BIG_CHANCE_RESULTS: dict[str, dict[str, str]] = {
 }
 
 
+# A goal's Spanish and Hindi line for each persona, in place of the one shared line above (goals always go out as a
+# template in those languages: delivery.py). The same facts as the English template, plus the ticker's minute; the
+# analyst also gets the shot's xG, which the deaf fan's card shows. Nothing else: no adjectives about the goal.
+_GOAL_BY_PERSONA: dict[Persona, dict[str, str]] = {
+    Persona.NEWCOMER: {"es": "¡GOL! {player} marca para {team}. Marcador: {score}",
+                       "hi": "गोल! {player} ने {team} के लिए गोल किया। स्कोर: {score}"},
+    Persona.FAN: {"es": "¡GOL de {player} para {team} en el minuto {minute}! Marcador {score}",
+                  "hi": "गोल! {minute}वें मिनट में {player} ने {team} के लिए गोल किया! स्कोर {score}"},
+    Persona.ANALYST: {"es": "Gol de {player} ({team}), minuto {minute}{xg}. Marcador {score}",
+                      "hi": "गोल: {player} ({team}), {minute}वाँ मिनट{xg}। स्कोर {score}"},
+}
+
+
+_SHOT_XG = {"es": ", xG del remate {xg}", "hi": ", शॉट का xG {xg}"}
+
+
 def moment_shot(m: Moment) -> ShotRecord | None:
     """The moment's own shot in the stats engine's shot ledger: the template line, the fan card and the number check
     all read this one."""
@@ -63,11 +81,18 @@ def _team_name(team_id: str | None, meta: MatchMeta | None) -> str:
     return next((t.name for t in teams if t.team_id == team_id), team_id or "")
 
 
-def template_line(m: Moment, lang: Lang, meta: MatchMeta | None) -> str | None:
+def template_line(m: Moment, lang: Lang, meta: MatchMeta | None, persona: Persona | None = None) -> str | None:
+    """The line for a viewer in `lang`; a persona gets its own goal line in Spanish and Hindi, else the shared one."""
     template = _TEMPLATES.get(m.kind, {}).get(lang)
+    if m.kind == MomentKind.GOAL and persona is not None:
+        template = _GOAL_BY_PERSONA[persona].get(lang, template)
     if m.kind == MomentKind.BIG_CHANCE and m.beat == "result":
         template = _BIG_CHANCE_RESULTS.get(_shot_outcome(m) or "", {}).get(lang, template)
     if template is None:
         return None
     score = f"{m.state.home.goals}–{m.state.away.goals}"
-    return template.format(player=_player_name(m.player, meta), team=_team_name(m.team, meta), score=score)
+    shot = moment_shot(m)
+    # The shot's own xG, named as such: the scorer's stats a moment later show his match total.
+    xg = _SHOT_XG.get(lang, ", xG {xg}").format(xg=f"{shot.xg:.2f}") if shot and shot.xg is not None else ""
+    return template.format(player=_player_name(m.player, meta), team=_team_name(m.team, meta), score=score,
+                           minute=match_minute(m), xg=xg)

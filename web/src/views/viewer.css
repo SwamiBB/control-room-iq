@@ -193,10 +193,18 @@
 .viewer .pitch.full-screen-up .ball-path { visibility: hidden; }
 
 /* ---- Score bug: top left, always there ---- */
-.score-bug {
+/* The bug and, for a supporter, their side's line under it: together inside BUG_RECT (layout.ts). */
+.bug-stack {
   position: absolute;
   z-index: 2;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2cqw;
+}
+.score-bug {
+  display: flex;
+  max-width: 100%;
   align-items: stretch;
   border-radius: 3px;
   overflow: hidden;
@@ -236,6 +244,29 @@
 .score-bug .clock.waiting { background: var(--furniture); font-family: system-ui, sans-serif; font-weight: 500; }
 .score-bug .clock.waiting::before { background: var(--live); }
 @keyframes tally { 50% { opacity: 0.25; } }
+.supporter-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0.3em 0.5em;
+  border-radius: 3px;
+  background: var(--furniture);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  font-family: var(--cond);
+  font-size: 1.1cqw;
+  line-height: 1.1;
+  color: #fff;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Only the team code gives way in a narrow frame: the score from the viewer's side is never clipped. */
+.supporter-line .team { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; letter-spacing: 0.04em; }
+.supporter-line .standing { flex: none; }
+.supporter-line .chip { width: 0.16em; height: 0.75em; border-radius: 1px; display: block; flex: none; }
+.supporter-line .chip.home { background: var(--home); }
+.supporter-line .chip.away { background: var(--away); }
 
 /* ---- Graphics furniture: kicker / main / detail ---- */
 /* The overlay is only the layer's region (layout.ts); .gfx is the object drawn in it, sized to content. */
@@ -347,7 +378,8 @@
 .overlay.layer-full_screen .gfx { box-shadow: none; }
 .overlay.layer-full_screen .body { background: none; align-items: center; gap: 1cqw; }
 .overlay.layer-full_screen .kick { font-size: 2cqw; letter-spacing: 0.2em; color: var(--live); font-weight: 700; }
-.overlay.layer-full_screen .main { font-size: 4.6cqw; font-weight: 700; line-height: 1.05; }
+/* A headline's lines are evened out, so its last word (often the score) is never left alone on a line. */
+.overlay.layer-full_screen .main { font-size: 4.6cqw; font-weight: 700; line-height: 1.05; text-wrap: balance; }
 .viewer[data-lang="hi"] .overlay.layer-full_screen .main { line-height: 1.2; }
 /* The scrim only half-dims the pitch, so the type carries its own shadow to stay legible over the markings. */
 .overlay.layer-full_screen .kick,

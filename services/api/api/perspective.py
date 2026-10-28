@@ -17,8 +17,8 @@ Standing = Literal["up", "down", "level"]
 # Native-speaker review wanted for es/hi before broadcast.
 _SCORE_TEXT: dict[str, dict[Standing, str]] = {
     "en": {"up": "{us}–{them} up", "down": "{us}–{them} down", "level": "level at {us}–{them}"},
-    "es": {"up": "ganando {us}–{them}", "down": "perdiendo {us}–{them}", "level": "empate a {us}–{them}"},
-    "hi": {"up": "{us}–{them} से आगे", "down": "{us}–{them} से पीछे", "level": "{us}–{them} की बराबरी"},
+    "es": {"up": "ganando {us}–{them}", "down": "perdiendo {us}–{them}", "level": "empatando {us}–{them}"},
+    "hi": {"up": "{us}–{them} से आगे", "down": "{us}–{them} से पीछे", "level": "{us}–{them} से बराबर"},
 }
 
 

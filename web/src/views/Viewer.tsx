@@ -8,7 +8,10 @@ import { H, W, asPath, type PathPoint } from "../components/pitchGeometry";
 import { asFrame, nextTrail, shotMirror, type TrackingFrame } from "../components/tracking";
 import type { IntelRegister, MomentMetrics } from "../intel";
 import { BUG_RECT, LAYER_RECTS, layerOf, onScreen, rectStyle, type Layer } from "../layout";
-import { HEADINGS, chanceText, heading, outcomeText, zoneText } from "../labels";
+import {
+  ACCESS_HELP_TEXT, ACCESS_NAMES, HEADINGS, PERSONA_HELP_TEXT, PERSONA_NAMES, SIDE_NAMES, VIEWER_UI, chanceText, heading,
+  isOutcome, keepTogether, outcomeText, supporterText, zoneText,
+} from "../labels";
 import { useLiveSocket } from "../useLiveSocket";
 import { SHOT_ON_SCREEN_MS, useRecent } from "../useRecent";
 import "./viewer.css";
@@ -18,22 +21,17 @@ export type Access = "none" | "deaf";
 type Allegiance = "home" | "away" | "neutral";
 type Lang = "en" | "es" | "hi";
 
-const PERSONAS: Record<Persona, string> = { newcomer: "New to football", fan: "Fan", analyst: "Analyst" };
-const ACCESS: Record<Access, string> = { none: "Standard", deaf: "Deaf — cues and captions" };
+/** One language's column of a labels.ts table: `{newcomer: "Nuevo en el fútbol", ...}`. */
+function inLang<K extends string>(table: Record<K, Record<Lang, string>>, lang: Lang): Record<K, string> {
+  return Object.fromEntries(Object.entries<Record<Lang, string>>(table).map(([k, v]) => [k, v[lang]])) as Record<K, string>;
+}
 
-/** What each choice changes, for the pickers' tooltips: the personalizer agent's rules, in a viewer's words. */
-export const PERSONA_HELP: Record<Persona, string> = {
-  newcomer: "Plain words, no jargon. Says what happened rather than the statistic, with one fact at most.",
-  fan: "Knows the game. Warm, factual lines with a key number or two, rounded: a speed, a pass length.",
-  analyst: "Precise and neutral. The supporting figure in full: speeds to one decimal, pass difficulty and accuracy.",
-};
-export const ACCESS_HELP: Record<Access, string> = {
-  none: "The graphics as broadcast.",
-  deaf: "A visual cue on every strike, and a caption card with who, where, the outcome and the score. "
-    + "Lines never rely on sound.",
-};
+/** What each choice changes, for the pickers' tooltips (English; the page shows the viewer's language). */
+export const PERSONA_HELP: Record<Persona, string> = inLang(PERSONA_HELP_TEXT, "en");
+export const ACCESS_HELP: Record<Access, string> = inLang(ACCESS_HELP_TEXT, "en");
+// Each language's name in that language, as language pickers do: a viewer who can't read the page can find theirs.
 const LANGS: Record<Lang, string> = { en: "English", es: "Español", hi: "हिन्दी" };
-const SIDES: Record<Allegiance, string> = { home: "Home", away: "Away", neutral: "Neutral" };
+const ui = (key: string, lang: Lang) => VIEWER_UI[key][lang];
 
 type Perspective = {
   side?: Allegiance;
@@ -88,6 +86,8 @@ export type Packet = {
     names?: Record<string, string>;
     /** [home, away] on the goal routine's ticker (goal_package.py). */
     score?: [number, number];
+    /** The shot's outcome code on a result beat's lead graphic (packets.py attach_fan_card). */
+    shot_outcome?: string;
   };
   fan_card?: FanCard | null;
 };
@@ -198,20 +198,34 @@ function CaptionCard({ card, lang }: { card: FanCard; lang: Lang }) {
  * the stats engine's own count and clock (GET /state), so it needs no approval, and it is the one thing on
  * the frame that is always there.
  */
-function ScoreBug({ standing, lang }: { standing: MatchStanding | null; lang: Lang }) {
+function ScoreBug({ standing, lang, allegiance }: {
+  standing: MatchStanding | null; lang: Lang; allegiance: Allegiance;
+}) {
   const minute = standing ? matchMinute(standing.period, standing.clockMs) : null;
   const place = { top: `${BUG_RECT.top}%`, left: `${BUG_RECT.left}%`, maxWidth: `${BUG_RECT.width}%` };
+  // A supporter's line under the bug, from the same live score, so it changes only when the bug does.
+  const supporter = standing ? supporterText(standing.home, standing.away, allegiance, lang) : null;
+  const ourTeam = allegiance === "home" ? standing?.homeTeam : standing?.awayTeam;
   return (
-    <div className="score-bug" style={place} aria-label={standing ? "Score and match clock" : undefined}>
-      {standing ? (
-        <>
-          <span className="team"><i className="chip home" />{(standing.homeTeam ?? "Home").toUpperCase()}</span>
-          <span className="score">{standing.home}–{standing.away}</span>
-          <span className="team"><i className="chip away" />{(standing.awayTeam ?? "Away").toUpperCase()}</span>
-          <span className="clock">{minute ?? heading("live", lang)}</span>
-        </>
-      ) : (
-        <span className="clock waiting">{heading("waiting", lang)}</span>
+    <div className="bug-stack" style={place}>
+      <div className="score-bug" aria-label={standing ? ui("bug", lang) : undefined}>
+        {standing ? (
+          <>
+            <span className="team"><i className="chip home" />{(standing.homeTeam ?? "Home").toUpperCase()}</span>
+            <span className="score">{standing.home}–{standing.away}</span>
+            <span className="team"><i className="chip away" />{(standing.awayTeam ?? "Away").toUpperCase()}</span>
+            <span className="clock">{minute ?? heading("live", lang)}</span>
+          </>
+        ) : (
+          <span className="clock waiting">{heading("waiting", lang)}</span>
+        )}
+      </div>
+      {supporter && (
+        <div className="supporter-line" aria-label={ui("your_side", lang)}>
+          <i className={`chip ${allegiance}`} />
+          {ourTeam && <span className="team">{ourTeam.toUpperCase()}</span>}
+          <span className="standing">{supporter}</span>
+        </div>
       )}
     </div>
   );
@@ -236,7 +250,7 @@ function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: 
     return (
       <div className="gfx">
         <span className="tag">{kicker}</span>
-        <span className="main">{p.line}</span>
+        <span className="main">{keepTogether(p.line)}</span>
         {badges}
       </div>
     );
@@ -245,15 +259,16 @@ function Graphic({ p, layer, lang, register }: { p: Packet; layer: Layer; lang: 
     <IntelChips metrics={p.payload?.intel as MomentMetrics | undefined} name={nameLookup(p)} register={register}
                 lang={lang} />
   );
-  // The spine takes the team colour the graphic carries (the scorer's stats do), else the viewer's side.
-  const teamColor = (p.payload as { team_color?: unknown } | undefined)?.team_color;
-  const spine = typeof teamColor === "string" ? { background: teamColor } : undefined;
+  // The spine takes the side the graphic is about (the scorer's stats carry it), in the same home/away colour as the
+  // score bug and the players; else the viewer's own side.
+  const side = (p.payload as { team_side?: unknown } | undefined)?.team_side;
+  const spine = side === "home" || side === "away" ? { background: `var(--${side})` } : undefined;
   return (
     <div className="gfx">
       {layer === "lower_third" && <span className="spine" style={spine} aria-hidden="true" />}
       <div className="body">
         <span className="kick">{kicker}{badges}</span>
-        <span className="main">{p.line}</span>
+        <span className="main">{keepTogether(p.line)}</span>
         {detail && <div className="detail">{detail}</div>}
       </div>
     </div>
@@ -360,15 +375,16 @@ export function isRestart(prev: MatchStanding | null, next: MatchStanding | null
 /** The standalone viewer's choices from its URL, so a refresh brings back the same viewer. Unknown values are ignored. */
 export function settingsFromQuery(search: string): ViewerPreset {
   const q = new URLSearchParams(search);
-  const pick = <K extends string>(key: string, allowed: Record<K, string>): K | undefined => {
+  const pick = <K extends string>(key: string, allowed: Record<K, unknown>): K | undefined => {
     const v = q.get(key);
-    return v !== null && v in allowed ? (v as K) : undefined;
+    // Own keys only: `in` also accepted "toString", which then reached the labels as a function.
+    return v !== null && Object.hasOwn(allowed, v) ? (v as K) : undefined;
   };
   return {
-    persona: pick("persona", PERSONAS),
-    access: pick("access", ACCESS),
+    persona: pick("persona", PERSONA_NAMES),
+    access: pick("access", ACCESS_NAMES),
     lang: pick("lang", LANGS),
-    allegiance: pick("allegiance", SIDES),
+    allegiance: pick("allegiance", SIDE_NAMES),
   };
 }
 
@@ -384,6 +400,9 @@ export function kickerFor(p: Packet, lang: Lang): string {
   const outcome = outcomeText(p.fan_card?.detail?.outcome, lang);
   if (outcome) return outcome;
   const payload = p.payload as (Packet["payload"] & { source?: string }) | undefined;
+  // Hearing viewers get no caption card (#54); the API copies its outcome code into the payload for them.
+  const coded = isOutcome(payload?.shot_outcome) ? outcomeText(payload.shot_outcome, lang) : null;
+  if (coded) return coded;
   if (Array.isArray(payload?.score)) return heading("score", lang);
   if (payload?.source === "code") return heading("stats", lang);
   if (payload?.intel?.shot_speed_kmh != null || payload?.intel?.shot_path) return heading("shot", lang);
@@ -421,9 +440,11 @@ export const cueWord = (kind: string, lang: Lang) => HEADINGS[`cue.${kind}`]?.[l
  * A small "?" beside a picker's label: hover or focus it for what every choice means. The select carries the
  * current choice's meaning as its own tooltip too, and points screen readers at this list.
  */
-function Help<K extends string>({ id, names, help }: { id: string; names: Record<K, string>; help: Record<K, string> }) {
+function Help<K extends string>({ id, names, help, label }: {
+  id: string; names: Record<K, string>; help: Record<K, string>; label: string;
+}) {
   return (
-    <span className="help" tabIndex={0} aria-label="What these mean">
+    <span className="help" tabIndex={0} aria-label={label}>
       ?
       <span className="tip" role="tooltip" id={id}>
         {(Object.keys(names) as K[]).map((k) => <span key={k}><b>{names[k]}</b>: {help[k]}</span>)}
@@ -569,8 +590,11 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
 
   const register: IntelRegister = persona;
   const nameOf = nameLookup(packet);
-  const accent = allegiance !== "neutral" ? strip?.color : undefined;
+  // A supporter's accent is their side's colour, the same one the score bug, the dots and the stats spine use.
+  const accent = allegiance !== "neutral" ? `var(--${allegiance})` : undefined;
   const card = captionCardFor(packet, access);
+  const personas = inLang(PERSONA_NAMES, lang), accesses = inLang(ACCESS_NAMES, lang), sides = inLang(SIDE_NAMES, lang);
+  const personaHelp = inLang(PERSONA_HELP_TEXT, lang), accessHelp = inLang(ACCESS_HELP_TEXT, lang);
 
   return (
     <div
@@ -580,41 +604,47 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       style={accent ? ({ ["--side-color" as string]: accent }) : undefined}
     >
       <header className="viewer-head">
-        {chrome ? <h1>Viewer</h1> : (
+        {chrome ? <h1>{ui("title", lang)}</h1> : (
           <p className="frame-label">
-            {PERSONAS[persona]} · {ACCESS[access]} · {LANGS[lang]}
-            {allegiance !== "neutral" && ` · ${SIDES[allegiance]}`}
+            {personas[persona]} · {accesses[access]} · {LANGS[lang]}
+            {allegiance !== "neutral" && ` · ${sides[allegiance]}`}
           </p>
         )}
         <div className="viewer-controls" hidden={!chrome}>
           <label>
-            <span>Who is watching <Help id={`${helpId}-persona`} names={PERSONAS} help={PERSONA_HELP} /></span>
+            <span>
+              {ui("who", lang)}{" "}
+              <Help id={`${helpId}-persona`} names={personas} help={personaHelp} label={ui("help", lang)} />
+            </span>
             <select value={persona} onChange={(e) => setPersona(e.target.value as Persona)}
-                    title={PERSONA_HELP[persona]} aria-describedby={`${helpId}-persona`}>
-              {Object.entries(PERSONAS).map(([k, v]) => (
-                <option key={k} value={k} title={PERSONA_HELP[k as Persona]}>{v}</option>
+                    title={personaHelp[persona]} aria-describedby={`${helpId}-persona`}>
+              {Object.entries(personas).map(([k, v]) => (
+                <option key={k} value={k} title={personaHelp[k as Persona]}>{v}</option>
               ))}
             </select>
           </label>
           <label>
-            <span>Accessibility <Help id={`${helpId}-access`} names={ACCESS} help={ACCESS_HELP} /></span>
+            <span>
+              {ui("access", lang)}{" "}
+              <Help id={`${helpId}-access`} names={accesses} help={accessHelp} label={ui("help", lang)} />
+            </span>
             <select value={access} onChange={(e) => setAccess(e.target.value as Access)}
-                    title={ACCESS_HELP[access]} aria-describedby={`${helpId}-access`}>
-              {Object.entries(ACCESS).map(([k, v]) => (
-                <option key={k} value={k} title={ACCESS_HELP[k as Access]}>{v}</option>
+                    title={accessHelp[access]} aria-describedby={`${helpId}-access`}>
+              {Object.entries(accesses).map(([k, v]) => (
+                <option key={k} value={k} title={accessHelp[k as Access]}>{v}</option>
               ))}
             </select>
           </label>
           <label>
-            <span>Language</span>
+            <span>{ui("language", lang)}</span>
             <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
               {Object.entries(LANGS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </label>
           <label>
-            <span>Supporting</span>
+            <span>{ui("supporting", lang)}</span>
             <select value={allegiance} onChange={(e) => setAllegiance(e.target.value as Allegiance)}>
-              {Object.entries(SIDES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {Object.entries(sides).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </label>
         </div>
@@ -639,7 +669,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
         {/* Graded like a camera feed: a vignette gives the frame a centre; a full screen dims the whole frame. */}
         <div className="vignette" aria-hidden="true" />
         {fullScreenUp && <div className="scrim" aria-hidden="true" />}
-        <ScoreBug standing={standing} lang={lang} />
+        <ScoreBug standing={standing} lang={lang} allegiance={allegiance} />
         {/* Beat one: code-built, no generated text, so it needs no approval and lands on the strike. */}
         {cue && (
           <div
@@ -666,11 +696,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
             new run loading, is worth a line. */}
         {shown.length === 0 && !cue && (link !== "live" || warming) && (
           <p className="viewer-idle">
-            {link === "live"
-              ? "Warming up: the next run is loading."
-              : link === "connecting"
-                ? "Connecting…"
-                : "Lost the feed. Reconnecting automatically."}
+            {ui(link === "live" ? "warming" : link === "connecting" ? "connecting" : "lost", lang)}
           </p>
         )}
       </div>
@@ -679,9 +705,7 @@ export default function Viewer({ preset, chrome = true }: ViewerProps = {}) {
       {card && <CaptionCard card={card} lang={lang} />}
 
       {access !== "deaf" && (
-        <p className="viewer-note">
-          Strike cues and detail cards go to deaf-access viewers. Switch Accessibility to see them.
-        </p>
+        <p className="viewer-note">{ui("note", lang)}</p>
       )}
 
       <ul className="history">

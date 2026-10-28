@@ -30,7 +30,8 @@ export const LAYER_RECTS: Record<Layer, Rect> = {
  * The score bug: always on screen, top left, so no layer may overlap it. It is furniture, not a layer: the
  * stats engine's score and clock, not an approved graphic.
  */
-export const BUG_RECT: Rect = { top: 3, left: 3, width: 26, height: 9 };
+// Tall enough for a supporter's line under the bug: the two measure about 10.4% of the frame.
+export const BUG_RECT: Rect = { top: 3, left: 3, width: 26, height: 11 };
 
 /** Layers that wait under a full-screen graphic rather than share the frame with it. */
 export const UNDER_FULL_SCREEN: readonly Layer[] = ["heatmap", "stat_panel", "pitch_overlay"];

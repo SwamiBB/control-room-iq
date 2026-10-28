@@ -20,6 +20,7 @@ from crq_schemas import (
 from pydantic import BaseModel
 
 from .clock import PlayClock
+from .fan_card import OUTCOMES
 
 VERIFIED_FAITHFULNESS = 0.8
 
@@ -86,7 +87,17 @@ def build_packet(p: OverlayProposal, approval: DecisionLogEntry, clock: PlayCloc
 
 
 def attach_fan_card(packet: OverlayPacket, card: FanCard | None) -> OverlayPacket:
-    return packet.model_copy(update={"fan_card": card}) if card else packet
+    """Adds the deaf fan's caption card, and its shot outcome to the payload as `shot_outcome`.
+
+    Only deaf viewers get the card (#54), so the outcome travels in the payload too: a hearing viewer's kicker then
+    says "Goal" over a goal, not "Shot". It is a code from the stats engine (fan_card.OUTCOMES), never generated
+    text, so any `shot_outcome` an agent wrote into the payload is dropped first.
+    """
+    payload = {k: v for k, v in packet.payload.items() if k != "shot_outcome"}
+    outcome = card.detail.outcome if card else None
+    if outcome in OUTCOMES:
+        payload["shot_outcome"] = outcome
+    return packet.model_copy(update={"fan_card": card, "payload": payload})
 
 
 

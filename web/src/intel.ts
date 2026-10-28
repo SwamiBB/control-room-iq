@@ -103,7 +103,10 @@ export function intelChips(m: MomentMetrics | null | undefined, name: NameOf, re
       if (kp.ball_speed_kmh != null) chips.push({ key: "bsp", label: kind("ball_speed"), value: kmh(kp.ball_speed_kmh), tone: "info" });
     }
   }
-  if (m.shot_speed_kmh != null) chips.push({ key: "shot", label: kind("shot_speed"), value: register === "newcomer" ? w(m.shot_speed_kmh >= 100 ? "thunderous" : "struck_firmly") : kmh(m.shot_speed_kmh), tone: "hot" });
+  // The newcomer gets words, not a speed, so the chip names the shooter, not "Shot speed": "Finn Oakes · Struck firmly".
+  if (m.shot_speed_kmh != null) chips.push(register === "newcomer"
+    ? { key: "shot", label: m.player ? name(m.player) : "", value: w(m.shot_speed_kmh >= 100 ? "thunderous" : "struck_firmly"), tone: "hot" }
+    : { key: "shot", label: kind("shot_speed"), value: kmh(m.shot_speed_kmh), tone: "hot" });
   if (register !== "newcomer") {
     if (m.player_speed_kmh != null && !quoted.has(m.player_speed_kmh)) chips.push({ key: "spd", label: `${w("speed")} · ${name(m.player)}`, value: kmh(m.player_speed_kmh), tone: "info" });
     if (register === "analyst" && m.player_distance_km != null)

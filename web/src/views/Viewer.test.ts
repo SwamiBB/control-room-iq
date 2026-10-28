@@ -223,7 +223,10 @@ describe("nameLookup (names in the chips)", () => {
     const name = nameLookup(withIntel);
     expect(intelChips(withIntel.payload?.intel, name, "fan", "es")[0]).toMatchObject({ label: "Pase de Oli Stone", value: "31 m · Difícil" });
     expect(intelChips(withIntel.payload?.intel, name, "newcomer", "hi")[0]).toMatchObject({ label: "Oli Stone का पास", value: "कठिन पास" });
-    expect(intelChips({ shot_speed_kmh: 88.1 }, name, "newcomer", "es")[0]).toMatchObject({ label: "Velocidad del remate", value: "Disparo firme" });
+    // A newcomer gets words, not a speed, so the chip names the shooter rather than reading "Shot speed Struck firmly".
+    expect(intelChips({ shot_speed_kmh: 88.1, player: "riv-09" }, name, "newcomer", "es")[0])
+      .toMatchObject({ label: "riv-09", value: "Remate firme" });
+    expect(intelChips({ shot_speed_kmh: 88.1 }, name, "analyst", "es")[0]).toMatchObject({ label: "Velocidad del remate" });
   });
 
   it("falls back to payload.names, then to the id", () => {
@@ -320,6 +323,12 @@ describe("viewer settings in the URL", () => {
     expect(settingsFromQuery(`?${queryFor(s)}`)).toEqual(s);
   });
 
+  it("ignores the names every object has", () => {
+    expect(settingsFromQuery("?persona=constructor&lang=toString&allegiance=__proto__&access=valueOf")).toEqual({
+      persona: undefined, access: undefined, lang: undefined, allegiance: undefined,
+    });
+  });
+
   it("ignores values it does not know", () => {
     expect(settingsFromQuery("?persona=coach&lang=fr&access=deaf")).toEqual({
       persona: undefined, access: "deaf", lang: undefined, allegiance: undefined,
@@ -332,6 +341,19 @@ describe("kickerFor (the line above a graphic, from data the packet carries)", (
     const goal = { ...lead, fan_card: { ...card, detail: { outcome: "goal" } } };
     expect(kickerFor(goal, "en")).toBe("Goal");
     expect(kickerFor(goal, "es")).toBe("Gol");
+  });
+
+  it("says Goal to a hearing viewer too, from the outcome code in the payload, ahead of the score", () => {
+    const hearing = { ...lead, fan_card: null, payload: { shot_outcome: "goal", score: [1, 0] as [number, number] } };
+    expect(kickerFor(hearing, "en")).toBe("Goal");
+    expect(kickerFor(hearing, "es")).toBe("Gol");
+    expect(kickerFor(hearing, "hi")).toBe("गोल");
+    expect(kickerFor({ ...lead, payload: { shot_outcome: "saved" } }, "es")).toBe("Atajado");
+  });
+
+  it("ignores an outcome code it cannot name", () => {
+    expect(kickerFor({ ...lead, payload: { shot_outcome: "toString" } }, "en")).toBe("Live");
+    expect(kickerFor({ ...lead, payload: { shot_outcome: "screamer" } }, "en")).toBe("Live");
   });
 
   it("marks the goal ticker as the score and the scorer's lower third as the stats", () => {

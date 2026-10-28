@@ -7,7 +7,7 @@ templates outside the base language even when the variant passes, because one wr
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from crq_schemas import Access, Lang, MomentKind, NarrativeVariant, OverlayPacket, Persona
@@ -27,6 +27,9 @@ class DeliveryPlan:
     templates: dict[str, str]  # lang -> template line; empty when the moment kind has none
     is_high_stakes: bool
     is_override: bool
+    # (persona, lang) -> that persona's own template line, preferred over the shared one (a goal's in Spanish and
+    # Hindi, and the analyst's scorer stats)
+    persona_templates: dict[tuple[Persona, str], str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -62,7 +65,10 @@ def choose_delivery(plan: DeliveryPlan, prefs: ViewerPrefs) -> Delivery:
     v, reasons = _reasons(plan, prefs)
     if v is not None and not reasons:
         return delivery("variant", v.text, [])
-    template = plan.templates.get(prefs.lang) if prefs.lang != BASE_LANG else None
+    # A persona's own line first, in any language (the analyst's scorer stats have an English one too), then the
+    # shared line in the viewer's language; English otherwise keeps the approved line.
+    template = plan.persona_templates.get((prefs.persona, prefs.lang)) or (
+        plan.templates.get(prefs.lang) if prefs.lang != BASE_LANG else None)
     return delivery("template", template, reasons) if template else delivery("base", None, reasons)
 
 

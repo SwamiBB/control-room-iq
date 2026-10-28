@@ -16,8 +16,8 @@ def _score(home: int, away: int):
 
 @pytest.mark.parametrize(("lang", "ours", "theirs", "expected"), [
     ("en", 2, 1, "2–1 up"), ("en", 0, 1, "0–1 down"), ("en", 1, 1, "level at 1–1"),
-    ("es", 2, 1, "ganando 2–1"), ("es", 0, 1, "perdiendo 0–1"), ("es", 1, 1, "empate a 1–1"),
-    ("hi", 2, 1, "2–1 से आगे"), ("hi", 0, 1, "0–1 से पीछे"), ("hi", 1, 1, "1–1 की बराबरी"),
+    ("es", 2, 1, "ganando 2–1"), ("es", 0, 1, "perdiendo 0–1"), ("es", 1, 1, "empatando 1–1"),
+    ("hi", 2, 1, "2–1 से आगे"), ("hi", 0, 1, "0–1 से पीछे"), ("hi", 1, 1, "1–1 से बराबर"),
 ])
 def test_score_text_reads_from_the_viewers_side_in_their_language(lang, ours, theirs, expected):
     assert score_text(ours, theirs, lang) == expected

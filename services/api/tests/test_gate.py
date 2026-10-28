@@ -117,6 +117,25 @@ def test_only_deaf_access_viewers_get_the_caption_card():
     assert to_hearing.fan_card is None and to_hearing.line == to_deaf.line
 
 
+def test_a_hearing_viewer_still_learns_the_outcome_from_the_payload():
+    # Without the card, the hearing viewer's kicker said "Shot" over a goal: the outcome code now rides in the payload.
+    card = FanCard(card_id="fc-1", match_id="m", moment_id="mo-1", play_ms=600_000, caption="GOAL",
+                   detail={"outcome": "goal"})
+    hearing = _viewer(lang="es")
+    pid = _seed(proposal(payload={"shot_outcome": "an agent's words"}), fan_card=card.model_dump(mode="json"))
+    TestClient(app).post(f"/proposals/{pid}/approve")
+    (packet,) = _aired(hearing)
+    assert packet.fan_card is None and packet.payload["shot_outcome"] == "goal"
+
+
+def test_an_agent_cannot_put_its_own_outcome_on_screen():
+    pid = _seed(proposal(payload={"shot_outcome": "goal"}))  # no caption card: not a result beat
+    hearing = _viewer()
+    TestClient(app).post(f"/proposals/{pid}/approve")
+    (packet,) = _aired(hearing)
+    assert "shot_outcome" not in packet.payload
+
+
 def test_an_override_of_a_template_line_is_not_badged_as_the_template():
     viewer = _viewer()
     pid = _seed(proposal(fallback=True))

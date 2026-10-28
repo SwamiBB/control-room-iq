@@ -1,7 +1,7 @@
 import pytest
 from api.fallback_text import template_line
 from api_factories import match_state, moment
-from crq_schemas import MomentKind, ShotRecord, TeamStats
+from crq_schemas import MomentKind, Persona, ShotRecord, TeamStats
 from simulator.cli import build_meta
 
 META = build_meta(42)
@@ -23,6 +23,36 @@ def _m(kind):
 ])
 def test_template_line_fills_names_and_score_from_ground_truth(kind, lang, expected):
     assert template_line(_m(kind), lang, META) == expected
+
+
+def _goal_with_shot():
+    shot = ShotRecord(event_id="e-1", play_ms=600_000, period=1, t_ms=600_000, team="har", player="har-02", xg=0.45,
+                      outcome="goal")
+    state = match_state(home=TeamStats(team="har", goals=2), away=TeamStats(team="nfu", goals=1), shots=[shot])
+    return moment(kind=MomentKind.GOAL, player="har-02", team="har", t_ms=600_000, state=state)
+
+
+@pytest.mark.parametrize(("persona", "lang", "expected"), [
+    (Persona.NEWCOMER, "es", "¡GOL! Ade Pike marca para Harbor City. Marcador: 2–1"),
+    (Persona.NEWCOMER, "hi", "गोल! Ade Pike ने Harbor City के लिए गोल किया। स्कोर: 2–1"),
+    (Persona.FAN, "es", "¡GOL de Ade Pike para Harbor City en el minuto 11! Marcador 2–1"),
+    (Persona.FAN, "hi", "गोल! 11वें मिनट में Ade Pike ने Harbor City के लिए गोल किया! स्कोर 2–1"),
+    (Persona.ANALYST, "es", "Gol de Ade Pike (Harbor City), minuto 11, xG del remate 0.45. Marcador 2–1"),
+    (Persona.ANALYST, "hi", "गोल: Ade Pike (Harbor City), 11वाँ मिनट, शॉट का xG 0.45। स्कोर 2–1"),
+])
+def test_each_persona_gets_its_own_goal_line_in_spanish_and_hindi(persona, lang, expected):
+    assert template_line(_goal_with_shot(), lang, META, persona) == expected
+
+
+def test_persona_goal_lines_keep_the_score_and_names_of_the_english_template():
+    m = _goal_with_shot()
+    for persona in Persona:
+        for lang in ("es", "hi"):
+            line = template_line(m, lang, META, persona)
+            assert "2–1" in line and "Ade Pike" in line and "Harbor City" in line  # the score: the deaf-access rule
+    # English keeps its one template; the analyst line drops the xG when the moment has no shot.
+    assert template_line(m, "en", META, Persona.ANALYST) == template_line(m, "en", META)
+    assert "xG" not in template_line(_m(MomentKind.GOAL), "es", META, Persona.ANALYST)
 
 
 def test_kinds_without_a_template_return_none():

@@ -64,8 +64,17 @@ def test_high_stakes_moment_uses_templates_outside_the_base_language():
     goal = _moment(MomentKind.GOAL)
     _approve([_variant("es", "¡GOL de Ade Pike!"), _variant("en", "Ade Pike scores!")], m=goal,
              line="GOAL Ade Pike")
-    assert _seen(es).line == template_line(goal, "es", META)
+    assert _seen(es).line == template_line(goal, "es", META, Persona.FAN)
     assert _seen(en).line == "Ade Pike scores!"
+
+
+def test_a_goal_template_is_written_for_each_persona():
+    newcomer, analyst = _viewer("hi", Persona.NEWCOMER), _viewer("hi", Persona.ANALYST)
+    goal = _moment(MomentKind.GOAL)
+    _approve([], m=goal, line="GOAL Ade Pike")
+    assert _seen(newcomer).line == template_line(goal, "hi", META, Persona.NEWCOMER)
+    assert _seen(analyst).line == template_line(goal, "hi", META, Persona.ANALYST)
+    assert _seen(newcomer).line != _seen(analyst).line and _seen(analyst).lang == "hi"
 
 
 def test_no_template_and_failed_variant_airs_the_approved_line_marked_as_english():

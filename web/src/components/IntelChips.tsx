@@ -10,7 +10,7 @@ export default function IntelChips({ metrics, name, register = "analyst", lang =
     <ul className="intel-chips" aria-label="Match intelligence">
       {chips.map((c) => (
         <li key={c.key} className={`chip ${c.tone ?? "info"}`}>
-          <span className="chip-label">{c.label}</span>
+          {c.label && <span className="chip-label">{c.label}</span>}
           <b className="chip-value">{c.value}</b>
         </li>
       ))}

@@ -39,6 +39,7 @@ from crq_schemas import (
     NarrativeVariant,
     OverlayPacket,
     OverlayProposal,
+    Persona,
     ProposalStatus,
     Recap,
 )
@@ -59,7 +60,7 @@ from .fallback_text import template_line
 from .fan_card import build_fan_card
 from .fan_cue import build_fan_cue
 from .feed import OverlayFeed, eventhubs_sink_from_env
-from .goal_package import build_goal_package, is_code_built
+from .goal_package import build_goal_package, code_built_lines, code_built_persona_lines, is_code_built
 from .guards import (
     DECISIONS_PER_MINUTE,
     MAX_REPLAY_SPEED,
@@ -338,13 +339,19 @@ def _fan_card(p: OverlayProposal) -> FanCard | None:
 def _delivery_plan(p: OverlayProposal) -> DeliveryPlan:
     m = hub.moments.get(p.moment_id)
     if is_code_built(p):
-        # Stats and ticker lines are code from the official data, not AI: no variants or templates apply.
-        return DeliveryPlan(variants=(), ctx=build_context(p, m, hub.meta), templates={}, is_high_stakes=False,
-                            is_override=bool(p.override_line))
+        # Stats and ticker lines are code from the official data, not AI: no variants. Spanish and Hindi viewers get
+        # the same line built in their language, by the template path.
+        return DeliveryPlan(variants=(), ctx=build_context(p, m, hub.meta),
+                            templates=code_built_lines(p, m, hub.meta), is_high_stakes=False,
+                            is_override=bool(p.override_line),
+                            persona_templates=code_built_persona_lines(p, m, hub.meta))
     variants = [NarrativeVariant.model_validate(v) for v in hub.results.get(p.moment_id, {}).get("variants", [])]
     templates = {lang: line for lang in get_args(Lang) if m and (line := template_line(m, lang, hub.meta))}
+    persona_templates = {(persona, lang): line for persona in Persona for lang in get_args(Lang)
+                         if m and (line := template_line(m, lang, hub.meta, persona)) != templates.get(lang)}
     # An override replaces the AI line for everyone, so neither variants nor templates of it may air.
     return DeliveryPlan(variants=tuple(variants), ctx=build_context(p, m, hub.meta), templates=templates,
+                        persona_templates=persona_templates,
                         is_high_stakes=bool(m and m.kind in HIGH_STAKES_KINDS), is_override=bool(p.override_line))
 
 

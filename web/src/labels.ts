@@ -65,6 +65,69 @@ export const HEADINGS: Record<string, T> = {
   "cue.play": { en: "Play", es: "Juego", hi: "खेल" },
 };
 
+/** The viewer page around the picture: its title, the pickers, the help and the status lines. */
+export const VIEWER_UI: Record<string, T> = {
+  title: { en: "Viewer", es: "Espectador", hi: "दर्शक" },
+  who: { en: "Who is watching", es: "Quién mira", hi: "कौन देख रहा है" },
+  access: { en: "Accessibility", es: "Accesibilidad", hi: "सुगम्यता" },
+  language: { en: "Language", es: "Idioma", hi: "भाषा" },
+  supporting: { en: "Supporting", es: "Tu equipo", hi: "समर्थन" },
+  help: { en: "What these mean", es: "Qué significa cada opción", hi: "इनका मतलब" },
+  note: {
+    en: "Strike cues and detail cards go to deaf-access viewers. Switch Accessibility to see them.",
+    es: "Las señales de remate y las fichas de detalle se muestran en el modo para personas sordas. Cambia Accesibilidad para verlas.",
+    hi: "शॉट के संकेत और विवरण कार्ड बधिर दर्शकों वाले विकल्प में दिखते हैं। इन्हें देखने के लिए सुगम्यता बदलें।",
+  },
+  warming: { en: "Warming up: the next run is loading.", es: "Preparando: se está cargando la siguiente secuencia.", hi: "तैयारी हो रही है: अगला रीप्ले लोड हो रहा है।" },
+  connecting: { en: "Connecting…", es: "Conectando…", hi: "कनेक्ट हो रहा है…" },
+  lost: { en: "Lost the feed. Reconnecting automatically.", es: "Se perdió la señal. Reconectando automáticamente.", hi: "फ़ीड टूट गई। अपने-आप दोबारा जुड़ रहा है।" },
+  bug: { en: "Score and match clock", es: "Marcador y reloj del partido", hi: "स्कोर और मैच की घड़ी" },
+  your_side: { en: "The score from your side", es: "El marcador visto desde tu equipo", hi: "आपकी टीम के हिसाब से स्कोर" },
+};
+
+/** The pickers' choices. Language names stay in their own language, as language pickers do. */
+export const PERSONA_NAMES: Record<"newcomer" | "fan" | "analyst", T> = {
+  newcomer: { en: "New to football", es: "Nuevo en el fútbol", hi: "फ़ुटबॉल में नए" },
+  fan: { en: "Fan", es: "Aficionado", hi: "प्रशंसक" },
+  analyst: { en: "Analyst", es: "Analista", hi: "विश्लेषक" },
+};
+export const ACCESS_NAMES: Record<"none" | "deaf", T> = {
+  none: { en: "Standard", es: "Estándar", hi: "सामान्य" },
+  deaf: { en: "Deaf — cues and captions", es: "Personas sordas — señales y subtítulos", hi: "बधिर — संकेत और कैप्शन" },
+};
+export const SIDE_NAMES: Record<"home" | "away" | "neutral", T> = {
+  home: { en: "Home", es: "Local", hi: "घरेलू टीम" },
+  away: { en: "Away", es: "Visitante", hi: "मेहमान टीम" },
+  neutral: { en: "Neutral", es: "Neutral", hi: "तटस्थ" },
+};
+
+/** What each choice changes, for the pickers' tooltips: the personalizer agent's rules, in a viewer's words. */
+export const PERSONA_HELP_TEXT: Record<"newcomer" | "fan" | "analyst", T> = {
+  newcomer: {
+    en: "Plain words, no jargon. Says what happened rather than the statistic, with one fact at most.",
+    es: "Palabras sencillas, sin tecnicismos. Cuenta lo que pasó en lugar de la estadística, con un dato como mucho.",
+    hi: "आसान शब्द, कोई तकनीकी भाषा नहीं। आँकड़े की जगह बताता है कि क्या हुआ, ज़्यादा से ज़्यादा एक तथ्य के साथ।",
+  },
+  fan: {
+    en: "Knows the game. Warm, factual lines with a key number or two, rounded: a speed, a pass length.",
+    es: "Conoce el juego. Frases cercanas y precisas con uno o dos datos clave, redondeados: una velocidad, la longitud de un pase.",
+    hi: "खेल को जानते हैं। गर्मजोशी भरी, तथ्यपूर्ण पंक्तियाँ, एक-दो मुख्य आँकड़ों के साथ, पूर्णांक में: कोई गति, पास की लंबाई।",
+  },
+  analyst: {
+    en: "Precise and neutral. The supporting figure in full: speeds to one decimal, pass difficulty and accuracy.",
+    es: "Preciso y neutral. El dato completo: velocidades con un decimal, dificultad y precisión de los pases.",
+    hi: "सटीक और निष्पक्ष। पूरा आँकड़ा: गति एक दशमलव तक, पास की कठिनाई और सटीकता।",
+  },
+};
+export const ACCESS_HELP_TEXT: Record<"none" | "deaf", T> = {
+  none: { en: "The graphics as broadcast.", es: "Los gráficos tal como se emiten.", hi: "ग्राफ़िक्स, जैसे प्रसारण में आते हैं।" },
+  deaf: {
+    en: "A visual cue on every strike, and a caption card with who, where, the outcome and the score. Lines never rely on sound.",
+    es: "Una señal visual en cada remate y una ficha con quién, desde dónde, el resultado y el marcador. Nada depende del sonido.",
+    hi: "हर शॉट पर एक दृश्य संकेत, और एक कैप्शन कार्ड: किसने, कहाँ से, परिणाम और स्कोर। कोई भी पंक्ति आवाज़ पर निर्भर नहीं।",
+  },
+};
+
 /**
  * The match-intelligence chips' fixed words. `{name}` and `{value}` are filled in by intel.ts; the numbers and
  * player names themselves are never translated.
@@ -80,8 +143,8 @@ export const CHIP_WORDS: Record<string, T> = {
   sprints: { en: "sprints", es: "sprints", hi: "स्प्रिंट" },
   threshold: { en: "threshold", es: "umbral", hi: "सीमा" },
   fastest_run: { en: "One of the fastest runs", es: "Una de las carreras más rápidas", hi: "सबसे तेज़ दौड़ों में से एक" },
-  thunderous: { en: "A thunderous strike", es: "Un disparo potentísimo", hi: "ज़बरदस्त शॉट" },
-  struck_firmly: { en: "Struck firmly", es: "Disparo firme", hi: "दमदार शॉट" },
+  thunderous: { en: "A thunderous strike", es: "Un remate potentísimo", hi: "ज़बरदस्त शॉट" },
+  struck_firmly: { en: "Struck firmly", es: "Remate firme", hi: "दमदार शॉट" },
   // Pass difficulty, alone and as the newcomer's whole sentence
   "difficulty.routine": { en: "Routine", es: "Sencillo", hi: "आसान" },
   "difficulty.testing": { en: "Testing", es: "Exigente", hi: "चुनौतीपूर्ण" },
@@ -123,6 +186,39 @@ export function zoneText(zone: string | null | undefined, lang: Lang): string | 
 
 export const outcomeText = (outcome: string | null | undefined, lang: Lang): string | null =>
   outcome ? OUTCOMES[outcome]?.[lang] ?? outcome : null;
+
+/** The supporter's view of the score, as perspective.py words it for the API's payload: "1–0 up". */
+const STANDING: Record<"up" | "down" | "level", T> = {
+  up: { en: "{us}–{them} up", es: "ganando {us}–{them}", hi: "{us}–{them} से आगे" },
+  down: { en: "{us}–{them} down", es: "perdiendo {us}–{them}", hi: "{us}–{them} से पीछे" },
+  level: { en: "level at {us}–{them}", es: "empatando {us}–{them}", hi: "{us}–{them} से बराबर" },
+};
+
+/** The score from one side ("home" or "away"), or null for a neutral viewer. */
+export function supporterText(home: number, away: number, side: string, lang: Lang): string | null {
+  if (side !== "home" && side !== "away") return null;
+  const [us, them] = side === "home" ? [home, away] : [away, home];
+  const standing = us > them ? "up" : us < them ? "down" : "level";
+  return STANDING[standing][lang].replace("{us}", String(us)).replace("{them}", String(them));
+}
+
+const NBSP = " ", WORD_JOINER = "⁠";
+
+/**
+ * Where a line may break, for drawing it: a number keeps its unit ("88.1 km/h"), and a score is one piece that stays
+ * with the word before it ("Marcador 1–0", "स्कोर 1–0"), so neither is left alone on a line. Only spaces become
+ * non-breaking and an invisible joiner follows the score's dash: the words are the delivered line's, unchanged.
+ */
+export function keepTogether(line: string): string {
+  return line
+    .replace(/(\d) (km\/h|km|m|%)(?=$|[\s.,;:!?)·।])/g, `$1${NBSP}$2`)
+    .replace(/(\S) (\d+[–-]\d+)(?!\d)/g, `$1${NBSP}$2`)
+    .replace(/(\d)([–-])(?=\d)/g, `$1$2${WORD_JOINER}`);
+}
+
+/** True for an outcome code this table can name, so an unknown code never reaches a screen as itself. */
+export const isOutcome = (outcome: unknown): outcome is string =>
+  typeof outcome === "string" && Object.hasOwn(OUTCOMES, outcome);
 
 /**
  * The chance sentence. English uses the stats engine's own wording; Spanish and Hindi are built

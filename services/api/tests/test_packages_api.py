@@ -1,8 +1,8 @@
 """One decision fires a whole package; the gate and the audit trail still work per item."""
 
 from api.main import ViewerPrefs, app, hub
-from api_factories import RecordingSocket, proposal
-from crq_schemas import OverlayLayer, OverlayPacket, ProposalStatus
+from api_factories import RecordingSocket, match_state, moment, proposal
+from crq_schemas import MomentKind, OverlayLayer, OverlayPacket, Persona, PlayerStats, ProposalStatus, TeamStats
 from fastapi.testclient import TestClient
 
 PK = "pk-p-g"
@@ -43,7 +43,36 @@ def test_follow_ups_air_after_their_offset():
     assert (lead.t_in_ms, stats.t_in_ms, ticker.t_in_ms) == (2_480_000, 2_505_000, 2_480_000)
 
 
-def test_code_built_items_go_out_in_english_to_every_viewer():
+def test_code_built_items_go_out_in_each_viewers_language():
+    hi, en = RecordingSocket(), RecordingSocket()
+    hub.viewers[hi], hub.viewers[en] = ViewerPrefs(lang="hi"), ViewerPrefs(lang="en")
+    state = match_state(home=TeamStats(team="har", goals=1), away=TeamStats(team="nor"),
+                        players={"har-09": PlayerStats(player_id="har-09", team="har", goals=1, shots=3, xg=0.61)})
+    hub.moments["mo-1"] = moment(kind=MomentKind.GOAL, player="har-09", t_ms=2_474_000, state=state)
+    _seed_package()
+    TestClient(app).post(f"/packages/{PK}/approve")
+    _, stats, ticker = (OverlayPacket.model_validate(m["item"]) for m in hi.of_type("overlay"))
+    assert (stats.line, stats.lang, stats.verified) == ("har-09 आज · 1 गोल · 3 शॉट · xG 0.61", "hi", True)
+    assert ticker.line.startswith("गोल 42' · ") and ticker.lang == "hi"
+    # English viewers keep the approved line as it was built.
+    assert OverlayPacket.model_validate(en.of_type("overlay")[1]["item"]).line == "Finn Oakes · 1 goal"
+
+
+def test_an_analyst_gets_the_longer_scorer_stats_in_english_too():
+    analyst, fan = RecordingSocket(), RecordingSocket()
+    hub.viewers[analyst], hub.viewers[fan] = ViewerPrefs(persona=Persona.ANALYST), ViewerPrefs(persona=Persona.FAN)
+    ps = PlayerStats(player_id="har-09", team="har", goals=1, shots=3, xg=0.61, passes=18, passes_completed=15)
+    hub.moments["mo-1"] = moment(kind=MomentKind.GOAL, player="har-09", t_ms=2_474_000,
+                                 state=match_state(home=TeamStats(team="har", goals=1), away=TeamStats(team="nor"),
+                                                   players={"har-09": ps}))
+    _seed_package()
+    TestClient(app).post(f"/packages/{PK}/approve")
+    to_analyst = OverlayPacket.model_validate(analyst.of_type("overlay")[1]["item"])
+    assert to_analyst.line == "har-09 today · 1 goal · 3 shots · xG 0.61 · 15/18 passes" and to_analyst.lang == "en"
+    assert OverlayPacket.model_validate(fan.of_type("overlay")[1]["item"]).line == "Finn Oakes · 1 goal"
+
+
+def test_code_built_items_stay_in_english_without_their_moment():
     viewer = RecordingSocket()
     hub.viewers[viewer] = ViewerPrefs(lang="hi")
     _seed_package()
