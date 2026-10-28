@@ -3,7 +3,7 @@
 **The AI member of the production gallery: Foundry agents propose what goes on screen, a human fires every
 graphic, and the approved moment reaches deaf fans live, in their language.**
 
-![Control Room IQ at minute 41: the graphics operator console on the left (running order, just-fired, decision log, program feed), and three viewer renderings on the right delivering the same approved goal moment in English, Spanish and Hindi.](docs/img/operator-and-viewers.png)
+![Control Room IQ at minute 41: the graphics operator console on the left (running order, just-fired, decision log, program feed), and three viewer renderings on the right delivering the same approved goal moment in English, Spanish and Hindi.](docs/img/operator-and-viewers-2026-10-28.png)
 
 Built for the Microsoft × Premier League *Inside the Game* Developer Hackathon (October 2026).
 Category: Best Enterprise Solution (also fits Best Use of Microsoft Foundry).
@@ -158,7 +158,7 @@ produced is flagged on the card before the operator fires.
 - **Error rate:** overrides, drops, template fallbacks and which variant checks failed.
 - **Workload:** decisions per 10 minutes of play, timer holds, expired graphics, graphics fired per click.
 
-![The graphics operator console at the moment a goal routine lands: running order with three scheduled layers, the "Fire all 3" one-click package with a twelve-second SLA countdown, match-intelligence chips (shot speed, distance, sprints) on each proposal, an amber warning flagging an unsourced number on the English line, a template-fallback notice at the top, and the Gallery Metrics panel for turnaround, operator workload and where it went wrong.](docs/img/operator-controls.png)
+![The graphics operator console at the moment a goal routine lands: running order with three scheduled layers, the "Fire all 3" one-click package with a twelve-second SLA countdown, match-intelligence chips (shot speed, distance, sprints) on each proposal, an amber warning flagging an unsourced number on the English line, a template-fallback notice at the top, and the Gallery Metrics panel for turnaround, operator workload and where it went wrong.](docs/img/operator-controls-2026-10-28.png)
 
 ## Human in the loop, by design
 
